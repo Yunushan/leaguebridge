@@ -1,0 +1,205 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  vulnerability_scan:
+    name: Reject reachable known vulnerabilities
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Run the pinned vulnerability scanner
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  build:
+    name: Test and build unprivileged artifacts
+    needs: vulnerability_scan
+    runs-on: ubuntu-24.04
+    outputs:
+      tested_commit: ${{ steps.source_identity.outputs.commit }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Resolve the exact tested commit
+        id: source_identity
+        run: echo "commit=$(git rev-parse --verify HEAD)" >>"$GITHUB_OUTPUT"
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Verify committed dependency source
+        run: go run -mod=vendor ./tools/vendorcheck -root .
+      - name: Format check
+        run: test -z "$(gofmt -l .)"
+      - name: Test release source with race detector
+        run: go test -mod=vendor -race ./...
+      - name: Vet release source
+        run: go vet -mod=vendor ./...
+      - name: Enforce coverage floor
+        run: go run -mod=vendor ./tools/coverage -minimum 80
+      - name: Reject stale compatibility evidence
+        run: go run -mod=vendor ./cmd/leaguebridge manifest verify
+      - name: Build twice and verify release reproducibility
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: bash scripts/verify-release-reproducible.sh
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: leaguebridge-${{ github.ref_name }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Attest and publish artifacts
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Require a protected release tag
+        env:
+          REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          if [[ "$REF_PROTECTED" != "true" ]]; then
+            echo "release publication requires a repository ruleset protecting the v* tag namespace" >&2
+            exit 1
+          fi
+      - name: Download artifacts built by the unprivileged job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: leaguebridge-${{ github.ref_name }}
+          path: dist/
+      - name: Verify the exact artifact set and checksums
+        id: verify_artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="${GITHUB_REF_NAME#v}"
+          echo "release_version=$release_version" >>"$GITHUB_OUTPUT"
+          archives=(
+            "leaguebridge_${release_version}_linux_amd64.tar.gz"
+            "leaguebridge_${release_version}_freebsd_amd64.tar.gz"
+            "leaguebridge_${release_version}_openbsd_amd64.tar.gz"
+            "leaguebridge_${release_version}_netbsd_amd64.tar.gz"
+            "leaguebridge_${release_version}_dragonfly_amd64.tar.gz"
+            "leaguebridge_${release_version}_windows_amd64.zip"
+            "leaguebridge_${release_version}_darwin_amd64.tar.gz"
+            "leaguebridge_${release_version}_darwin_arm64.tar.gz"
+          )
+          expected=("${archives[@]}" checksums.txt)
+          if find dist -mindepth 1 -maxdepth 1 ! -type f | grep -q .; then
+            echo "downloaded artifact contains a non-file top-level entry" >&2
+            exit 1
+          fi
+          mapfile -t actual < <(find dist -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          if ! diff -u \
+            <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort) \
+            <(printf '%s\n' "${actual[@]}"); then
+            echo "downloaded release artifact set is not exact" >&2
+            exit 1
+          fi
+          mapfile -t checksum_archives < <(printf '%s\n' "${archives[@]}" | LC_ALL=C sort)
+          checksum_paths=()
+          for archive in "${checksum_archives[@]}"; do
+            checksum_paths+=("./$archive")
+          done
+          if ! cmp --silent \
+            <(cd dist && sha256sum --binary "${checksum_paths[@]}") \
+            dist/checksums.txt; then
+            echo "checksums.txt is not the exact canonical binary-mode manifest" >&2
+            exit 1
+          fi
+          (cd dist && sha256sum --check --strict checksums.txt)
+      - name: Verify the release tag still resolves to the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_COMMIT: ${{ needs.build.outputs.tested_commit }}
+        run: |
+          read -r object_type object_sha < <(gh api "repos/$GH_REPO/git/ref/tags/$GITHUB_REF_NAME" --jq '.object | [.type, .sha] | @tsv')
+          for _ in 1 2 3 4 5; do
+            if [[ "$object_type" == "commit" ]]; then
+              break
+            fi
+            if [[ "$object_type" != "tag" ]]; then
+              echo "release ref resolved to unexpected object type: $object_type" >&2
+              exit 1
+            fi
+            read -r object_type object_sha < <(gh api "repos/$GH_REPO/git/tags/$object_sha" --jq '.object | [.type, .sha] | @tsv')
+          done
+          if [[ "$object_type" != "commit" || "$object_sha" != "$EXPECTED_COMMIT" ]]; then
+            echo "release tag moved or does not resolve to the tested commit" >&2
+            exit 1
+          fi
+      - name: Attest release artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: |
+            dist/checksums.txt
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_linux_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_freebsd_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_openbsd_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_netbsd_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_dragonfly_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_windows_amd64.zip
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_darwin_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_darwin_arm64.tar.gz
+      - name: Recheck the protected release tag immediately before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_COMMIT: ${{ needs.build.outputs.tested_commit }}
+        run: |
+          read -r object_type object_sha < <(gh api "repos/$GH_REPO/git/ref/tags/$GITHUB_REF_NAME" --jq '.object | [.type, .sha] | @tsv')
+          for _ in 1 2 3 4 5; do
+            if [[ "$object_type" == "commit" ]]; then
+              break
+            fi
+            if [[ "$object_type" != "tag" ]]; then
+              echo "release ref resolved to unexpected object type: $object_type" >&2
+              exit 1
+            fi
+            read -r object_type object_sha < <(gh api "repos/$GH_REPO/git/tags/$object_sha" --jq '.object | [.type, .sha] | @tsv')
+          done
+          if [[ "$object_type" != "commit" || "$object_sha" != "$EXPECTED_COMMIT" ]]; then
+            echo "release tag moved after attestation or does not resolve to the tested commit" >&2
+            exit 1
+          fi
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            dist/checksums.txt \
+            "dist/leaguebridge_${release_version}_linux_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_freebsd_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_openbsd_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_netbsd_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_dragonfly_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_windows_amd64.zip" \
+            "dist/leaguebridge_${release_version}_darwin_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_darwin_arm64.tar.gz" \
+            --verify-tag \
+            --generate-notes \
+            --title "LeagueBridge $GITHUB_REF_NAME"

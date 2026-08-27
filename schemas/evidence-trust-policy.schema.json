@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaguebridge.dev/schemas/evidence-trust-policy.schema.json",
+  "title": "LeagueBridge validation-evidence reviewer trust policy",
+  "description": "Schema version 1 describes the production trust policy injected into an official verifier. A repository or command-line policy is never a production trust root. Runtime validation additionally requires canonical non-identity prime-subgroup Edwards25519 public keys, derives each key_id from its public key, requires strictly increasing unique key IDs, validates all time relationships and scopes, excludes revoked keys, and satisfies the quorum with distinct principals and organizations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "policy_id",
+    "status",
+    "valid_from",
+    "expires_at",
+    "required_roles",
+    "min_signatures",
+    "require_distinct_principals",
+    "require_distinct_organizations",
+    "keys"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://leaguebridge.dev/schemas/evidence-trust-policy.schema.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "policy_id": {
+      "$ref": "#/$defs/policyID"
+    },
+    "status": {
+      "enum": ["unprovisioned", "provisioned"]
+    },
+    "valid_from": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "required_roles": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "const": "lab-observer" },
+        { "const": "independent-reviewer" }
+      ],
+      "items": false
+    },
+    "min_signatures": {
+      "const": 2
+    },
+    "require_distinct_principals": {
+      "const": true
+    },
+    "require_distinct_organizations": {
+      "const": true
+    },
+    "keys": {
+      "description": "Keys are ordered by strictly increasing key_id. key_id is derived from the raw public key using the verifier's domain-separated SHA-256 key-ID function.",
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/trustedKey"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "unprovisioned" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "valid_from": { "const": "" },
+          "expires_at": { "const": "" },
+          "keys": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "provisioned" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "valid_from": { "$ref": "#/$defs/canonicalTimestamp" },
+          "expires_at": { "$ref": "#/$defs/canonicalTimestamp" },
+          "keys": {
+            "minItems": 2,
+            "allOf": [
+              {
+                "contains": {
+                  "properties": { "role": { "const": "lab-observer" } },
+                  "required": ["role"]
+                },
+                "minContains": 1
+              },
+              {
+                "contains": {
+                  "properties": { "role": { "const": "independent-reviewer" } },
+                  "required": ["role"]
+                },
+                "minContains": 1
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "canonicalTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+    },
+    "keyID": {
+      "type": "string",
+      "pattern": "^lbk1-[a-f0-9]{64}$"
+    },
+    "policyID": {
+      "$ref": "#/$defs/identifier"
+    },
+    "scopeListArchitecture": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [
+        { "const": "amd64" }
+      ],
+      "items": false
+    },
+    "scopeListClientPlatform": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"]
+      }
+    },
+    "scopeListRoute": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["physical-windows-remote", "physical-macos-remote"]
+      }
+    },
+    "scopeListTestProfile": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "prefixItems": [
+        { "const": "remote-play-v1" }
+      ],
+      "items": false
+    },
+    "trustedKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_id",
+        "algorithm",
+        "public_key",
+        "principal_id",
+        "organization_id",
+        "role",
+        "route_ids",
+        "client_platforms",
+        "architectures",
+        "test_profile_ids",
+        "not_before",
+        "not_after",
+        "revoked"
+      ],
+      "properties": {
+        "key_id": {
+          "$ref": "#/$defs/keyID"
+        },
+        "algorithm": {
+          "const": "ed25519"
+        },
+        "public_key": {
+          "description": "Raw 32-byte Ed25519 public key encoded as exactly 64 lowercase hexadecimal characters. The verifier additionally requires a canonical Edwards25519 encoding of a non-identity point in the prime-order subgroup; JSON Schema cannot express this curve constraint.",
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "organization_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "enum": ["lab-observer", "independent-reviewer"]
+        },
+        "route_ids": {
+          "$ref": "#/$defs/scopeListRoute"
+        },
+        "client_platforms": {
+          "$ref": "#/$defs/scopeListClientPlatform"
+        },
+        "architectures": {
+          "$ref": "#/$defs/scopeListArchitecture"
+        },
+        "test_profile_ids": {
+          "$ref": "#/$defs/scopeListTestProfile"
+        },
+        "not_before": {
+          "$ref": "#/$defs/canonicalTimestamp"
+        },
+        "not_after": {
+          "$ref": "#/$defs/canonicalTimestamp"
+        },
+        "revoked": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

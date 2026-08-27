@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/package-manifest.schema.json",
+  "title": "LeagueBridge release package manifest",
+  "description": "A content-addressed inventory of one release archive. This document proves artifact integrity only and is not runtime-support evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "name",
+    "version",
+    "target",
+    "artifact",
+    "provenance",
+    "validation_scope",
+    "default_prefix",
+    "metadata_install_path",
+    "payload"
+  ],
+  "properties": {
+    "$schema": { "const": "https://github.com/Yunushan/leaguebridge/schemas/package-manifest.schema.json" },
+    "schema_version": { "const": 2 },
+    "name": { "const": "leaguebridge" },
+    "version": {
+      "type": "string",
+      "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goos", "goarch", "required_kernel"],
+      "properties": {
+        "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly", "windows", "darwin"] },
+        "goarch": { "enum": ["amd64", "arm64"] },
+        "required_kernel": { "enum": ["Linux", "FreeBSD", "OpenBSD", "NetBSD", "DragonFly", "Windows", "Darwin"] }
+      },
+      "oneOf": [
+        { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Linux" } } },
+        { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "FreeBSD" } } },
+        { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "OpenBSD" } } },
+        { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "NetBSD" } } },
+        { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "DragonFly" } } },
+        { "properties": { "goos": { "const": "windows" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Windows" } } },
+        { "properties": { "goos": { "const": "darwin" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Darwin" } } },
+        { "properties": { "goos": { "const": "darwin" }, "goarch": { "const": "arm64" }, "required_kernel": { "const": "Darwin" } } }
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "format"],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "pattern": "^leaguebridge_[0-9A-Za-z.+-]+_(?:(?:linux|freebsd|openbsd|netbsd|dragonfly|windows)_amd64|darwin_(?:amd64|arm64))\\.(?:tar\\.gz|zip)$"
+        },
+        "format": { "enum": ["tar.gz", "zip"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_commit", "source_tree", "source_date_epoch", "builder_go_version", "build_environment"],
+      "properties": {
+        "source_commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "source_tree": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "source_date_epoch": { "type": "integer", "minimum": 315532800, "maximum": 4354819199 },
+        "builder_go_version": { "const": "go1.27.0" },
+        "build_environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cgo_enabled", "goenv", "goflags", "goexperiment", "gofips140", "gocacheprog", "go_extlink_enabled", "gotoolchain", "gowork", "goamd64", "goarm64", "go111module", "goproxy", "gonoproxy", "gosumdb", "gonosumdb", "govcs", "goprivate"],
+          "properties": {
+            "cgo_enabled": { "const": "0" },
+            "goenv": { "const": "off" },
+            "goflags": { "const": "" },
+            "goexperiment": { "const": "" },
+            "gofips140": { "const": "off" },
+            "gocacheprog": { "const": "" },
+            "go_extlink_enabled": { "const": "0" },
+            "gotoolchain": { "const": "local" },
+            "gowork": { "const": "off" },
+            "goamd64": { "enum": ["", "v1"] },
+            "goarm64": { "enum": ["", "v8.0"] },
+            "go111module": { "const": "on" },
+            "goproxy": { "const": "off" },
+            "gonoproxy": { "const": "" },
+            "gosumdb": { "const": "off" },
+            "gonosumdb": { "const": "" },
+            "govcs": { "const": "*:off" },
+            "goprivate": { "const": "" }
+          }
+        }
+      }
+    },
+    "validation_scope": { "const": "artifact-integrity-only" },
+    "default_prefix": { "enum": ["", "/usr/local"] },
+    "metadata_install_path": { "enum": ["", "/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json"] },
+    "payload": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/payloadFile" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "windows" } } } } },
+      "then": {
+        "properties": {
+          "artifact": { "properties": { "format": { "const": "zip" }, "filename": { "pattern": "_windows_amd64\\.zip$" } } },
+          "default_prefix": { "const": "" },
+          "metadata_install_path": { "const": "" },
+          "payload": {
+            "minItems": 4,
+            "maxItems": 4,
+            "prefixItems": [
+              { "$ref": "#/$defs/windowsLicense" },
+              { "$ref": "#/$defs/windowsReadme" },
+              { "$ref": "#/$defs/windowsSBOM" },
+              { "$ref": "#/$defs/windowsBinary" }
+            ],
+            "items": false
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "artifact": { "properties": { "format": { "const": "tar.gz" }, "filename": { "pattern": "_(?:(?:linux|freebsd|openbsd|netbsd|dragonfly)_amd64|darwin_(?:amd64|arm64))\\.tar\\.gz$" } } },
+          "default_prefix": { "const": "/usr/local" },
+          "metadata_install_path": { "const": "/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" },
+          "payload": {
+            "minItems": 6,
+            "maxItems": 6,
+            "prefixItems": [
+              { "$ref": "#/$defs/unixLicense" },
+              { "$ref": "#/$defs/unixReadme" },
+              { "$ref": "#/$defs/unixSBOM" },
+              { "$ref": "#/$defs/unixInstaller" },
+              { "$ref": "#/$defs/unixBinary" },
+              { "$ref": "#/$defs/unixUninstaller" }
+            ],
+            "items": false
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "linux" } } } } },
+      "then": { "$ref": "#/$defs/linuxIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "freebsd" } } } } },
+      "then": { "$ref": "#/$defs/freebsdIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "openbsd" } } } } },
+      "then": { "$ref": "#/$defs/openbsdIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "netbsd" } } } } },
+      "then": { "$ref": "#/$defs/netbsdIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "dragonfly" } } } } },
+      "then": { "$ref": "#/$defs/dragonflyIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "windows" } } } } },
+      "then": { "$ref": "#/$defs/windowsIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goos": { "const": "darwin" } } } } },
+      "then": { "$ref": "#/$defs/darwinIdentity" }
+    },
+    {
+      "if": { "properties": { "target": { "properties": { "goarch": { "const": "arm64" } } } } },
+      "then": { "properties": { "provenance": { "properties": { "build_environment": { "properties": { "goamd64": { "const": "" }, "goarm64": { "const": "v8.0" } } } } } } },
+      "else": { "properties": { "provenance": { "properties": { "build_environment": { "properties": { "goamd64": { "const": "v1" }, "goarm64": { "const": "" } } } } } } }
+    }
+  ],
+  "$defs": {
+    "payloadFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archive_path", "install_path", "role", "mode", "size", "sha256"],
+      "properties": {
+        "archive_path": {
+          "enum": ["LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "leaguebridge.exe", "uninstall.sh"]
+        },
+        "install_path": {
+          "type": "string",
+          "pattern": "^(?:|/usr/local/(?:bin/leaguebridge|libexec/leaguebridge/uninstall\\.sh|share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json)))$"
+        },
+        "role": { "enum": ["license", "documentation", "sbom", "installer", "executable", "uninstaller"] },
+        "mode": { "enum": ["0644", "0755"] },
+        "size": { "type": "integer", "minimum": 0, "maximum": 134217728 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "unixLicense": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "LICENSE" }, "install_path": { "const": "/usr/local/share/doc/leaguebridge/LICENSE" }, "role": { "const": "license" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "unixReadme": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "README.md" }, "install_path": { "const": "/usr/local/share/doc/leaguebridge/README.md" }, "role": { "const": "documentation" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "unixSBOM": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "SBOM.spdx.json" }, "install_path": { "const": "/usr/local/share/doc/leaguebridge/SBOM.spdx.json" }, "role": { "const": "sbom" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "unixInstaller": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "install.sh" }, "install_path": { "const": "" }, "role": { "const": "installer" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "unixBinary": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "leaguebridge" }, "install_path": { "const": "/usr/local/bin/leaguebridge" }, "role": { "const": "executable" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "unixUninstaller": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "uninstall.sh" }, "install_path": { "const": "/usr/local/libexec/leaguebridge/uninstall.sh" }, "role": { "const": "uninstaller" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "windowsLicense": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "LICENSE" }, "install_path": { "const": "" }, "role": { "const": "license" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "windowsReadme": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "README.md" }, "install_path": { "const": "" }, "role": { "const": "documentation" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "windowsSBOM": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "SBOM.spdx.json" }, "install_path": { "const": "" }, "role": { "const": "sbom" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "windowsBinary": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "leaguebridge.exe" }, "install_path": { "const": "" }, "role": { "const": "executable" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "linuxIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "Linux" } } }, "artifact": { "properties": { "filename": { "pattern": "_linux_amd64\\.tar\\.gz$" } } } }
+    },
+    "freebsdIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "FreeBSD" } } }, "artifact": { "properties": { "filename": { "pattern": "_freebsd_amd64\\.tar\\.gz$" } } } }
+    },
+    "openbsdIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "OpenBSD" } } }, "artifact": { "properties": { "filename": { "pattern": "_openbsd_amd64\\.tar\\.gz$" } } } }
+    },
+    "netbsdIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "NetBSD" } } }, "artifact": { "properties": { "filename": { "pattern": "_netbsd_amd64\\.tar\\.gz$" } } } }
+    },
+    "dragonflyIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "DragonFly" } } }, "artifact": { "properties": { "filename": { "pattern": "_dragonfly_amd64\\.tar\\.gz$" } } } }
+    },
+    "windowsIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "Windows" } } }, "artifact": { "properties": { "filename": { "pattern": "_windows_amd64\\.zip$" } } } }
+    },
+    "darwinIdentity": {
+      "properties": { "target": { "properties": { "required_kernel": { "const": "Darwin" } } }, "artifact": { "properties": { "filename": { "pattern": "_darwin_(?:amd64|arm64)\\.tar\\.gz$" } } } }
+    }
+  }
+}

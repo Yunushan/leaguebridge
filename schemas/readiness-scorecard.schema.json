@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/readiness-scorecard.schema.json",
+  "title": "LeagueBridge readiness scorecard",
+  "description": "Fail-closed schema-v3 readiness inputs. Engineering and remote scores are derived by the runtime; the document contains no mutable earned points or gate pass values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "assessed_at", "expires_at", "engineering", "local_gameplay", "remote_handoffs"],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "assessed_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "engineering": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "honest-scope" },
+                "name": { "const": "Honest scope and documentation" },
+                "weight": { "const": 10 },
+                "subcriteria": {
+                  "type": "array", "minItems": 3, "maxItems": 3,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/scope-support-matrix" },
+                    { "$ref": "#/$defs/scope-explicit-limitations" },
+                    { "$ref": "#/$defs/scope-primary-source-research" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "governance-legal-privacy" },
+                "name": { "const": "Governance, legal, and privacy" },
+                "weight": { "const": 10 },
+                "subcriteria": {
+                  "type": "array", "minItems": 3, "maxItems": 3,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/governance-policy-conduct" },
+                    { "$ref": "#/$defs/governance-security-policy" },
+                    { "$ref": "#/$defs/governance-legal-privacy" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "architecture-contracts" },
+                "name": { "const": "Architecture and data contracts" },
+                "weight": { "const": 15 },
+                "subcriteria": {
+                  "type": "array", "minItems": 4, "maxItems": 4,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/architecture-versioned-schemas" },
+                    { "$ref": "#/$defs/architecture-fail-closed-policy" },
+                    { "$ref": "#/$defs/architecture-reason-codes-adrs" },
+                    { "$ref": "#/$defs/architecture-upstream-authorization" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "implementation" },
+                "name": { "const": "Implementation quality" },
+                "weight": { "const": 20 },
+                "subcriteria": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/implementation-cli-controller" },
+                    { "$ref": "#/$defs/implementation-strict-config-fixed-argv" },
+                    { "$ref": "#/$defs/implementation-bounded-diagnostics-redaction" },
+                    { "$ref": "#/$defs/implementation-read-only-probes" },
+                    { "$ref": "#/$defs/implementation-native-validated-integration" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "tests-ci" },
+                "name": { "const": "Tests and CI" },
+                "weight": { "const": 20 },
+                "subcriteria": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/tests-unit-negative" },
+                    { "$ref": "#/$defs/tests-coverage-80" },
+                    { "$ref": "#/$defs/tests-race-vet-linux-windows" },
+                    { "$ref": "#/$defs/tests-eight-target-cross-build" },
+                    { "$ref": "#/$defs/tests-native-bsd-physical-smoke" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "security-supply-chain" },
+                "name": { "const": "Security and supply chain" },
+                "weight": { "const": 15 },
+                "subcriteria": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/security-threat-model" },
+                    { "$ref": "#/$defs/security-injection-bounds-redaction" },
+                    { "$ref": "#/$defs/security-pinned-least-privilege-ci" },
+                    { "$ref": "#/$defs/security-sbom-checksum-provenance" },
+                    { "$ref": "#/$defs/security-independent-audit-closed" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/category" },
+            {
+              "properties": {
+                "id": { "const": "packaging-operations" },
+                "name": { "const": "Packaging and operations" },
+                "weight": { "const": 10 },
+                "subcriteria": {
+                  "type": "array", "minItems": 5, "maxItems": 5,
+                  "prefixItems": [
+                    { "$ref": "#/$defs/packaging-eight-release-archives" },
+                    { "$ref": "#/$defs/packaging-version-sbom-checksums" },
+                    { "$ref": "#/$defs/packaging-publication-attestation" },
+                    { "$ref": "#/$defs/packaging-native-os-packages" },
+                    { "$ref": "#/$defs/packaging-install-uninstall-native-smoke" }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "local_gameplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "state", "reason"],
+      "properties": {
+        "score": { "const": 0 },
+        "state": { "const": "blocked" },
+        "reason": { "const": "Riot does not support Linux/BSD and states that Wine cannot satisfy Vanguard requirements; Riot also rejects virtual machines." }
+      }
+    },
+    "remote_handoffs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/remoteHandoff" },
+            { "properties": {
+              "route_id": { "const": "physical-windows-remote" },
+              "reason": { "const": "The physical Windows host and all client/session/gameplay gates remain unvalidated: the validation-evidence v2 verifier is implemented, but no production reviewer trust keys or authenticated physical-run evidence are provisioned; schema-v1 manual evidence remains non-promotable and readiness schema v3 remains hard-zero." }
+            } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/remoteHandoff" },
+            { "properties": {
+              "route_id": { "const": "physical-macos-remote" },
+              "reason": { "const": "Sunshine's macOS host support is experimental and gamepad hosting is unavailable; validation-evidence v2 currently verifies only Windows/v1-record-backed sets, no production reviewer trust keys or authenticated macOS evidence are provisioned, and readiness schema v3 remains hard-zero." }
+            } }
+          ]
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "evidencePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9.][A-Za-z0-9._+/-]*$",
+      "not": {
+        "anyOf": [
+          { "pattern": "(^|/)\\.\\.(/|$)" },
+          { "pattern": "(^|/)\\.(/|$)" },
+          { "pattern": "//" }
+        ]
+      }
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/evidencePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "weight", "subcriteria"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "subcriteria": { "type": "array" }
+      }
+    },
+    "repositoryCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "weight", "evidence_type", "verifier_id", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "evidence_type": { "const": "repository-content-v1" },
+        "verifier_id": { "$ref": "#/$defs/id" },
+        "evidence": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/evidenceReference" } }
+      }
+    },
+    "lockedCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "weight", "evidence_type", "verifier_id", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "evidence_type": { "enum": ["ci-attestation-v1", "native-runtime-attestation-v2", "vendor-authorization-v1", "independent-audit-v1", "release-attestation-v1", "package-attestation-v1"] },
+        "verifier_id": { "$ref": "#/$defs/id" },
+        "evidence": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "remotePlatform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "architecture", "evidence_sets"],
+      "properties": {
+        "platform": { "type": "string" },
+        "architecture": { "const": "amd64" },
+        "evidence_sets": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "remoteHandoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_id", "required_evidence_schema_version", "reason", "platforms"],
+      "properties": {
+        "route_id": { "$ref": "#/$defs/id" },
+        "required_evidence_schema_version": { "const": 2 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "platforms": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/remotePlatform" }, { "properties": { "platform": { "const": "linux" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/remotePlatform" }, { "properties": { "platform": { "const": "freebsd" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/remotePlatform" }, { "properties": { "platform": { "const": "openbsd" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/remotePlatform" }, { "properties": { "platform": { "const": "netbsd" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/remotePlatform" }, { "properties": { "platform": { "const": "dragonflybsd" } } }] }
+          ]
+        }
+      }
+    },
+
+    "scope-support-matrix": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "scope-support-matrix" }, "name": { "const": "Support matrix" }, "weight": { "const": 4 }, "verifier_id": { "const": "docs-support-matrix-v1" }, "evidence": { "minItems": 1, "maxItems": 1, "prefixItems": [{ "properties": { "path": { "const": "README.md" } } }] } } },
+    "scope-explicit-limitations": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "scope-explicit-limitations" }, "name": { "const": "Explicit limitations" }, "weight": { "const": 3 }, "verifier_id": { "const": "docs-explicit-limitations-v1" }, "evidence": { "minItems": 1, "maxItems": 1, "prefixItems": [{ "properties": { "path": { "const": "docs/SUPPORT_POLICY.md" } } }] } } },
+    "scope-primary-source-research": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "scope-primary-source-research" }, "name": { "const": "Dated primary-source research" }, "weight": { "const": 3 }, "verifier_id": { "const": "docs-primary-source-research-v1" }, "evidence": { "minItems": 1, "maxItems": 1, "prefixItems": [{ "properties": { "path": { "const": "docs/research/2026-08-26-platform-feasibility.md" } } }] } } },
+
+    "governance-policy-conduct": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "governance-policy-conduct" }, "name": { "const": "Governance and conduct" }, "weight": { "const": 3 }, "verifier_id": { "const": "governance-policy-conduct-v1" }, "evidence": { "minItems": 2, "maxItems": 2, "prefixItems": [{ "properties": { "path": { "const": "CODE_OF_CONDUCT.md" } } }, { "properties": { "path": { "const": "GOVERNANCE.md" } } }] } } },
+    "governance-security-policy": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "governance-security-policy" }, "name": { "const": "Security policy" }, "weight": { "const": 3 }, "verifier_id": { "const": "governance-security-policy-v1" }, "evidence": { "minItems": 1, "maxItems": 1, "prefixItems": [{ "properties": { "path": { "const": "SECURITY.md" } } }] } } },
+    "governance-legal-privacy": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "governance-legal-privacy" }, "name": { "const": "Legal and privacy boundaries" }, "weight": { "const": 4 }, "verifier_id": { "const": "governance-legal-privacy-v1" }, "evidence": { "minItems": 3, "maxItems": 3, "prefixItems": [{ "properties": { "path": { "const": "LICENSE" } } }, { "properties": { "path": { "const": "docs/LEGAL-AND-AUTHORIZATION.md" } } }, { "properties": { "path": { "const": "docs/PRIVACY.md" } } }] } } },
+
+    "architecture-versioned-schemas": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "architecture-versioned-schemas" }, "name": { "const": "Versioned schemas" }, "weight": { "const": 5 }, "verifier_id": { "const": "schemas-offline-conformance-v1" }, "evidence": { "minItems": 8, "maxItems": 8, "prefixItems": [{ "properties": { "path": { "const": "schemas/compatibility-manifest.schema.json" } } }, { "properties": { "path": { "const": "schemas/config.schema.json" } } }, { "properties": { "path": { "const": "schemas/evidence-signature-envelope.schema.json" } } }, { "properties": { "path": { "const": "schemas/evidence-trust-policy.schema.json" } } }, { "properties": { "path": { "const": "schemas/package-manifest.schema.json" } } }, { "properties": { "path": { "const": "schemas/readiness-scorecard.schema.json" } } }, { "properties": { "path": { "const": "schemas/validation-evidence-v2.schema.json" } } }, { "properties": { "path": { "const": "schemas/validation-evidence.schema.json" } } }] } } },
+    "architecture-fail-closed-policy": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "architecture-fail-closed-policy" }, "name": { "const": "Fail-closed policy" }, "weight": { "const": 5 }, "verifier_id": { "const": "compat-fail-closed-v1" }, "evidence": { "minItems": 2, "maxItems": 2, "prefixItems": [{ "properties": { "path": { "const": "internal/compat/policy.go" } } }, { "properties": { "path": { "const": "internal/compat/policy_test.go" } } }] } } },
+    "architecture-reason-codes-adrs": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "architecture-reason-codes-adrs" }, "name": { "const": "Stable reason codes and ADRs" }, "weight": { "const": 3 }, "verifier_id": { "const": "reason-codes-adrs-v1" }, "evidence": { "minItems": 6, "maxItems": 6, "prefixItems": [{ "properties": { "path": { "const": "docs/adr/0001-fail-closed-policy.md" } } }, { "properties": { "path": { "const": "docs/adr/0002-no-wine-vm-or-dll-backend.md" } } }, { "properties": { "path": { "const": "docs/adr/0003-remote-physical-host-handoff.md" } } }, { "properties": { "path": { "const": "docs/adr/0004-physical-macos-remote-handoff.md" } } }, { "properties": { "path": { "const": "docs/adr/0005-authenticated-validation-evidence-v2.md" } } }, { "properties": { "path": { "const": "internal/compat/manifest.go" } } }] } } },
+    "architecture-upstream-authorization": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "architecture-upstream-authorization" }, "name": { "const": "Authorized upstream extension contract" }, "weight": { "const": 2 }, "evidence_type": { "const": "vendor-authorization-v1" }, "verifier_id": { "const": "riot-linux-bsd-authorization-v1" } } },
+
+    "implementation-cli-controller": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "implementation-cli-controller" }, "name": { "const": "CLI/controller" }, "weight": { "const": 5 }, "verifier_id": { "const": "cli-controller-v1" }, "evidence": { "minItems": 12, "maxItems": 12, "prefixItems": [{ "properties": { "path": { "const": "cmd/leaguebridge/main.go" } } }, { "properties": { "path": { "const": "internal/app/app.go" } } }, { "properties": { "path": { "const": "internal/app/evidence.go" } } }, { "properties": { "path": { "const": "internal/app/evidence_v2.go" } } }, { "properties": { "path": { "const": "internal/app/readiness.go" } } }, { "properties": { "path": { "const": "internal/evidence/artifacts.go" } } }, { "properties": { "path": { "const": "internal/evidence/evidence.go" } } }, { "properties": { "path": { "const": "internal/evidencev2/parse.go" } } }, { "properties": { "path": { "const": "internal/evidencev2/policy.go" } } }, { "properties": { "path": { "const": "internal/evidencev2/types.go" } } }, { "properties": { "path": { "const": "internal/evidencev2/verify.go" } } }, { "properties": { "path": { "const": "internal/readiness/readiness.go" } } }] } } },
+    "implementation-strict-config-fixed-argv": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "implementation-strict-config-fixed-argv" }, "name": { "const": "Strict config and fixed remote argv" }, "weight": { "const": 4 }, "verifier_id": { "const": "strict-config-fixed-argv-v1" }, "evidence": { "minItems": 7, "maxItems": 7, "prefixItems": [{ "properties": { "path": { "const": "internal/app/remote.go" } } }, { "properties": { "path": { "const": "internal/config/config.go" } } }, { "properties": { "path": { "const": "internal/exactjson/exactjson.go" } } }, { "properties": { "path": { "const": "internal/fileinput/fileinput.go" } } }, { "properties": { "path": { "const": "internal/fileinput/open_other.go" } } }, { "properties": { "path": { "const": "internal/fileinput/open_unix.go" } } }, { "properties": { "path": { "const": "internal/remote/remote.go" } } }] } } },
+    "implementation-bounded-diagnostics-redaction": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "implementation-bounded-diagnostics-redaction" }, "name": { "const": "Bounded diagnostics and redaction" }, "weight": { "const": 4 }, "verifier_id": { "const": "bounded-diagnostics-redaction-v1" }, "evidence": { "minItems": 3, "maxItems": 3, "prefixItems": [{ "properties": { "path": { "const": "internal/diagnostics/bundle.go" } } }, { "properties": { "path": { "const": "internal/diagnostics/report.go" } } }, { "properties": { "path": { "const": "internal/redact/redact.go" } } }] } } },
+    "implementation-read-only-probes": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "implementation-read-only-probes" }, "name": { "const": "Read-only host/client probes" }, "weight": { "const": 4 }, "verifier_id": { "const": "read-only-probes-v1" }, "evidence": { "minItems": 12, "maxItems": 12, "prefixItems": [{ "properties": { "path": { "const": "compatibility/sunshine-windows-amd64.lock.json" } } }, { "properties": { "path": { "const": "internal/probe/client.go" } } }, { "properties": { "path": { "const": "internal/probe/macos_host.go" } } }, { "properties": { "path": { "const": "internal/probe/probe.go" } } }, { "properties": { "path": { "const": "internal/probe/service.go" } } }, { "properties": { "path": { "const": "internal/probe/service_other.go" } } }, { "properties": { "path": { "const": "internal/probe/service_windows.go" } } }, { "properties": { "path": { "const": "internal/probe/system.go" } } }, { "properties": { "path": { "const": "internal/probe/system_tool_other.go" } } }, { "properties": { "path": { "const": "internal/probe/system_tool_windows.go" } } }, { "properties": { "path": { "const": "internal/probe/windows_host.go" } } }, { "properties": { "path": { "const": "scripts/inspect-sunshine-host.ps1" } } }] } } },
+    "implementation-native-validated-integration": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "implementation-native-validated-integration" }, "name": { "const": "Native validated platform integration" }, "weight": { "const": 3 }, "evidence_type": { "const": "native-runtime-attestation-v2" }, "verifier_id": { "const": "native-integration-v2" } } },
+
+    "tests-unit-negative": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "tests-unit-negative" }, "name": { "const": "Unit and negative tests" }, "weight": { "const": 5 }, "verifier_id": { "const": "unit-negative-tests-v1" }, "evidence": { "minItems": 24, "maxItems": 24, "prefixItems": [{ "properties": { "path": { "const": "internal/app/app_test.go" } } }, { "properties": { "path": { "const": "internal/app/evidence_v2_test.go" } } }, { "properties": { "path": { "const": "internal/compat/manifest_test.go" } } }, { "properties": { "path": { "const": "internal/compat/policy_test.go" } } }, { "properties": { "path": { "const": "internal/config/config_test.go" } } }, { "properties": { "path": { "const": "internal/contracts/evidence_v2_schema_test.go" } } }, { "properties": { "path": { "const": "internal/contracts/sunshine_workflow_test.go" } } }, { "properties": { "path": { "const": "internal/contracts/sunshine_workflow_windows_test.go" } } }, { "properties": { "path": { "const": "internal/evidence/artifacts_test.go" } } }, { "properties": { "path": { "const": "internal/evidence/evidence_test.go" } } }, { "properties": { "path": { "const": "internal/evidencev2/evidencev2_test.go" } } }, { "properties": { "path": { "const": "internal/exactjson/exactjson_test.go" } } }, { "properties": { "path": { "const": "internal/fileinput/fileinput_test.go" } } }, { "properties": { "path": { "const": "internal/fileinput/fileinput_unix_test.go" } } }, { "properties": { "path": { "const": "internal/packageinfo/manifest_test.go" } } }, { "properties": { "path": { "const": "internal/probe/macos_host_test.go" } } }, { "properties": { "path": { "const": "internal/probe/probe_test.go" } } }, { "properties": { "path": { "const": "internal/probe/windows_host_hardening_test.go" } } }, { "properties": { "path": { "const": "internal/remote/remote_test.go" } } }, { "properties": { "path": { "const": "internal/vendorintegrity/vendorintegrity_test.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/main_test.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/release_script_test.go" } } }, { "properties": { "path": { "const": "tools/sbom/main_test.go" } } }, { "properties": { "path": { "const": "tools/vendorcheck/main_test.go" } } }] } } },
+    "tests-coverage-80": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "tests-coverage-80" }, "name": { "const": "80% aggregate core coverage gate" }, "weight": { "const": 4 }, "verifier_id": { "const": "core-coverage-80-v1" }, "evidence": { "minItems": 2, "maxItems": 2, "prefixItems": [{ "properties": { "path": { "const": "tools/coverage/main.go" } } }, { "properties": { "path": { "const": "tools/coverage/main_test.go" } } }] } } },
+    "tests-race-vet-linux-windows": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "tests-race-vet-linux-windows" }, "name": { "const": "Linux/Windows race and vet" }, "weight": { "const": 3 }, "evidence_type": { "const": "ci-attestation-v1" }, "verifier_id": { "const": "ci-race-vet-v1" } } },
+    "tests-eight-target-cross-build": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "tests-eight-target-cross-build" }, "name": { "const": "Eight-target cross-build" }, "weight": { "const": 3 }, "evidence_type": { "const": "ci-attestation-v1" }, "verifier_id": { "const": "ci-eight-target-cross-build-v1" } } },
+    "tests-native-bsd-physical-smoke": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "tests-native-bsd-physical-smoke" }, "name": { "const": "Native BSD and physical-hardware smoke tests" }, "weight": { "const": 5 }, "evidence_type": { "const": "native-runtime-attestation-v2" }, "verifier_id": { "const": "native-bsd-physical-smoke-v2" } } },
+
+    "security-threat-model": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "security-threat-model" }, "name": { "const": "Threat model and scope" }, "weight": { "const": 4 }, "verifier_id": { "const": "threat-model-v1" }, "evidence": { "minItems": 2, "maxItems": 2, "prefixItems": [{ "properties": { "path": { "const": "SECURITY.md" } } }, { "properties": { "path": { "const": "docs/THREAT_MODEL.md" } } }] } } },
+    "security-injection-bounds-redaction": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "security-injection-bounds-redaction" }, "name": { "const": "Injection, bounds, and redaction tests" }, "weight": { "const": 4 }, "verifier_id": { "const": "security-negative-tests-v1" }, "evidence": { "minItems": 22, "maxItems": 22, "prefixItems": [{ "properties": { "path": { "const": "internal/app/evidence_v2_test.go" } } }, { "properties": { "path": { "const": "internal/compat/manifest_test.go" } } }, { "properties": { "path": { "const": "internal/config/config_test.go" } } }, { "properties": { "path": { "const": "internal/contracts/evidence_v2_schema_test.go" } } }, { "properties": { "path": { "const": "internal/contracts/sunshine_workflow_test.go" } } }, { "properties": { "path": { "const": "internal/contracts/sunshine_workflow_windows_test.go" } } }, { "properties": { "path": { "const": "internal/diagnostics/bundle_test.go" } } }, { "properties": { "path": { "const": "internal/diagnostics/report_test.go" } } }, { "properties": { "path": { "const": "internal/evidence/artifacts_test.go" } } }, { "properties": { "path": { "const": "internal/evidence/evidence_test.go" } } }, { "properties": { "path": { "const": "internal/evidencev2/evidencev2_test.go" } } }, { "properties": { "path": { "const": "internal/exactjson/exactjson_test.go" } } }, { "properties": { "path": { "const": "internal/fileinput/fileinput_test.go" } } }, { "properties": { "path": { "const": "internal/fileinput/fileinput_unix_test.go" } } }, { "properties": { "path": { "const": "internal/probe/probe_test.go" } } }, { "properties": { "path": { "const": "internal/probe/windows_host_hardening_test.go" } } }, { "properties": { "path": { "const": "internal/redact/redact_test.go" } } }, { "properties": { "path": { "const": "internal/remote/remote_test.go" } } }, { "properties": { "path": { "const": "internal/vendorintegrity/vendorintegrity_test.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/main_test.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/release_script_test.go" } } }, { "properties": { "path": { "const": "tools/vendorcheck/main_test.go" } } }] } } },
+    "security-pinned-least-privilege-ci": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "security-pinned-least-privilege-ci" }, "name": { "const": "Pinned least-privilege CI" }, "weight": { "const": 3 }, "verifier_id": { "const": "pinned-least-privilege-ci-v1" }, "evidence": { "minItems": 3, "maxItems": 3, "prefixItems": [{ "properties": { "path": { "const": ".github/workflows/ci.yml" } } }, { "properties": { "path": { "const": ".github/workflows/evidence-freshness.yml" } } }, { "properties": { "path": { "const": ".github/workflows/release.yml" } } }] } } },
+    "security-sbom-checksum-provenance": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "security-sbom-checksum-provenance" }, "name": { "const": "SBOM, checksum, and provenance tooling" }, "weight": { "const": 2 }, "verifier_id": { "const": "sbom-checksum-provenance-tools-v1" }, "evidence": { "minItems": 26, "maxItems": 26, "prefixItems": [{ "properties": { "path": { "const": ".gitattributes" } } }, { "properties": { "path": { "const": "go.mod" } } }, { "properties": { "path": { "const": "go.sum" } } }, { "properties": { "path": { "const": "scripts/release.sh" } } }, { "properties": { "path": { "const": "scripts/install.sh" } } }, { "properties": { "path": { "const": "scripts/uninstall.sh" } } }, { "properties": { "path": { "const": "scripts/verify-install.sh" } } }, { "properties": { "path": { "const": "scripts/verify-release-reproducible.sh" } } }, { "properties": { "path": { "const": "internal/packageinfo/manifest.go" } } }, { "properties": { "path": { "const": "internal/packageinfo/manifest_test.go" } } }, { "properties": { "path": { "const": "internal/vendorintegrity/lock.go" } } }, { "properties": { "path": { "const": "internal/vendorintegrity/vendorintegrity.go" } } }, { "properties": { "path": { "const": "internal/vendorintegrity/vendorintegrity_test.go" } } }, { "properties": { "path": { "const": "vendor/filippo.io/edwards25519/LICENSE" } } }, { "properties": { "path": { "const": "vendor/modules.txt" } } }, { "properties": { "path": { "const": "tools/canonicaltar/main.go" } } }, { "properties": { "path": { "const": "tools/canonicalzip/main.go" } } }, { "properties": { "path": { "const": "tools/packagemanifest/main.go" } } }, { "properties": { "path": { "const": "tools/readinesscheck/main.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/main.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/main_test.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/release_script_test.go" } } }, { "properties": { "path": { "const": "tools/sbom/main.go" } } }, { "properties": { "path": { "const": "tools/sbom/main_test.go" } } }, { "properties": { "path": { "const": "tools/vendorcheck/main.go" } } }, { "properties": { "path": { "const": "tools/vendorcheck/main_test.go" } } }] } } },
+    "security-independent-audit-closed": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "security-independent-audit-closed" }, "name": { "const": "Closed independent audit findings" }, "weight": { "const": 2 }, "evidence_type": { "const": "independent-audit-v1" }, "verifier_id": { "const": "independent-audit-v1" } } },
+
+    "packaging-eight-release-archives": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "packaging-eight-release-archives" }, "name": { "const": "Eight published release archives" }, "weight": { "const": 2 }, "evidence_type": { "const": "release-attestation-v1" }, "verifier_id": { "const": "release-eight-archives-v1" } } },
+    "packaging-version-sbom-checksums": { "$ref": "#/$defs/repositoryCriterion", "properties": { "id": { "const": "packaging-version-sbom-checksums" }, "name": { "const": "Version metadata, SBOMs, and checksums tooling" }, "weight": { "const": 2 }, "verifier_id": { "const": "release-metadata-tools-v1" }, "evidence": { "minItems": 4, "maxItems": 4, "prefixItems": [{ "properties": { "path": { "const": "internal/packageinfo/manifest.go" } } }, { "properties": { "path": { "const": "internal/version/version.go" } } }, { "properties": { "path": { "const": "tools/releasecheck/main.go" } } }, { "properties": { "path": { "const": "tools/sbom/main.go" } } }] } } },
+    "packaging-publication-attestation": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "packaging-publication-attestation" }, "name": { "const": "Release publication and attestation" }, "weight": { "const": 1 }, "evidence_type": { "const": "release-attestation-v1" }, "verifier_id": { "const": "release-publication-attestation-v1" } } },
+    "packaging-native-os-packages": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "packaging-native-os-packages" }, "name": { "const": "Native OS packages" }, "weight": { "const": 3 }, "evidence_type": { "const": "package-attestation-v1" }, "verifier_id": { "const": "native-packages-v1" } } },
+    "packaging-install-uninstall-native-smoke": { "$ref": "#/$defs/lockedCriterion", "properties": { "id": { "const": "packaging-install-uninstall-native-smoke" }, "name": { "const": "Install/uninstall and native smoke evidence" }, "weight": { "const": 2 }, "evidence_type": { "const": "native-runtime-attestation-v2" }, "verifier_id": { "const": "install-native-smoke-v2" } } }
+  }
+}

@@ -1,0 +1,18 @@
+# Build output
+/bin/
+/dist/
+/.cache/
+/.tmp/
+/.tmp-go-cache/
+coverage.out
+*.test
+
+# Local configuration and support bundles
+.leaguebridge/
+leaguebridge-support-*.zip
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

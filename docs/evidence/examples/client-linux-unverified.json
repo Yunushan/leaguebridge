@@ -1,0 +1,69 @@
+{
+  "$schema": "https://leaguebridge.dev/schemas/validation-evidence.schema.json",
+  "schema_version": 1,
+  "record_id": "client-00000000000000000000000000000002",
+  "record_type": "client",
+  "validation_run_id": "run-00000000000000000000000000000001",
+  "route_id": "physical-windows-remote",
+  "test_profile_id": "remote-play-v1",
+  "created_at": "2026-08-26T00:00:00Z",
+  "expires_at": "2026-09-02T00:00:00Z",
+  "manifest_as_of": "2026-08-26",
+  "manifest_sha256": "211cb4440f7529bb9498dc5439ee9728f8cb88440ef096a9620f5a0e399eebf1",
+  "tool_version": "example-unverified",
+  "subject": {
+    "role": "client",
+    "platform": "linux",
+    "architecture": "amd64",
+    "environment": "Unverified example only; replace with a non-identifying kernel and userspace description."
+  },
+  "attestation": {
+    "level": "self-attested",
+    "reviewer": "",
+    "reviewed_at": "",
+    "artifacts": [],
+    "notes": "Template data only. This file does not claim a working League session or authorize launch."
+  },
+  "checks": [
+    {
+      "id": "client.platform",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Record the native Linux or BSD kernel and userspace version.",
+      "artifacts": []
+    },
+    {
+      "id": "client.moonlight",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify a trusted Moonlight installation and record its version.",
+      "artifacts": []
+    },
+    {
+      "id": "client.display",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify the active desktop/display stack and fullscreen behavior.",
+      "artifacts": []
+    },
+    {
+      "id": "client.audio",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify usable audio output on the client.",
+      "artifacts": []
+    },
+    {
+      "id": "client.decoder",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify hardware or software decode capability under an actual stream.",
+      "artifacts": []
+    }
+  ]
+}

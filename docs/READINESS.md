@@ -1,0 +1,153 @@
+# Production-readiness score
+
+The score is evidence, not branding. `leaguebridge readiness` reports each
+dimension independently and never converts engineering work into gameplay
+compatibility.
+
+## Engineering readiness (100 points)
+
+Readiness schema version 3 fixes 30 ordered, binary subcriteria and their
+weights. The scorecard cannot supply `earned` points or a `passed` flag. The
+runtime derives each category score and the 100-point total from the evidence
+class required by the fixed contract.
+
+Repository-backed credit requires the exact ordered file inventory for that
+subcriterion. Every reference records a lowercase SHA-256 digest, and tests
+require the target to be a regular file and every traversed path component to
+be non-symlink. A different, additional, missing, reordered, or modified file
+fails closed.
+
+User-facing commands award those repository-backed points only when the build
+contains the exact build-time verification value for its embedded scorecard.
+The production builder creates that value after `tools/readinesscheck` hashes
+every referenced file in the immutable source snapshot; `tools/releasecheck`
+then requires both the exact embedded scorecard bytes and verification value in
+every binary. A development or ad hoc build has no value and reports **0/100 —
+repository evidence unverified**, including zero category scores. This marker
+records build-time verification; it is not a publisher signature or substitute
+for the separately required release attestation.
+
+CI execution, release publication, native runtime results, native packages,
+vendor authorization, and independent audit are different evidence classes.
+Their mere scripts, workflows, self-authored notes, or arbitrary files do not
+count. Schema v3 keeps those criteria at zero until an authenticated verifier
+for the required class is implemented and the corresponding evidence exists.
+
+The CI workflow includes a native Ubuntu Linux amd64 runtime/install smoke and
+native BSD and hosted macOS lifecycle jobs. These jobs deliberately capture
+their observations as artifacts and keep headless or unsupported client states
+blocked; a workflow definition or an unauthenticated artifact cannot promote a
+scorecard row. A future release-attestation verifier must bind each successful
+run to the exact commit and required evidence class before the CI/runtime rows
+can earn points.
+
+The current verified source tree derives 74 points from the following binary
+subcriteria; no row receives partial credit:
+
+| ID | Subcriterion | Points | Earned | Required evidence/status |
+| --- | --- | ---: | ---: | --- |
+| `scope-support-matrix` | Support matrix | 4 | 4 | Exact content-addressed `README.md` |
+| `scope-explicit-limitations` | Explicit limitations | 3 | 3 | Exact content-addressed `docs/SUPPORT_POLICY.md` |
+| `scope-primary-source-research` | Dated primary-source research | 3 | 3 | Exact content-addressed dated research |
+| `governance-policy-conduct` | Governance and conduct | 3 | 3 | Exact governance and conduct files |
+| `governance-security-policy` | Security policy | 3 | 3 | Exact content-addressed `SECURITY.md` |
+| `governance-legal-privacy` | Legal and privacy boundaries | 4 | 4 | Exact legal and privacy files |
+| `architecture-versioned-schemas` | Versioned schemas | 5 | 5 | Exact compatibility, config, package, readiness, validation-evidence, signature-envelope, and trust-policy schemas |
+| `architecture-fail-closed-policy` | Fail-closed policy | 5 | 5 | Exact policy implementation and negative tests |
+| `architecture-reason-codes-adrs` | Stable reason codes and ADRs | 3 | 3 | Exact five ADRs and manifest implementation |
+| `architecture-upstream-authorization` | Authorized upstream extension contract | 2 | 0 | Authenticated Riot authorization absent |
+| `implementation-cli-controller` | CLI/controller | 5 | 5 | Exact CLI and application controller files |
+| `implementation-strict-config-fixed-argv` | Strict config and fixed remote argv | 4 | 4 | Exact config and remote implementation files |
+| `implementation-bounded-diagnostics-redaction` | Bounded diagnostics and redaction | 4 | 4 | Exact diagnostics and redaction implementation files |
+| `implementation-read-only-probes` | Read-only host/client probes | 4 | 4 | Exact Linux/BSD, Windows, macOS, and consent-gated Sunshine inspection files |
+| `implementation-native-validated-integration` | Native validated platform integration | 3 | 0 | Authenticated native-runtime evidence absent |
+| `tests-unit-negative` | Unit and negative tests | 5 | 5 | Exact core negative-test inventory, including authenticated-evidence and non-certifying macOS coverage |
+| `tests-coverage-80` | 80% aggregate core coverage gate | 4 | 4 | Exact versioned coverage gate and tests |
+| `tests-race-vet-linux-windows` | Linux/Windows race and vet | 3 | 0 | Commit-bound CI attestation absent |
+| `tests-eight-target-cross-build` | Eight-target cross-build | 3 | 0 | Commit-bound CI attestation absent |
+| `tests-native-bsd-physical-smoke` | Native BSD and physical-hardware smoke tests | 5 | 0 | Authenticated native-runtime evidence absent |
+| `security-threat-model` | Threat model and scope | 4 | 4 | Exact threat-model and security-policy files |
+| `security-injection-bounds-redaction` | Injection, bounds, and redaction tests | 4 | 4 | Exact security negative-test inventory |
+| `security-pinned-least-privilege-ci` | Pinned least-privilege CI | 3 | 3 | Exact reviewed workflow definitions; not an execution claim |
+| `security-sbom-checksum-provenance` | SBOM, checksum, and provenance tooling | 2 | 2 | Exact LF-normalization, lifecycle-script, deterministic archive, package-manifest, readiness-integrity, checksum, provenance, and SBOM tooling; not native-host or publication evidence |
+| `security-independent-audit-closed` | Closed independent audit findings | 2 | 0 | Authenticated independent-audit closure absent |
+| `packaging-eight-release-archives` | Eight published release archives | 2 | 0 | Eight release archives and release attestation absent |
+| `packaging-version-sbom-checksums` | Version metadata, SBOMs, and checksums tooling | 2 | 2 | Exact version/SBOM/release-check tooling |
+| `packaging-publication-attestation` | Release publication and attestation | 1 | 0 | Published release attestation absent |
+| `packaging-native-os-packages` | Native OS packages | 3 | 0 | Authenticated native-package evidence absent |
+| `packaging-install-uninstall-native-smoke` | Install/uninstall and native smoke evidence | 2 | 0 | Authenticated native-runtime evidence absent |
+
+After build-time repository verification, the derived category totals are
+10/10, 10/10, 13/15, 17/20, 9/20, 13/15, and 2/10, for **74/100**. Workflow
+source code earns only the narrowly defined repository-control points above.
+It does not prove that CI ran, that an archive was published, or that software
+worked on physical hardware.
+
+The scorecard has a bounded validity interval. Its public and embedded copies
+must be semantically identical and conform to the public Draft 2020-12 schema.
+
+## Local gameplay readiness (hard gate)
+
+Local Linux/BSD gameplay remains **0/100 — blocked**. Riot does not provide a
+supported or expressly authorized Linux/BSD League/Vanguard route. Wine,
+Proton, copied DLLs, anti-cheat redistribution, VMs, and VM concealment cannot
+earn engineering points toward this separate hard gate. Schema version 3 fixes
+the outcome at `0/blocked`; changing it requires a new reviewed schema version,
+current primary-source authorization, and native end-to-end evidence.
+
+## Remote handoff readiness
+
+Schema version 3 fixes two independent, ordered handoff routes:
+
+1. `physical-windows-remote`: League and Vanguard stay on a user-owned,
+   supported physical Windows PC.
+2. `physical-macos-remote`: League stays on a user-owned physical Mac through
+   Riot's native macOS client. Sunshine's macOS host support is experimental,
+   gamepad hosting is unavailable, and capture, audio, keyboard/mouse, session
+   quality, and gameplay remain unvalidated.
+
+For each route, Linux, FreeBSD, OpenBSD, NetBSD, and DragonFly BSD on `amd64`
+is only the Moonlight viewer/controller. Each of the ten route/client cells has
+the same four derived 25-point gates. The route-specific physical-host gate is
+deliberately different:
+
+| Route | `physical-host` gate requirements |
+| --- | --- |
+| `physical-windows-remote` | Supported physical Windows hardware; current Windows/Riot/League/Vanguard state; direct local Practice Tool; reviewed Sunshine host; no VM or VM concealment |
+| `physical-macos-remote` | Supported physical Intel or Apple-silicon Mac; current Riot native macOS client, Embedded Vanguard, and League; direct local Practice Tool; reviewed experimental Sunshine host; explicit no-gamepad limitation |
+
+The other gates are route-bound and cannot borrow evidence from the other
+host:
+
+| Gate | Required evidence |
+| --- | --- |
+| `client-runtime` | Exact native Linux/BSD client OS, Moonlight, display, audio, decoder, and input behavior against the named host route |
+| `session-quality` | Route-bound pairing, discovery, video/audio stability, and bounded versioned latency measurements |
+| `gameplay-interaction` | Route-bound keyboard/mouse interaction, streamed Practice Tool, current League patch, and no relevant Riot/anti-cheat error |
+
+Both routes and all five platforms per route currently score **0/100 —
+unvalidated**. They are reported independently; there is no aggregate remote
+score and no zero or candidate state for one route implies anything about the
+other. “Experimental” describes Sunshine's macOS host implementation, not a
+positive readiness state or Riot support for a Linux/BSD client.
+
+The existing validation-evidence schema is version 1 and explicitly evaluates
+`promotion_safe=false`; its reviewer text is unauthenticated and it is scoped
+to the Windows route. A separate schema-v2 signed-set verifier now defines
+strict Ed25519, reviewer-scope, freshness, record-linkage, and exact artifact
+verification rules for that Windows record chain. Its application-controlled
+production trust policy is intentionally unprovisioned: no reviewer public keys
+or signed physical-run sets are accepted by this release.
+
+Readiness schema v3 deliberately remains the hard-zero contract and still
+rejects every nonempty `evidence_sets` array for both routes. It contains no
+stored remote score, state, gate, or pass field. Runtime output derives both
+zero matrices. This preserves v3 semantics while the v2 verifier receives
+independent review and genuine trust roots are established.
+
+Remote promotion still needs readiness schema v4, root-authorized production
+reviewer keys, release/readiness/challenge binding, route-specific physical
+evidence for every client cell, and a distinct macOS evidence profile. Until
+those controls and evidence exist, no arbitrary repository file, user-supplied
+key, schema-v1 manual record, filename, signature, or SHA-256 alone can promote
+a gate.

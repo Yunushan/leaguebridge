@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "project": "LizardByte/Sunshine",
+  "release_tag": "v2026.516.143833",
+  "release_url": "https://github.com/LizardByte/Sunshine/releases/tag/v2026.516.143833",
+  "official_metadata_source": "https://api.github.com/repos/LizardByte/Sunshine/releases/tags/v2026.516.143833",
+  "source_checked_at": "2026-08-26",
+  "platform": "windows",
+  "architecture": "amd64",
+  "recommended_asset": {
+    "name": "Sunshine-Windows-AMD64-installer.msi",
+    "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.516.143833/Sunshine-Windows-AMD64-installer.msi",
+    "size_bytes": 24465408,
+    "sha256": "e7208b11a4ab9dd89871133a054bbb8dc55dfbba408227b0eccab22c60b273a2",
+    "requires_authenticode": true,
+    "supported_by_inspector": true
+  },
+  "portable_reference": {
+    "name": "Sunshine-Windows-AMD64-portable.zip",
+    "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.516.143833/Sunshine-Windows-AMD64-portable.zip",
+    "size_bytes": 26852145,
+    "sha256": "0a3af3dde43b8f2c94ffe04b850ad736d6e1be2b75906779d7094a5ad9d4783b",
+    "requires_authenticode": false,
+    "supported_by_inspector": false
+  }
+}

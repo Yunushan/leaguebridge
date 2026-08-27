@@ -1,0 +1,604 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaguebridge.dev/schemas/validation-evidence.schema.json",
+  "title": "LeagueBridge validation evidence record",
+  "description": "Versioned, bounded manual-validation evidence for the physical-windows-remote route: a physical Windows streaming host, a Linux/BSD client, or an end-to-end remote-play session. A conforming record is evidence input and never launch authorization by itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "record_id",
+    "record_type",
+    "validation_run_id",
+    "route_id",
+    "test_profile_id",
+    "created_at",
+    "expires_at",
+    "manifest_as_of",
+    "manifest_sha256",
+    "tool_version",
+    "subject",
+    "attestation",
+    "checks"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://leaguebridge.dev/schemas/validation-evidence.schema.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^(?:host|client|session)-[a-f0-9]{32}$"
+    },
+    "record_type": {
+      "enum": ["host", "client", "session"]
+    },
+    "validation_run_id": {
+      "$ref": "#/$defs/validationRunID"
+    },
+    "route_id": {
+      "const": "physical-windows-remote"
+    },
+    "test_profile_id": {
+      "const": "remote-play-v1"
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "expires_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "manifest_as_of": {
+      "$ref": "#/$defs/date"
+    },
+    "manifest_sha256": {
+      "const": "211cb4440f7529bb9498dc5439ee9728f8cb88440ef096a9620f5a0e399eebf1"
+    },
+    "tool_version": {
+      "$ref": "#/$defs/toolVersion"
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "attestation": {
+      "$ref": "#/$defs/attestation"
+    },
+    "bindings": {
+      "$ref": "#/$defs/bindings"
+    },
+    "stream_profile": {
+      "$ref": "#/$defs/streamProfile"
+    },
+    "measurement_methodology": {
+      "$ref": "#/$defs/measurementMethodology"
+    },
+    "checks": {
+      "type": "array"
+    },
+    "measurements": {
+      "$ref": "#/$defs/measurements"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "record_type": { "const": "host" } },
+        "required": ["record_type"]
+      },
+      "then": {
+        "properties": {
+          "record_id": { "pattern": "^host-[a-f0-9]{32}$" },
+          "subject": { "$ref": "#/$defs/hostSubject" },
+          "bindings": false,
+          "stream_profile": false,
+          "measurement_methodology": false,
+          "checks": { "$ref": "#/$defs/hostChecks" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "record_type": { "const": "client" } },
+        "required": ["record_type"]
+      },
+      "then": {
+        "properties": {
+          "record_id": { "pattern": "^client-[a-f0-9]{32}$" },
+          "subject": { "$ref": "#/$defs/clientSubject" },
+          "bindings": false,
+          "stream_profile": false,
+          "measurement_methodology": false,
+          "checks": { "$ref": "#/$defs/clientChecks" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "record_type": { "const": "session" } },
+        "required": ["record_type"]
+      },
+      "then": {
+        "required": ["bindings", "stream_profile", "measurement_methodology", "measurements"],
+        "properties": {
+          "record_id": { "pattern": "^session-[a-f0-9]{32}$" },
+          "subject": { "$ref": "#/$defs/sessionSubject" },
+          "checks": { "$ref": "#/$defs/sessionChecks" },
+          "measurements": { "$ref": "#/$defs/sessionMeasurements" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "validationRunID": {
+      "type": "string",
+      "pattern": "^run-[a-f0-9]{32}$"
+    },
+    "nonEmptyText1024": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "\\S"
+    },
+    "toolVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "\\S"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256", "size_bytes", "media_type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "media_type": {
+          "type": "string",
+          "pattern": "^[a-z0-9!#$&'*+.^_`|~-]+/[a-z0-9!#$&'*+.^_`|~-]+$"
+        }
+      }
+    },
+    "artifactList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "platform", "architecture", "environment"],
+      "properties": {
+        "role": { "enum": ["host", "client", "session"] },
+        "platform": {
+          "enum": ["windows", "linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"]
+        },
+        "architecture": { "const": "amd64" },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "hostSubject": {
+      "allOf": [
+        { "$ref": "#/$defs/subject" },
+        {
+          "properties": {
+            "role": { "const": "host" },
+            "platform": { "const": "windows" },
+            "architecture": { "const": "amd64" }
+          }
+        }
+      ]
+    },
+    "clientSubject": {
+      "allOf": [
+        { "$ref": "#/$defs/subject" },
+        {
+          "properties": {
+            "role": { "const": "client" },
+            "platform": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"] },
+            "architecture": { "const": "amd64" }
+          }
+        }
+      ]
+    },
+    "sessionSubject": {
+      "allOf": [
+        { "$ref": "#/$defs/subject" },
+        {
+          "properties": {
+            "role": { "const": "session" },
+            "platform": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"] },
+            "architecture": { "const": "amd64" }
+          }
+        }
+      ]
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "reviewer", "reviewed_at", "artifacts", "notes"],
+      "properties": {
+        "level": { "enum": ["self-attested", "lab-observed", "independent-review"] },
+        "reviewer": { "type": "string", "maxLength": 256 },
+        "reviewed_at": { "type": "string" },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/artifact" }
+        },
+        "notes": { "type": "string", "maxLength": 4096 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "level": { "const": "self-attested" } },
+            "required": ["level"]
+          },
+          "then": {
+            "properties": {
+              "reviewer": { "const": "" },
+              "reviewed_at": { "const": "" },
+              "artifacts": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "level": { "enum": ["lab-observed", "independent-review"] } },
+            "required": ["level"]
+          },
+          "then": {
+            "properties": {
+              "reviewer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "\\S"
+              },
+              "reviewed_at": { "$ref": "#/$defs/timestamp" },
+              "artifacts": { "$ref": "#/$defs/artifactList" }
+            }
+          }
+        }
+      ]
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_record_sha256", "client_record_sha256"],
+      "properties": {
+        "host_record_sha256": {
+          "type": "string",
+          "pattern": "^(?:|[a-f0-9]{64})$"
+        },
+        "client_record_sha256": {
+          "type": "string",
+          "pattern": "^(?:|[a-f0-9]{64})$"
+        }
+      }
+    },
+    "streamProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "target_frame_rate", "codec", "transport"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 0, "maximum": 8192 },
+        "height": { "type": "integer", "minimum": 0, "maximum": 8192 },
+        "target_frame_rate": { "type": "number", "minimum": 0, "maximum": 240 },
+        "codec": { "enum": ["unverified", "h264", "hevc", "av1"] },
+        "transport": { "enum": ["unverified", "wired-lan", "wifi", "wan"] }
+      }
+    },
+    "measurementMethodology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "capture_started_at", "capture_ended_at", "sample_count", "collector_id", "collector_version", "capture_artifact_sha256"],
+      "properties": {
+        "version": { "const": "session-metrics-v1" },
+        "capture_started_at": { "type": "string" },
+        "capture_ended_at": { "type": "string" },
+        "sample_count": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+        "collector_id": { "type": "string", "maxLength": 128 },
+        "collector_version": { "type": "string", "maxLength": 128 },
+        "capture_artifact_sha256": { "type": "string", "pattern": "^(?:|[a-f0-9]{64})$" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "capture_started_at": { "const": "" } },
+            "required": ["capture_started_at"]
+          },
+          "then": {
+            "properties": {
+              "capture_ended_at": { "const": "" },
+              "sample_count": { "const": 0 },
+              "collector_id": { "const": "" },
+              "collector_version": { "const": "" },
+              "capture_artifact_sha256": { "const": "" }
+            }
+          },
+          "else": {
+            "properties": {
+              "capture_started_at": { "$ref": "#/$defs/timestamp" },
+              "capture_ended_at": { "$ref": "#/$defs/timestamp" },
+              "sample_count": { "minimum": 1 },
+              "collector_id": {
+                "minLength": 1,
+                "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+              },
+              "collector_version": {
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "capture_artifact_sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        }
+      ]
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "method", "observed_at", "summary", "artifacts"],
+      "properties": {
+        "id": {
+          "enum": [
+            "host.physical-machine",
+            "host.supported-os",
+            "host.hardware-requirements",
+            "host.security-requirements",
+            "host.riot-installation",
+            "host.local-practice-tool",
+            "host.streaming-server",
+            "client.platform",
+            "client.moonlight",
+            "client.display",
+            "client.audio",
+            "client.decoder",
+            "session.pair",
+            "session.app-list",
+            "session.video",
+            "session.keyboard-mouse",
+            "session.audio",
+            "session.latency",
+            "session.practice-tool",
+            "session.vanguard-errors",
+            "session.patch-current"
+          ]
+        },
+        "status": { "enum": ["pass", "fail", "unverified", "not-applicable"] },
+        "method": { "enum": ["automatic", "manual", "external"] },
+        "observed_at": { "type": "string" },
+        "summary": { "$ref": "#/$defs/nonEmptyText1024" },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/artifact" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "unverified" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "observed_at": { "const": "" },
+              "artifacts": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "enum": ["pass", "fail", "not-applicable"] } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "observed_at": { "$ref": "#/$defs/timestamp" },
+              "artifacts": { "$ref": "#/$defs/artifactList" }
+            }
+          }
+        }
+      ]
+    },
+    "hostChecks": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": { "$ref": "#/$defs/check" },
+      "allOf": [
+        { "$ref": "#/$defs/hasHostPhysicalMachine" },
+        { "$ref": "#/$defs/hasHostSupportedOS" },
+        { "$ref": "#/$defs/hasHostHardwareRequirements" },
+        { "$ref": "#/$defs/hasHostSecurityRequirements" },
+        { "$ref": "#/$defs/hasHostRiotInstallation" },
+        { "$ref": "#/$defs/hasHostLocalPracticeTool" },
+        { "$ref": "#/$defs/hasHostStreamingServer" }
+      ]
+    },
+    "clientChecks": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/check" },
+      "allOf": [
+        { "$ref": "#/$defs/hasClientPlatform" },
+        { "$ref": "#/$defs/hasClientMoonlight" },
+        { "$ref": "#/$defs/hasClientDisplay" },
+        { "$ref": "#/$defs/hasClientAudio" },
+        { "$ref": "#/$defs/hasClientDecoder" }
+      ]
+    },
+    "sessionChecks": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": { "$ref": "#/$defs/check" },
+      "allOf": [
+        { "$ref": "#/$defs/hasSessionPair" },
+        { "$ref": "#/$defs/hasSessionAppList" },
+        { "$ref": "#/$defs/hasSessionVideo" },
+        { "$ref": "#/$defs/hasSessionKeyboardMouse" },
+        { "$ref": "#/$defs/hasSessionAudio" },
+        { "$ref": "#/$defs/hasSessionLatency" },
+        { "$ref": "#/$defs/hasSessionPracticeTool" },
+        { "$ref": "#/$defs/hasSessionVanguardErrors" },
+        { "$ref": "#/$defs/hasSessionPatchCurrent" }
+      ]
+    },
+    "hasHostPhysicalMachine": { "$ref": "#/$defs/containsHostPhysicalMachine" },
+    "containsHostPhysicalMachine": { "contains": { "$ref": "#/$defs/isHostPhysicalMachine" }, "minContains": 1, "maxContains": 1 },
+    "isHostPhysicalMachine": { "properties": { "id": { "const": "host.physical-machine" } }, "required": ["id"] },
+    "hasHostSupportedOS": { "contains": { "properties": { "id": { "const": "host.supported-os" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasHostHardwareRequirements": { "contains": { "properties": { "id": { "const": "host.hardware-requirements" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasHostSecurityRequirements": { "contains": { "properties": { "id": { "const": "host.security-requirements" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasHostRiotInstallation": { "contains": { "properties": { "id": { "const": "host.riot-installation" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasHostLocalPracticeTool": { "contains": { "properties": { "id": { "const": "host.local-practice-tool" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasHostStreamingServer": { "contains": { "properties": { "id": { "const": "host.streaming-server" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasClientPlatform": { "contains": { "properties": { "id": { "const": "client.platform" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasClientMoonlight": { "contains": { "properties": { "id": { "const": "client.moonlight" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasClientDisplay": { "contains": { "properties": { "id": { "const": "client.display" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasClientAudio": { "contains": { "properties": { "id": { "const": "client.audio" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasClientDecoder": { "contains": { "properties": { "id": { "const": "client.decoder" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionPair": { "contains": { "properties": { "id": { "const": "session.pair" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionAppList": { "contains": { "properties": { "id": { "const": "session.app-list" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionVideo": { "contains": { "properties": { "id": { "const": "session.video" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionKeyboardMouse": { "contains": { "properties": { "id": { "const": "session.keyboard-mouse" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionAudio": { "contains": { "properties": { "id": { "const": "session.audio" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionLatency": { "contains": { "properties": { "id": { "const": "session.latency" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionPracticeTool": { "contains": { "properties": { "id": { "const": "session.practice-tool" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionVanguardErrors": { "contains": { "properties": { "id": { "const": "session.vanguard-errors" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "hasSessionPatchCurrent": { "contains": { "properties": { "id": { "const": "session.patch-current" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "value", "unit"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+        },
+        "value": { "type": "number", "minimum": 0 },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "id": { "const": "dropped-frames" } },
+            "required": ["id"]
+          },
+          "then": {
+            "properties": { "value": { "maximum": 100 } }
+          }
+        }
+      ]
+    },
+    "sessionMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/measurement" },
+        {
+          "if": {
+            "properties": { "id": { "enum": ["encode-latency", "network-latency", "decode-latency", "end-to-end-latency"] } },
+            "required": ["id"]
+          },
+          "then": {
+            "properties": { "unit": { "const": "ms" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "id": { "const": "session-duration" } },
+            "required": ["id"]
+          },
+          "then": {
+            "properties": {
+              "value": { "maximum": 28800 },
+              "unit": { "const": "seconds" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "id": { "const": "average-frame-rate" } },
+            "required": ["id"]
+          },
+          "then": {
+            "properties": {
+              "value": { "maximum": 240 },
+              "unit": { "const": "fps" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "id": { "const": "dropped-frames" } },
+            "required": ["id"]
+          },
+          "then": {
+            "properties": { "unit": { "const": "percent" } }
+          }
+        }
+      ]
+    },
+    "measurements": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/measurement" }
+    },
+    "sessionMeasurements": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/sessionMeasurement" },
+      "allOf": [
+        { "contains": { "properties": { "id": { "const": "session-duration" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "average-frame-rate" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "encode-latency" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "network-latency" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "decode-latency" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "end-to-end-latency" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "dropped-frames" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  }
+}

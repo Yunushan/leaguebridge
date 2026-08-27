@@ -1,0 +1,381 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Verify committed dependency source
+        run: go run -mod=vendor ./tools/vendorcheck -root .
+      - name: Format check
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+      - name: Unit tests with race detector
+        run: go test -mod=vendor -race ./...
+      - name: Exercise release-version validation on Windows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          go run -mod=vendor ./tools/versioncheck v1.2.3-rc.1+build.7
+          if errorlevel 1 exit /b 1
+          go run -mod=vendor ./tools/versioncheck v1.2.3-01
+          if not errorlevel 1 exit /b 1
+          exit /b 0
+      - name: Vet
+        run: go vet -mod=vendor ./...
+      - name: Reject stale compatibility evidence
+        run: go run -mod=vendor ./cmd/leaguebridge manifest verify
+      - name: Verify repository-bound readiness evidence
+        run: go run -mod=vendor ./tools/readinesscheck -root .
+
+  minimum-go:
+    name: Minimum Go compatibility
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up minimum Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.24.13"
+          cache: false
+      - name: Test minimum supported builder
+        run: go test -mod=vendor ./...
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Enforce coverage floor
+        run: go run -mod=vendor ./tools/coverage -minimum 80
+
+  vulnerability-scan:
+    name: Reachable vulnerability scan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Reject reachable known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  cross-build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: freebsd
+            goarch: amd64
+          - goos: openbsd
+            goarch: amd64
+          - goos: netbsd
+            goarch: amd64
+          - goos: dragonfly
+            goarch: amd64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Cross-build static CLI
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -mod=vendor -trimpath -buildvcs=true ./cmd/leaguebridge
+
+  bsd-runtime:
+    name: BSD kernel runtime (${{ matrix.label }})
+    needs: release-smoke
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: FreeBSD 15.1
+            goos: freebsd
+            guest_os: freebsd
+            guest_version: "15.1"
+            uname: FreeBSD
+          - label: OpenBSD 7.9
+            goos: openbsd
+            guest_os: openbsd
+            guest_version: "7.9"
+            uname: OpenBSD
+          - label: NetBSD 11.0
+            goos: netbsd
+            guest_os: netbsd
+            guest_version: "11.0"
+            uname: NetBSD
+          - label: DragonFly BSD 6.4.2
+            goos: dragonfly
+            guest_os: dragonflybsd
+            guest_version: "6.4.2"
+            uname: DragonFly
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Download validated release archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-smoke-dist
+          path: dist
+      - name: Build static CLI for ${{ matrix.goos }}/amd64
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+        run: |
+          mkdir -p bsd-ci
+          go build -mod=vendor -trimpath -buildvcs=true -o bsd-ci/leaguebridge ./cmd/leaguebridge
+      - name: Boot ${{ matrix.label }} guest
+        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
+        with:
+          operating_system: ${{ matrix.guest_os }}
+          architecture: x86-64
+          version: ${{ matrix.guest_version }}
+          shell: sh
+          memory: 4G
+          cpu_count: 2
+      - name: Execute CLI and capture BSD evidence
+        shell: cpa.sh {0}
+        run: |
+          sh scripts/bsd-runtime-smoke.sh \
+            bsd-ci/leaguebridge \
+            "${{ matrix.goos }}" \
+            "${{ matrix.uname }}" \
+            "bsd-evidence/${{ matrix.goos }}"
+      - name: Exercise shipped install lifecycle on ${{ matrix.label }}
+        if: always()
+        shell: cpa.sh {0}
+        run: |
+          mkdir -p "bsd-evidence/${{ matrix.goos }}"
+          sh scripts/verify-install.sh \
+            "dist/leaguebridge_0.0.0-ci_${{ matrix.goos }}_amd64.tar.gz" \
+            v0.0.0-ci \
+            "${{ matrix.goos }}" \
+            amd64 \
+            >"bsd-evidence/${{ matrix.goos }}/install-lifecycle.txt" 2>&1
+      - name: Synchronize BSD evidence to the runner
+        if: always()
+        run: cpa.sh --sync-files vm-to-runner
+      - name: Retain BSD runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bsd-runtime-${{ matrix.goos }}-${{ matrix.guest_version }}
+          path: bsd-evidence/${{ matrix.goos }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  release-smoke:
+    name: Reproducible release smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Build twice and compare release checksums
+        env:
+          VERSION: v0.0.0-ci
+        run: bash scripts/verify-release-reproducible.sh
+      - name: Retain archives for BSD and hosted macOS lifecycle tests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-smoke-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  linux-runtime:
+    name: Hosted Linux runtime
+    needs: release-smoke
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31d06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Download validated release archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-smoke-dist
+          path: dist
+      - name: Exercise shipped Linux install lifecycle
+        if: always()
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          mkdir -p linux-evidence
+          {
+            uname -a
+            sh scripts/verify-install.sh \
+              "dist/leaguebridge_0.0.0-ci_linux_amd64.tar.gz" \
+              v0.0.0-ci \
+              linux \
+              amd64
+          } >"linux-evidence/install-lifecycle.txt" 2>&1
+      - name: Build and execute the native Linux CLI smoke
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p ci-bin linux-evidence
+          go build -mod=vendor -trimpath -buildvcs=true -o ci-bin/leaguebridge ./cmd/leaguebridge
+          sh scripts/linux-runtime-smoke.sh ci-bin/leaguebridge linux-evidence
+      - name: Retain hosted Linux runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-runtime
+          path: linux-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  macos-runtime:
+    name: Hosted macOS runtime (${{ matrix.goarch }})
+    needs: release-smoke
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            goarch: amd64
+          - runner: macos-15
+            goarch: arm64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
+          cache: false
+      - name: Download validated release archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-smoke-dist
+          path: dist
+      - name: Run tests on the native Darwin architecture
+        run: go test -mod=vendor ./...
+      - name: Exercise shipped Darwin install lifecycle
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          mkdir -p "macos-evidence/${{ matrix.goarch }}"
+          {
+            sw_vers
+            uname -a
+            sh scripts/verify-install.sh \
+              "dist/leaguebridge_0.0.0-ci_darwin_${{ matrix.goarch }}.tar.gz" \
+              v0.0.0-ci \
+              darwin \
+              "${{ matrix.goarch }}"
+          } >"macos-evidence/${{ matrix.goarch }}/install-lifecycle.txt" 2>&1
+      - name: Confirm the macOS host probe remains non-certifying
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p ci-bin
+          go build -mod=vendor -trimpath -o ci-bin/leaguebridge ./cmd/leaguebridge
+          set +e
+          ci-bin/leaguebridge doctor --profile macos-host --json \
+            >"macos-evidence/${{ matrix.goarch }}/doctor.json"
+          status=$?
+          set -e
+          if [[ "$status" -ne 3 ]]; then
+            echo "macOS host doctor exited $status; expected blocked exit 3" >&2
+            exit 1
+          fi
+      - name: Retain hosted macOS runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-runtime-${{ matrix.goarch }}
+          path: macos-evidence/${{ matrix.goarch }}/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/config.schema.json",
+  "title": "LeagueBridge credential-free configuration",
+  "description": "Structural contract for current schema v2 and read-only-compatible legacy Windows schema v1. The runtime parser applies stricter host, application-name, byte-length, duplicate-key, and filesystem checks.",
+  "oneOf": [
+    { "$ref": "#/$defs/current" },
+    { "$ref": "#/$defs/legacy-windows" }
+  ],
+  "$defs": {
+    "remote-host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "app", "client", "physical_host_confirmed"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[A-Za-z0-9_.:%+-]+$"
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "client": {
+          "enum": ["auto", "moonlight", "moonlight-qt", "flatpak"]
+        },
+        "physical_host_confirmed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "current": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "route_id", "remote_host"],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "route_id": {
+          "enum": ["physical-windows-remote", "physical-macos-remote"]
+        },
+        "remote_host": { "$ref": "#/$defs/remote-host" }
+      }
+    },
+    "legacy-windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "backend", "remote_windows"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "backend": { "const": "remote-physical-windows" },
+        "remote_windows": { "$ref": "#/$defs/remote-host" }
+      }
+    }
+  }
+}

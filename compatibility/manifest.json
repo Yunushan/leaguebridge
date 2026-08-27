@@ -1,0 +1,284 @@
+{
+  "$schema": "../schemas/compatibility-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "manifestId": "leaguebridge-authoritative-compatibility",
+  "asOf": "2026-08-26",
+  "game": {
+    "name": "League of Legends",
+    "publisher": "Riot Games"
+  },
+  "policy": {
+    "defaultVerdict": "deny",
+    "maxAgeDays": 30,
+    "requireOfficialAuthorization": true
+  },
+  "sources": [
+    {
+      "id": "riot-system-requirements",
+      "title": "Minimum and Recommended System Requirements (League of Legends)",
+      "publisher": "Riot Games Player Support",
+      "url": "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "riot-vanguard-linux",
+      "title": "/dev: Vanguard x LoL",
+      "publisher": "Riot Games",
+      "url": "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/",
+      "publishedAt": "2024-04-11",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "riot-patch-14-9",
+      "title": "League of Legends patch 14.9 notes",
+      "publisher": "Riot Games",
+      "url": "https://www.leagueoflegends.com/en-us/news/game-updates/patch-14-9-notes/",
+      "publishedAt": "2024-04-30",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "riot-macos-embedded-vanguard",
+      "title": "Patch 25.S1.2 Notes: Vanguard comes to Mac",
+      "publisher": "Riot Games",
+      "url": "https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/",
+      "publishedAt": "2025-01-22",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "riot-vanguard-on-demand",
+      "title": "Vanguard On-Demand - Anti-Cheat Update",
+      "publisher": "Riot Games",
+      "url": "https://www.riotgames.com/en/news/vanguard-on-demand",
+      "publishedAt": "2026-06-24",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "riot-vm-policy",
+      "title": "Vanguard Error Codes and Solutions (VAN 138)",
+      "publisher": "Riot Games Player Support",
+      "url": "https://support-leagueoflegends.riotgames.com/hc/en-us/articles/26932165816851-Vanguard-Error-Codes-and-Solutions-LoL",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "winehq-about",
+      "title": "About Wine",
+      "publisher": "WineHQ",
+      "url": "https://www.winehq.org/about/",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "valve-proton",
+      "title": "Steamworks Documentation: Proton Anti-Cheat Support",
+      "publisher": "Valve Corporation",
+      "url": "https://partner.steamgames.com/doc/steamhardware/proton",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "dockur-windows",
+      "title": "Windows inside a Docker container",
+      "publisher": "dockur",
+      "url": "https://github.com/dockur/windows",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "dockur-environment",
+      "title": "dockur/windows environment options",
+      "publisher": "dockur",
+      "url": "https://github.com/dockur/windows/blob/master/docs/environment.md",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "sunshine-docs",
+      "title": "Sunshine documentation",
+      "publisher": "LizardByte",
+      "url": "https://docs.lizardbyte.dev/projects/sunshine/latest/",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "moonlight-qt",
+      "title": "Moonlight PC",
+      "publisher": "Moonlight Game Streaming Project",
+      "url": "https://github.com/moonlight-stream/moonlight-qt",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "microsoft-bcdboot",
+      "title": "BCDBoot command-line options",
+      "publisher": "Microsoft",
+      "url": "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11",
+      "publishedAt": "2025-07-29",
+      "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "freebsd-bhyve",
+      "title": "FreeBSD Handbook: Virtualization - bhyve",
+      "publisher": "The FreeBSD Project",
+      "url": "https://docs.freebsd.org/en/books/handbook/virtualization/#virtualization-host-bhyve",
+      "checkedAt": "2026-08-26"
+    }
+  ],
+  "backends": [
+    {
+      "id": "native-linux",
+      "displayName": "Native Linux",
+      "kind": "native",
+      "launchMode": "local",
+      "hostPlatforms": ["linux"],
+      "hostArchitectures": ["amd64"],
+      "state": "blocked",
+      "launchVerdict": "deny",
+      "authorization": "none",
+      "reasonCode": "NO_OFFICIAL_LINUX_CLIENT_OR_VANGUARD_PATH",
+      "summary": "Riot does not support a native Linux League client and has not published an authorized Vanguard path for Linux.",
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-linux", "riot-patch-14-9", "riot-vanguard-on-demand"],
+      "safetyNotes": [
+        "Do not emulate, disable, spoof, conceal, or bypass Vanguard.",
+        "Do not install third-party Vanguard DLLs, drivers, or kernel modules."
+      ]
+    },
+    {
+      "id": "native-bsd",
+      "displayName": "Native BSD",
+      "kind": "native",
+      "launchMode": "local",
+      "hostPlatforms": ["freebsd", "openbsd", "netbsd", "dragonflybsd"],
+      "hostArchitectures": ["amd64"],
+      "state": "blocked",
+      "launchVerdict": "deny",
+      "authorization": "none",
+      "reasonCode": "NO_OFFICIAL_BSD_CLIENT_OR_VANGUARD_PATH",
+      "summary": "Riot publishes neither a native BSD League client nor an authorized Vanguard path for a supported BSD system.",
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-linux", "riot-patch-14-9", "riot-vanguard-on-demand"],
+      "safetyNotes": [
+        "Linux compatibility layers do not establish BSD support or anti-cheat authorization.",
+        "Do not install third-party Vanguard DLLs, drivers, or kernel modules."
+      ]
+    },
+    {
+      "id": "wine",
+      "displayName": "Wine",
+      "kind": "translation",
+      "launchMode": "local",
+      "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
+      "hostArchitectures": ["amd64"],
+      "state": "blocked",
+      "launchVerdict": "deny",
+      "authorization": "none",
+      "reasonCode": "VANGUARD_DRIVER_REQUIREMENTS_UNSATISFIED",
+      "summary": "Riot states that the Wine-based League implementation cannot satisfy Vanguard's driver requirements.",
+      "sourceIds": ["riot-vanguard-linux", "riot-patch-14-9", "winehq-about"],
+      "safetyNotes": [
+        "Windows API compatibility is not equivalent to Vanguard kernel-driver compatibility.",
+        "Never patch Riot binaries or add untrusted DLL overrides to evade the launch gate."
+      ]
+    },
+    {
+      "id": "proton",
+      "displayName": "Proton",
+      "kind": "translation",
+      "launchMode": "local",
+      "hostPlatforms": ["linux"],
+      "hostArchitectures": ["amd64"],
+      "state": "blocked",
+      "launchVerdict": "deny",
+      "authorization": "none",
+      "reasonCode": "VANGUARD_DRIVER_REQUIREMENTS_UNSATISFIED",
+      "summary": "Proton is Wine-based and does not provide an authorized way to satisfy the required Vanguard Windows driver and host-attestation path.",
+      "sourceIds": ["riot-vanguard-linux", "riot-patch-14-9", "valve-proton"],
+      "safetyNotes": [
+        "A custom Proton build cannot replace Riot authorization or Vanguard's required trust boundary.",
+        "Never use launch flags or patches intended to conceal the host environment."
+      ]
+    },
+    {
+      "id": "dockur-qemu",
+      "displayName": "dockur/windows on QEMU/KVM",
+      "kind": "virtual-machine",
+      "launchMode": "local",
+      "hostPlatforms": ["linux"],
+      "hostArchitectures": ["amd64"],
+      "state": "blocked",
+      "launchVerdict": "deny",
+      "authorization": "none",
+      "reasonCode": "VANGUARD_VIRTUAL_MACHINE_UNSUPPORTED",
+      "summary": "dockur/windows runs Windows in a QEMU virtual machine; Riot states that Vanguard is not supported in virtual machines.",
+      "sourceIds": ["riot-vm-policy", "riot-vanguard-linux", "dockur-windows", "dockur-environment"],
+      "safetyNotes": [
+        "Do not hide virtualization, alter device identity, or modify boot evidence.",
+        "Container packaging does not turn the Windows guest into a physical supported host."
+      ]
+    },
+    {
+      "id": "bhyve",
+      "displayName": "Windows on bhyve",
+      "kind": "virtual-machine",
+      "launchMode": "local",
+      "hostPlatforms": ["freebsd"],
+      "hostArchitectures": ["amd64"],
+      "state": "blocked",
+      "launchVerdict": "deny",
+      "authorization": "none",
+      "reasonCode": "VANGUARD_VIRTUAL_MACHINE_UNSUPPORTED",
+      "summary": "A Windows bhyve guest remains a virtual machine, which Riot does not support for Vanguard.",
+      "sourceIds": ["riot-vm-policy", "riot-vanguard-linux", "freebsd-bhyve"],
+      "safetyNotes": [
+        "Do not hide the hypervisor or spoof hardware and boot identity.",
+        "PCI passthrough does not establish Riot support for the virtual-machine trust boundary."
+      ]
+    },
+    {
+      "id": "physical-windows-remote",
+      "displayName": "Physical Windows PC with remote streaming",
+      "kind": "remote-physical-windows",
+      "launchMode": "remote",
+      "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
+      "hostArchitectures": ["amd64"],
+      "state": "handoff-only",
+      "launchVerdict": "deny",
+      "authorization": "unverified",
+      "reasonCode": "REMOTE_HANDOFF_NOT_A_LOCAL_COMPATIBILITY_PATH",
+      "summary": "A separately managed physical Windows computer may meet Riot's Windows requirements, but remote-control and streaming integration is not an authorized local Linux or BSD gameplay backend in this manifest.",
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "moonlight-qt"],
+      "safetyNotes": [
+        "The Windows machine must independently satisfy Riot's current requirements and policies.",
+        "Do not forward credentials through LeagueBridge or claim that streaming makes Linux or BSD natively supported."
+      ]
+    },
+    {
+      "id": "physical-macos-remote",
+      "displayName": "Physical macOS computer with remote streaming",
+      "kind": "remote-physical-macos",
+      "launchMode": "remote",
+      "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
+      "hostArchitectures": ["amd64"],
+      "state": "handoff-only",
+      "launchVerdict": "deny",
+      "authorization": "unverified",
+      "reasonCode": "MACOS_REMOTE_HANDOFF_EXPERIMENTAL_AND_UNVALIDATED",
+      "summary": "A separately managed physical Mac may run Riot's native macOS client, while Sunshine documents macOS host support as experimental; LeagueBridge has no validated macOS capture, input, audio, gamepad, or gameplay evidence.",
+      "sourceIds": ["riot-system-requirements", "riot-macos-embedded-vanguard", "sunshine-docs", "moonlight-qt"],
+      "safetyNotes": [
+        "League must run through Riot's unmodified native macOS client on the physical Mac; this route does not make Linux or BSD natively supported.",
+        "Sunshine's macOS host behavior is experimental and gamepad support is unavailable; do not treat a successful handoff as Riot endorsement or gameplay validation."
+      ]
+    },
+    {
+      "id": "dual-boot",
+      "displayName": "Dual boot into Windows",
+      "kind": "dual-boot",
+      "launchMode": "handoff",
+      "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
+      "hostArchitectures": ["amd64"],
+      "state": "handoff-only",
+      "launchVerdict": "deny",
+      "authorization": "unverified",
+      "reasonCode": "REBOOT_HANDOFF_NOT_A_LOCAL_COMPATIBILITY_PATH",
+      "summary": "Booting a supported physical Windows installation is outside LeagueBridge's Linux or BSD launch process; the Windows installation must pass Riot's requirements on its own.",
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "microsoft-bcdboot"],
+      "safetyNotes": [
+        "Treat this only as guidance to leave the current operating system, not as a Linux or BSD launch backend.",
+        "LeagueBridge must not weaken Secure Boot, TPM, VBS, HVCI, IOMMU, or other Windows security requirements."
+      ]
+    }
+  ]
+}

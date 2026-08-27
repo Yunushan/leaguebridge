@@ -1,0 +1,450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaguebridge.dev/schemas/compatibility-manifest.schema.json",
+  "title": "LeagueBridge Compatibility Manifest",
+  "description": "Public, dated evidence and fail-closed launch state for every LeagueBridge compatibility backend. Runtime authority remains the manifest embedded in the LeagueBridge binary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "manifestId",
+    "asOf",
+    "game",
+    "policy",
+    "sources",
+    "backends"
+  ],
+  "properties": {
+    "$schema": {
+      "enum": [
+        "https://leaguebridge.dev/schemas/compatibility-manifest.schema.json",
+        "../schemas/compatibility-manifest.schema.json",
+        "../../../schemas/compatibility-manifest.schema.json"
+      ]
+    },
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "manifestId": {
+      "$ref": "#/$defs/id"
+    },
+    "asOf": {
+      "$ref": "#/$defs/date"
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "publisher"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultVerdict", "maxAgeDays", "requireOfficialAuthorization"],
+      "properties": {
+        "defaultVerdict": {
+          "const": "deny"
+        },
+        "maxAgeDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "requireOfficialAuthorization": {
+          "const": true
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "backends": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "allOf": [
+        { "$ref": "#/$defs/has-native-linux" },
+        { "$ref": "#/$defs/has-native-bsd" },
+        { "$ref": "#/$defs/has-wine" },
+        { "$ref": "#/$defs/has-proton" },
+        { "$ref": "#/$defs/has-dockur-qemu" },
+        { "$ref": "#/$defs/has-bhyve" },
+        { "$ref": "#/$defs/has-physical-windows-remote" },
+        { "$ref": "#/$defs/has-physical-macos-remote" },
+        { "$ref": "#/$defs/has-dual-boot" }
+      ],
+      "items": {
+        "$ref": "#/$defs/backend"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "\\S"
+    },
+    "platform": {
+      "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "publisher", "url", "checkedAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "publisher": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "maxLength": 2048
+        },
+        "publishedAt": {
+          "$ref": "#/$defs/date"
+        },
+        "checkedAt": {
+          "$ref": "#/$defs/date"
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "kind",
+        "launchMode",
+        "hostPlatforms",
+        "hostArchitectures",
+        "state",
+        "launchVerdict",
+        "authorization",
+        "reasonCode",
+        "summary",
+        "sourceIds",
+        "safetyNotes"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "native-linux",
+            "native-bsd",
+            "wine",
+            "proton",
+            "dockur-qemu",
+            "bhyve",
+            "physical-windows-remote",
+            "physical-macos-remote",
+            "dual-boot"
+          ]
+        },
+        "displayName": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "kind": {
+          "enum": ["native", "translation", "virtual-machine", "remote-physical-windows", "remote-physical-macos", "dual-boot"]
+        },
+        "launchMode": {
+          "enum": ["local", "remote", "handoff"]
+        },
+        "hostPlatforms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/platform"
+          }
+        },
+        "hostArchitectures": {
+          "const": ["amd64"]
+        },
+        "state": {
+          "enum": ["blocked", "handoff-only", "supported"]
+        },
+        "launchVerdict": {
+          "enum": ["deny", "allow"]
+        },
+        "authorization": {
+          "enum": ["none", "unverified", "official"]
+        },
+        "reasonCode": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "summary": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "sourceIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "safetyNotes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyText"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "launchVerdict": { "const": "allow" }
+            },
+            "required": ["launchVerdict"]
+          },
+          "then": {
+            "properties": {
+              "state": { "const": "supported" },
+              "authorization": { "const": "official" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": { "enum": ["blocked", "handoff-only"] }
+            },
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "launchVerdict": { "const": "deny" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "authorization": { "enum": ["none", "unverified"] }
+            },
+            "required": ["authorization"]
+          },
+          "then": {
+            "properties": {
+              "launchVerdict": { "const": "deny" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": { "const": "handoff-only" }
+            },
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "launchMode": { "enum": ["remote", "handoff"] }
+            }
+          }
+        }
+      ]
+    },
+    "has-native-linux": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "native-linux" },
+          "kind": { "const": "native" },
+          "launchMode": { "const": "local" },
+          "hostPlatforms": { "const": ["linux"] }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "has-native-bsd": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "native-bsd" },
+          "kind": { "const": "native" },
+          "launchMode": { "const": "local" },
+          "hostPlatforms": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "contains": { "const": "freebsd" },
+            "allOf": [
+              { "contains": { "const": "openbsd" } },
+              { "contains": { "const": "netbsd" } },
+              { "contains": { "const": "dragonflybsd" } }
+            ]
+          }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "has-wine": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "$ref": "#/$defs/all-host-translation-wine"
+      }
+    },
+    "all-host-translation-wine": {
+      "properties": {
+        "id": { "const": "wine" },
+        "kind": { "const": "translation" },
+        "launchMode": { "const": "local" },
+        "hostPlatforms": { "$ref": "#/$defs/all-host-platforms" }
+      },
+      "required": ["id", "kind", "launchMode", "hostPlatforms"]
+    },
+    "has-proton": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "proton" },
+          "kind": { "const": "translation" },
+          "launchMode": { "const": "local" },
+          "hostPlatforms": { "const": ["linux"] }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "has-dockur-qemu": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "dockur-qemu" },
+          "kind": { "const": "virtual-machine" },
+          "launchMode": { "const": "local" },
+          "hostPlatforms": { "const": ["linux"] }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "has-bhyve": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "bhyve" },
+          "kind": { "const": "virtual-machine" },
+          "launchMode": { "const": "local" },
+          "hostPlatforms": { "const": ["freebsd"] }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "has-physical-windows-remote": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "physical-windows-remote" },
+          "kind": { "const": "remote-physical-windows" },
+          "launchMode": { "const": "remote" },
+          "hostPlatforms": { "$ref": "#/$defs/all-host-platforms" }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "has-physical-macos-remote": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "physical-macos-remote" },
+          "kind": { "const": "remote-physical-macos" },
+          "launchMode": { "const": "remote" },
+          "hostPlatforms": { "$ref": "#/$defs/all-host-platforms" },
+          "state": { "const": "handoff-only" },
+          "launchVerdict": { "const": "deny" },
+          "authorization": { "const": "unverified" }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms", "state", "launchVerdict", "authorization"]
+      }
+    },
+    "has-dual-boot": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "dual-boot" },
+          "kind": { "const": "dual-boot" },
+          "launchMode": { "const": "handoff" },
+          "hostPlatforms": { "$ref": "#/$defs/all-host-platforms" }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms"]
+      }
+    },
+    "all-host-platforms": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "contains": { "const": "linux" },
+      "allOf": [
+        { "contains": { "const": "freebsd" } },
+        { "contains": { "const": "openbsd" } },
+        { "contains": { "const": "netbsd" } },
+        { "contains": { "const": "dragonflybsd" } }
+      ]
+    }
+  }
+}
