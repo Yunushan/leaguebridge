@@ -20,7 +20,7 @@
   ],
   "properties": {
     "$schema": { "const": "https://github.com/Yunushan/leaguebridge/schemas/package-manifest.schema.json" },
-    "schema_version": { "const": 2 },
+    "schema_version": { "const": 3 },
     "name": { "const": "leaguebridge" },
     "version": {
       "type": "string",
@@ -31,19 +31,16 @@
       "additionalProperties": false,
       "required": ["goos", "goarch", "required_kernel"],
       "properties": {
-        "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly", "windows", "darwin"] },
-        "goarch": { "enum": ["amd64", "arm64"] },
-        "required_kernel": { "enum": ["Linux", "FreeBSD", "OpenBSD", "NetBSD", "DragonFly", "Windows", "Darwin"] }
+        "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"] },
+        "goarch": { "const": "amd64" },
+        "required_kernel": { "enum": ["Linux", "FreeBSD", "OpenBSD", "NetBSD", "DragonFly"] }
       },
       "oneOf": [
         { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Linux" } } },
         { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "FreeBSD" } } },
         { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "OpenBSD" } } },
         { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "NetBSD" } } },
-        { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "DragonFly" } } },
-        { "properties": { "goos": { "const": "windows" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Windows" } } },
-        { "properties": { "goos": { "const": "darwin" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Darwin" } } },
-        { "properties": { "goos": { "const": "darwin" }, "goarch": { "const": "arm64" }, "required_kernel": { "const": "Darwin" } } }
+        { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "DragonFly" } } }
       ]
     },
     "artifact": {
@@ -53,9 +50,9 @@
       "properties": {
         "filename": {
           "type": "string",
-          "pattern": "^leaguebridge_[0-9A-Za-z.+-]+_(?:(?:linux|freebsd|openbsd|netbsd|dragonfly|windows)_amd64|darwin_(?:amd64|arm64))\\.(?:tar\\.gz|zip)$"
+          "pattern": "^leaguebridge_[0-9A-Za-z.+-]+_(?:linux|freebsd|openbsd|netbsd|dragonfly)_amd64\\.tar\\.gz$"
         },
-        "format": { "enum": ["tar.gz", "zip"] }
+        "format": { "const": "tar.gz" }
       }
     },
     "provenance": {
@@ -70,7 +67,7 @@
         "build_environment": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["cgo_enabled", "goenv", "goflags", "goexperiment", "gofips140", "gocacheprog", "go_extlink_enabled", "gotoolchain", "gowork", "goamd64", "goarm64", "go111module", "goproxy", "gonoproxy", "gosumdb", "gonosumdb", "govcs", "goprivate"],
+          "required": ["cgo_enabled", "goenv", "goflags", "goexperiment", "gofips140", "gocacheprog", "go_extlink_enabled", "gotoolchain", "gowork", "goamd64", "go111module", "goproxy", "gonoproxy", "gosumdb", "gonosumdb", "govcs", "goprivate"],
           "properties": {
             "cgo_enabled": { "const": "0" },
             "goenv": { "const": "off" },
@@ -81,8 +78,7 @@
             "go_extlink_enabled": { "const": "0" },
             "gotoolchain": { "const": "local" },
             "gowork": { "const": "off" },
-            "goamd64": { "enum": ["", "v1"] },
-            "goarm64": { "enum": ["", "v8.0"] },
+            "goamd64": { "const": "v1" },
             "go111module": { "const": "on" },
             "goproxy": { "const": "off" },
             "gonoproxy": { "const": "" },
@@ -107,43 +103,22 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "target": { "properties": { "goos": { "const": "windows" } } } } },
-      "then": {
-        "properties": {
-          "artifact": { "properties": { "format": { "const": "zip" }, "filename": { "pattern": "_windows_amd64\\.zip$" } } },
-          "default_prefix": { "const": "" },
-          "metadata_install_path": { "const": "" },
-          "payload": {
-            "minItems": 4,
-            "maxItems": 4,
-            "prefixItems": [
-              { "$ref": "#/$defs/windowsLicense" },
-              { "$ref": "#/$defs/windowsReadme" },
-              { "$ref": "#/$defs/windowsSBOM" },
-              { "$ref": "#/$defs/windowsBinary" }
-            ],
-            "items": false
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "artifact": { "properties": { "format": { "const": "tar.gz" }, "filename": { "pattern": "_(?:(?:linux|freebsd|openbsd|netbsd|dragonfly)_amd64|darwin_(?:amd64|arm64))\\.tar\\.gz$" } } },
-          "default_prefix": { "const": "/usr/local" },
-          "metadata_install_path": { "const": "/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" },
-          "payload": {
-            "minItems": 6,
-            "maxItems": 6,
-            "prefixItems": [
-              { "$ref": "#/$defs/unixLicense" },
-              { "$ref": "#/$defs/unixReadme" },
-              { "$ref": "#/$defs/unixSBOM" },
-              { "$ref": "#/$defs/unixInstaller" },
-              { "$ref": "#/$defs/unixBinary" },
-              { "$ref": "#/$defs/unixUninstaller" }
-            ],
-            "items": false
-          }
+      "properties": {
+        "artifact": { "properties": { "format": { "const": "tar.gz" }, "filename": { "pattern": "_(?:linux|freebsd|openbsd|netbsd|dragonfly)_amd64\\.tar\\.gz$" } } },
+        "default_prefix": { "const": "/usr/local" },
+        "metadata_install_path": { "const": "/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" },
+        "payload": {
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "$ref": "#/$defs/unixLicense" },
+            { "$ref": "#/$defs/unixReadme" },
+            { "$ref": "#/$defs/unixSBOM" },
+            { "$ref": "#/$defs/unixInstaller" },
+            { "$ref": "#/$defs/unixBinary" },
+            { "$ref": "#/$defs/unixUninstaller" }
+          ],
+          "items": false
         }
       }
     },
@@ -166,19 +141,6 @@
     {
       "if": { "properties": { "target": { "properties": { "goos": { "const": "dragonfly" } } } } },
       "then": { "$ref": "#/$defs/dragonflyIdentity" }
-    },
-    {
-      "if": { "properties": { "target": { "properties": { "goos": { "const": "windows" } } } } },
-      "then": { "$ref": "#/$defs/windowsIdentity" }
-    },
-    {
-      "if": { "properties": { "target": { "properties": { "goos": { "const": "darwin" } } } } },
-      "then": { "$ref": "#/$defs/darwinIdentity" }
-    },
-    {
-      "if": { "properties": { "target": { "properties": { "goarch": { "const": "arm64" } } } } },
-      "then": { "properties": { "provenance": { "properties": { "build_environment": { "properties": { "goamd64": { "const": "" }, "goarm64": { "const": "v8.0" } } } } } } },
-      "else": { "properties": { "provenance": { "properties": { "build_environment": { "properties": { "goamd64": { "const": "v1" }, "goarm64": { "const": "" } } } } } } }
     }
   ],
   "$defs": {
@@ -188,7 +150,7 @@
       "required": ["archive_path", "install_path", "role", "mode", "size", "sha256"],
       "properties": {
         "archive_path": {
-          "enum": ["LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "leaguebridge.exe", "uninstall.sh"]
+          "enum": ["LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "uninstall.sh"]
         },
         "install_path": {
           "type": "string",
@@ -236,30 +198,6 @@
         { "properties": { "archive_path": { "const": "uninstall.sh" }, "install_path": { "const": "/usr/local/libexec/leaguebridge/uninstall.sh" }, "role": { "const": "uninstaller" }, "mode": { "const": "0755" } } }
       ]
     },
-    "windowsLicense": {
-      "allOf": [
-        { "$ref": "#/$defs/payloadFile" },
-        { "properties": { "archive_path": { "const": "LICENSE" }, "install_path": { "const": "" }, "role": { "const": "license" }, "mode": { "const": "0644" } } }
-      ]
-    },
-    "windowsReadme": {
-      "allOf": [
-        { "$ref": "#/$defs/payloadFile" },
-        { "properties": { "archive_path": { "const": "README.md" }, "install_path": { "const": "" }, "role": { "const": "documentation" }, "mode": { "const": "0644" } } }
-      ]
-    },
-    "windowsSBOM": {
-      "allOf": [
-        { "$ref": "#/$defs/payloadFile" },
-        { "properties": { "archive_path": { "const": "SBOM.spdx.json" }, "install_path": { "const": "" }, "role": { "const": "sbom" }, "mode": { "const": "0644" } } }
-      ]
-    },
-    "windowsBinary": {
-      "allOf": [
-        { "$ref": "#/$defs/payloadFile" },
-        { "properties": { "archive_path": { "const": "leaguebridge.exe" }, "install_path": { "const": "" }, "role": { "const": "executable" }, "mode": { "const": "0755" } } }
-      ]
-    },
     "linuxIdentity": {
       "properties": { "target": { "properties": { "required_kernel": { "const": "Linux" } } }, "artifact": { "properties": { "filename": { "pattern": "_linux_amd64\\.tar\\.gz$" } } } }
     },
@@ -274,12 +212,6 @@
     },
     "dragonflyIdentity": {
       "properties": { "target": { "properties": { "required_kernel": { "const": "DragonFly" } } }, "artifact": { "properties": { "filename": { "pattern": "_dragonfly_amd64\\.tar\\.gz$" } } } }
-    },
-    "windowsIdentity": {
-      "properties": { "target": { "properties": { "required_kernel": { "const": "Windows" } } }, "artifact": { "properties": { "filename": { "pattern": "_windows_amd64\\.zip$" } } } }
-    },
-    "darwinIdentity": {
-      "properties": { "target": { "properties": { "required_kernel": { "const": "Darwin" } } }, "artifact": { "properties": { "filename": { "pattern": "_darwin_(?:amd64|arm64)\\.tar\\.gz$" } } } }
     }
   }
 }

@@ -33,8 +33,17 @@ func TestAuthenticatedEvidenceSchemasAcceptOnlyBoundedScoreFreeContracts(t *test
 	t.Run("payload is route and cell bound", func(t *testing.T) {
 		candidate := validEvidenceV2Payload()
 		candidate["route_id"] = "physical-macos-remote"
+		candidate["host_platform"] = "macos"
+		candidate["host_architecture"] = "arm64"
+		if err := payloadSchema.Validate(candidate); err != nil {
+			t.Fatalf("v2 payload schema rejected a valid macOS route: %v", err)
+		}
+		candidate = validEvidenceV2Payload()
+		candidate["route_id"] = "physical-macos-remote"
+		candidate["host_platform"] = "windows"
+		candidate["host_architecture"] = "amd64"
 		if err := payloadSchema.Validate(candidate); err == nil {
-			t.Fatal("v2 payload schema accepted the unsupported macOS route")
+			t.Fatal("v2 payload schema accepted a Windows host on the macOS route")
 		}
 		candidate = validEvidenceV2Payload()
 		candidate["client_architecture"] = "arm64"

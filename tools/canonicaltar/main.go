@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 )
 
 const (
@@ -76,27 +78,46 @@ func createArchive(root, output string, epoch int64) (returnErr error) {
 	if root == "" || output == "" {
 		return errors.New("root and output are required")
 	}
-	if !strings.HasSuffix(filepath.Base(output), ".tar.gz") {
+	inputRoot, err := fileinput.OpenDirectoryRoot(root)
+	if err != nil {
+		return fmt.Errorf("root must be a non-symlink directory: %w", err)
+	}
+	defer inputRoot.Close()
+	outputAbsolute, err := filepath.Abs(output)
+	if err != nil {
+		return fmt.Errorf("resolve output: %w", err)
+	}
+	if !strings.HasSuffix(filepath.Base(outputAbsolute), ".tar.gz") {
 		return errors.New("output filename must end in .tar.gz")
 	}
-	rootInfo, err := os.Lstat(root)
+	outputParent, err := fileinput.OpenDirectoryRoot(filepath.Dir(outputAbsolute))
 	if err != nil {
-		return fmt.Errorf("inspect root: %w", err)
+		return fmt.Errorf("inspect output parents: %w", err)
 	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
-		return errors.New("root must be a non-symlink directory")
+	defer outputParent.Close()
+	outputName := filepath.Base(outputAbsolute)
+	if outputName == "" || outputName == "." || outputName == string(filepath.Separator) || filepath.VolumeName(outputName) != "" {
+		return errors.New("output is not a regular child path")
+	}
+	if info, statErr := outputParent.Lstat(outputName); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("output must not be a symlink")
+		}
+		return errors.New("create output: file exists")
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("inspect output: %w", statErr)
 	}
 
 	bodies := make(map[string][]byte, len(canonicalMembers))
 	for _, member := range canonicalMembers {
-		body, err := readRegularBounded(filepath.Join(root, member.name), memberSizeLimit(member.name))
+		body, err := fileinput.ReadRegularBoundedFromRoot(inputRoot, member.name, memberSizeLimit(member.name))
 		if err != nil {
 			return fmt.Errorf("read %q: %w", member.name, err)
 		}
 		bodies[member.name] = body
 	}
 
-	outputFile, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	outputFile, err := outputParent.OpenFile(outputName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
@@ -106,7 +127,7 @@ func createArchive(root, output string, epoch int64) (returnErr error) {
 			returnErr = fmt.Errorf("close output: %w", closeErr)
 		}
 		if !complete || returnErr != nil {
-			_ = os.Remove(output)
+			_ = outputParent.Remove(outputName)
 		}
 	}()
 
@@ -158,44 +179,6 @@ func memberSizeLimit(name string) int64 {
 	default:
 		return maxAuxiliaryInput
 	}
-}
-
-func readRegularBounded(path string, maximum int64) ([]byte, error) {
-	before, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
-		return nil, errors.New("not a regular, non-symlink file")
-	}
-	if before.Size() > maximum {
-		return nil, fmt.Errorf("size %d exceeds limit %d", before.Size(), maximum)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	body, err := io.ReadAll(io.LimitReader(file, maximum+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(body)) > maximum {
-		return nil, fmt.Errorf("content exceeds limit %d", maximum)
-	}
-	after, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	finalPath, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !after.Mode().IsRegular() || finalPath.Mode()&os.ModeSymlink != 0 || !finalPath.Mode().IsRegular() ||
-		!os.SameFile(before, after) || !os.SameFile(before, finalPath) || after.Size() != int64(len(body)) || finalPath.Size() != int64(len(body)) {
-		return nil, errors.New("file changed while reading")
-	}
-	return body, nil
 }
 
 func fatalf(format string, arguments ...any) {

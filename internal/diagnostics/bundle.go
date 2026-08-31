@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 )
 
 const MaxBundleSize = 2 * 1024 * 1024
@@ -45,10 +47,12 @@ var deterministicZipTime = time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC
 // On Windows the file inherits its directory DACL because os.Chmod cannot make
 // that ACL owner-only. If any step fails, no partial destination is left behind.
 func WriteBundle(destination string, report Report) error {
-	return writeBundle(destination, report, os.Link)
+	return writeBundle(destination, report, func(root *os.Root, oldPath, newPath string) error {
+		return fileinput.LinkInRoot(root, filepath.Base(oldPath), filepath.Base(newPath))
+	})
 }
 
-type publishFunc func(oldPath, newPath string) error
+type publishFunc func(root *os.Root, oldPath, newPath string) error
 
 func writeBundle(destination string, report Report, publish publishFunc) error {
 	target, err := validateDestination(destination)
@@ -60,17 +64,23 @@ func writeBundle(destination string, report Report, publish publishFunc) error {
 		return err
 	}
 
-	temporary, err := os.CreateTemp(filepath.Dir(target), ".leaguebridge-support-*.tmp")
+	directory := filepath.Dir(target)
+	root, err := fileinput.OpenDirectoryRoot(directory)
+	if err != nil {
+		return fmt.Errorf("open support bundle directory: %w", err)
+	}
+	defer root.Close()
+	temporary, temporaryName, err := fileinput.CreateTempFile(root, ".leaguebridge-support-", 0o600)
 	if err != nil {
 		return fmt.Errorf("create temporary support bundle: %w", err)
 	}
-	temporaryPath := temporary.Name()
+	temporaryPath := filepath.Join(directory, temporaryName)
 	closed := false
 	defer func() {
 		if !closed {
 			_ = temporary.Close()
 		}
-		_ = os.Remove(temporaryPath)
+		_ = root.Remove(temporaryName)
 	}()
 
 	if err := temporary.Chmod(0o600); err != nil {
@@ -91,7 +101,7 @@ func writeBundle(destination string, report Report, publish publishFunc) error {
 	}
 	closed = true
 
-	if err := publish(temporaryPath, target); err != nil {
+	if err := publish(root, temporaryPath, target); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return ErrBundleExists
 		}
@@ -101,8 +111,8 @@ func writeBundle(destination string, report Report, publish publishFunc) error {
 	// report a failed bundle if cleanup is denied; the deferred removal gets one
 	// more best-effort attempt and any remnant is private (0600) and identical to
 	// the published bytes.
-	if err := os.Remove(temporaryPath); err == nil || errors.Is(err, fs.ErrNotExist) {
-		temporaryPath = ""
+	if err := root.Remove(temporaryName); err == nil || errors.Is(err, fs.ErrNotExist) {
+		temporaryName = ""
 	}
 	return nil
 }
@@ -114,6 +124,9 @@ func validateDestination(destination string) (string, error) {
 	target, err := filepath.Abs(destination)
 	if err != nil {
 		return "", fmt.Errorf("resolve support bundle destination: %w", err)
+	}
+	if err := fileinput.RejectSymlinkedParents(target); err != nil {
+		return "", fmt.Errorf("inspect support bundle path: %w", err)
 	}
 	directory := filepath.Dir(target)
 	info, err := os.Stat(directory)

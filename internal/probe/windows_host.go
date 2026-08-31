@@ -2,22 +2,22 @@ package probe
 
 import (
 	"context"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 const (
-	windowsVersionKey     = `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`
-	windowsBIOSKey        = `HKLM\HARDWARE\DESCRIPTION\System\BIOS`
-	windowsDirectXKey     = `HKLM\SOFTWARE\Microsoft\DirectX`
-	windowsSecureBootKey  = `HKLM\SYSTEM\CurrentControlSet\Control\SecureBoot\State`
-	windowsDeviceGuardKey = `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard`
-	windowsHVCIKey        = `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity`
-	imageFileMachineI386  = uint16(0x014c)
-	imageFileMachineARMNT = uint16(0x01c4)
-	imageFileMachineAMD64 = uint16(0x8664)
-	imageFileMachineARM64 = uint16(0xaa64)
+	windowsVersionKey        = `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`
+	windowsBIOSKey           = `HKLM\HARDWARE\DESCRIPTION\System\BIOS`
+	windowsDirectXKey        = `HKLM\SOFTWARE\Microsoft\DirectX`
+	windowsSecureBootKey     = `HKLM\SYSTEM\CurrentControlSet\Control\SecureBoot\State`
+	windowsDeviceGuardKey    = `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard`
+	windowsHVCIKey           = `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity`
+	imageFileMachineI386     = uint16(0x014c)
+	imageFileMachineARMNT    = uint16(0x01c4)
+	imageFileMachineAMD64    = uint16(0x8664)
+	imageFileMachineARM64    = uint16(0xaa64)
+	vanguardPreCheckGuidance = "Riot's optional Vanguard Pre-Check requires at least Windows 11 25H2 plus UEFI/Secure Boot, TPM 2.0, VBS/HVCI, and IOMMU; use Vanguard's own pre-check or VGTray to verify applicability and active state. Do not spoof or weaken security features."
 )
 
 type windowsProcedure interface {
@@ -169,8 +169,8 @@ func (p *Prober) windowsSecurityCheck(ctx context.Context) Check {
 		return Check{
 			ID:       "host.windows-security",
 			Status:   StatusWarn,
-			Summary:  "TPM 2.0, Secure Boot, VBS/HVCI, and IOMMU applicability and active state could not be determined.",
-			Guidance: "Use Vanguard's own pre-check or VGTray guidance and the hardware vendor's documentation; do not spoof or weaken security features.",
+			Summary:  "TPM 2.0, Secure Boot, VBS/HVCI, and IOMMU applicability and active state could not be determined; this probe cannot establish optional Vanguard Pre-Check eligibility.",
+			Guidance: vanguardPreCheckGuidance,
 		}
 	}
 
@@ -179,8 +179,8 @@ func (p *Prober) windowsSecurityCheck(ctx context.Context) Check {
 		return Check{
 			ID:       "host.windows-security",
 			Status:   StatusWarn,
-			Summary:  "Vanguard may require TPM 2.0, Secure Boot, VBS/HVCI, or IOMMU for this configuration; active state remains unverified.",
-			Guidance: "Follow only the requirements reported by Vanguard's pre-check or VGTray and do not disable, spoof, or bypass platform security.",
+			Summary:  "This host is not identified as Windows 11; optional Vanguard Pre-Check requires at least Windows 11 25H2, while ordinary League host eligibility remains separately unverified.",
+			Guidance: vanguardPreCheckGuidance,
 		}
 	}
 
@@ -191,23 +191,23 @@ func (p *Prober) windowsSecurityCheck(ctx context.Context) Check {
 		return Check{
 			ID:       "host.windows-security",
 			Status:   StatusWarn,
-			Summary:  "A Windows 11 Secure Boot, VBS, or HVCI configuration indicator is disabled; applicability, active state, TPM 2.0, and IOMMU remain unverified.",
-			Guidance: "Use Vanguard's own restriction/pre-check or VGTray to identify requirements for this machine; do not bypass, spoof, or change unrelated security settings.",
+			Summary:  "A Windows 11 Secure Boot, VBS, or HVCI configuration indicator is disabled; this may prevent optional Vanguard Pre-Check, while active state, TPM 2.0, and IOMMU remain unverified.",
+			Guidance: vanguardPreCheckGuidance,
 		}
 	}
 	if !secureBootKnown || !vbsKnown || !hvciKnown {
 		return Check{
 			ID:       "host.windows-security",
 			Status:   StatusWarn,
-			Summary:  "Windows 11 Secure Boot, VBS, or HVCI configuration could not be fully verified; TPM 2.0 and IOMMU also remain unverified.",
-			Guidance: "Confirm all requirements through Vanguard's pre-check or VGTray and the hardware vendor; do not bypass or spoof them.",
+			Summary:  "Windows 11 Secure Boot, VBS, or HVCI configuration could not be fully verified; optional Vanguard Pre-Check also requires at least Windows 11 25H2, and TPM 2.0 and IOMMU remain unverified.",
+			Guidance: vanguardPreCheckGuidance,
 		}
 	}
 	return Check{
 		ID:       "host.windows-security",
 		Status:   StatusWarn,
-		Summary:  "Secure Boot, VBS, and HVCI are configured, but active state, TPM 2.0, and IOMMU remain unverified.",
-		Guidance: "Confirm the complete active security state with Vanguard's pre-check or VGTray before play; configured registry values are not attestation.",
+		Summary:  "Secure Boot, VBS, and HVCI are configured, but optional Vanguard Pre-Check also requires at least Windows 11 25H2 and runtime attestation; active state, TPM 2.0, and IOMMU remain unverified.",
+		Guidance: vanguardPreCheckGuidance,
 	}
 }
 
@@ -274,7 +274,7 @@ func (p *Prober) physicalHostCheck(ctx context.Context) Check {
 		}
 		paths := make([]string, 0, len(guestDrivers))
 		for _, driver := range guestDrivers {
-			paths = append(paths, filepath.Join(root, "System32", "drivers", driver))
+			paths = append(paths, targetPathJoin(p.goos, root, "System32", "drivers", driver))
 		}
 		if p.regularFileExistsAny(paths...) {
 			return Check{
@@ -303,7 +303,7 @@ func (p *Prober) physicalHostCheck(ctx context.Context) Check {
 }
 
 func (p *Prober) riotClientCheck() Check {
-	if p.regularFileExistsAny(p.installCandidates(filepath.Join("Riot Games", "Riot Client", "RiotClientServices.exe"))...) {
+	if p.regularFileExistsAny(p.installCandidates(targetPathJoin(p.goos, "Riot Games", "Riot Client", "RiotClientServices.exe"))...) {
 		return Check{ID: "host.riot-client", Status: StatusPass, Summary: "A regular Riot Client executable is present at a local path derived from process environment; signature and integrity are not verified."}
 	}
 	return Check{
@@ -315,7 +315,7 @@ func (p *Prober) riotClientCheck() Check {
 }
 
 func (p *Prober) leagueInstallCheck() Check {
-	if p.regularFileExistsAny(p.installCandidates(filepath.Join("Riot Games", "League of Legends", "LeagueClient.exe"))...) {
+	if p.regularFileExistsAny(p.installCandidates(targetPathJoin(p.goos, "Riot Games", "League of Legends", "LeagueClient.exe"))...) {
 		return Check{ID: "host.league", Status: StatusPass, Summary: "A regular League executable is present at a local path derived from process environment; signature and integrity are not verified."}
 	}
 	return Check{
@@ -330,10 +330,14 @@ func (p *Prober) vanguardServiceCheck(ctx context.Context) Check {
 	kernel := p.serviceState(ctx, "vgk")
 	userMode := p.serviceState(ctx, "vgc")
 	if kernel == serviceUnavailable || userMode == serviceUnavailable {
+		summary := "One or both required Riot Vanguard services were not detected."
+		if p.regularFileExistsAny(p.installCandidates(targetPathJoin(p.goos, "Riot Vanguard", "installer.exe"))...) {
+			summary = "The Riot Vanguard installer executable is present, but one or both required services were not detected; installer presence does not prove Vanguard is installed or running."
+		}
 		return Check{
 			ID:       "host.vanguard-service",
 			Status:   StatusFail,
-			Summary:  "One or both required Riot Vanguard services were not detected.",
+			Summary:  summary,
 			Guidance: "Repair Riot Vanguard through supported Riot software; do not download or copy standalone DLLs or drivers.",
 		}
 	}
@@ -352,12 +356,26 @@ func (p *Prober) sunshineCheck(ctx context.Context) Check {
 	if _, ok := p.lookupAny("sunshine.exe", "sunshine"); ok {
 		return Check{ID: "host.sunshine", Status: StatusPass, Summary: "A Sunshine executable is discoverable on the Windows host."}
 	}
-	if p.regularFileExistsAny(p.installCandidates(filepath.Join("Sunshine", "sunshine.exe"))...) ||
-		p.regularFileExistsAny(p.installCandidates(filepath.Join("LizardByte", "Sunshine", "sunshine.exe"))...) {
+	if p.regularFileExistsAny(p.installCandidates(targetPathJoin(p.goos, "Sunshine", "sunshine.exe"))...) ||
+		p.regularFileExistsAny(p.installCandidates(targetPathJoin(p.goos, "LizardByte", "Sunshine", "sunshine.exe"))...) {
 		return Check{ID: "host.sunshine", Status: StatusPass, Summary: "A regular Sunshine executable is present at a local path derived from process environment; signature and integrity are not verified."}
 	}
-	if p.serviceExists(ctx, "SunshineService") || p.serviceExists(ctx, "sunshine") {
-		return Check{ID: "host.sunshine", Status: StatusPass, Summary: "A Sunshine service is registered on the Windows host."}
+	registeredService := false
+	for _, name := range []string{"SunshineService", "sunshine"} {
+		switch p.serviceState(ctx, name) {
+		case serviceRunning:
+			return Check{ID: "host.sunshine", Status: StatusPass, Summary: "The Windows Service Control Manager reports a Sunshine service as running."}
+		case serviceRegistered:
+			registeredService = true
+		}
+	}
+	if registeredService {
+		return Check{
+			ID:       "host.sunshine",
+			Status:   StatusWarn,
+			Summary:  "A Sunshine service is registered, but the Windows Service Control Manager did not report it as running.",
+			Guidance: "Start Sunshine through its supported Windows service or user-session configuration, then verify pairing and streaming from the client; LeagueBridge never starts or changes services.",
+		}
 	}
 	return Check{
 		ID:       "host.sunshine",
@@ -426,7 +444,7 @@ func (p *Prober) installCandidates(relative string) []string {
 	}
 	paths := make([]string, 0, len(roots))
 	for _, root := range uniqueNonEmpty(roots) {
-		paths = append(paths, filepath.Join(root, relative))
+		paths = append(paths, targetPathJoin(p.goos, root, relative))
 	}
 	return paths
 }

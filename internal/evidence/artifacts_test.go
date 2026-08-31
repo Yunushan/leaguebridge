@@ -157,6 +157,18 @@ func TestVerifyArtifactBundleRejectsInvalidEntries(t *testing.T) {
 			t.Fatalf("err=%v", err)
 		}
 	})
+
+	t.Run("directory parent symlink", func(t *testing.T) {
+		record, directory, _, _ := newFixture(t)
+		link := filepath.Join(t.TempDir(), "bundle-parent-link")
+		if err := os.Symlink(filepath.Dir(directory), link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		redirected := filepath.Join(link, filepath.Base(directory))
+		if _, err := VerifyArtifactBundle(record, redirected); err == nil || !strings.Contains(err.Error(), "path parent") {
+			t.Fatalf("err=%v", err)
+		}
+	})
 }
 
 func TestVerifyArtifactBundlePinsOpenedDirectory(t *testing.T) {

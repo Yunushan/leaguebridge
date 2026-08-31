@@ -173,6 +173,8 @@ func VerifySetAt(envelopeData, hostData, clientData, sessionData []byte, expecte
 		routeID:               payload.RouteID,
 		testProfileID:         payload.TestProfileID,
 		policyID:              payload.PolicyID,
+		hostPlatform:          payload.HostPlatform,
+		hostArchitecture:      payload.HostArchitecture,
 		clientPlatform:        payload.ClientPlatform,
 		clientArchitecture:    payload.ClientArchitecture,
 		manifestAsOf:          payload.ManifestAsOf,

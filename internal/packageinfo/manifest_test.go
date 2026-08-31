@@ -121,42 +121,6 @@ func TestMarshalIsCanonicalAndNewlineTerminated(t *testing.T) {
 	}
 }
 
-func TestWindowsManifestHasNoUnixInstallClaims(t *testing.T) {
-	bodies := map[string][]byte{
-		"LICENSE":          []byte("license"),
-		"README.md":        []byte("readme"),
-		"SBOM.spdx.json":   []byte("sbom"),
-		"leaguebridge.exe": []byte("binary"),
-	}
-	manifest, err := Build("v1.2.3", "windows", "amd64", 1787702400, testCommit, testTree, "go1.27.0", bodies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if manifest.DefaultPrefix != "" || manifest.MetadataPath != "" || manifest.Artifact.Format != "zip" {
-		t.Fatalf("Windows manifest carries a Unix installation claim: %+v", manifest)
-	}
-	for _, entry := range manifest.Payload {
-		if entry.InstallPath != "" {
-			t.Fatalf("Windows payload claims install path %q", entry.InstallPath)
-		}
-	}
-}
-
-func TestDarwinTargetsAreExactAndArchitectureBound(t *testing.T) {
-	for _, goarch := range []string{"amd64", "arm64"} {
-		manifest, err := Build("v1.2.3", "darwin", goarch, 1787702400, testCommit, testTree, "go1.27.0", unixBodies())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if manifest.Target.RequiredKernel != "Darwin" || !strings.Contains(manifest.Artifact.Filename, "_darwin_"+goarch+".tar.gz") {
-			t.Fatalf("Darwin target is not exact: %+v", manifest)
-		}
-		if goarch == "arm64" && (manifest.Provenance.BuildEnvironment.GOARM64 != "v8.0" || manifest.Provenance.BuildEnvironment.GOAMD64 != "") {
-			t.Fatalf("arm64 environment is not architecture-bound: %+v", manifest.Provenance.BuildEnvironment)
-		}
-	}
-}
-
 func unixBodies() map[string][]byte {
 	return map[string][]byte{
 		"LICENSE":        []byte("license"),

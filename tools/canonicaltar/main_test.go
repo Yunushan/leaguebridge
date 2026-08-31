@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,19 @@ func TestCreateArchiveRefusesOverwriteAndInvalidEpoch(t *testing.T) {
 		if _, err := parseEpoch(value); err == nil {
 			t.Fatalf("parseEpoch(%q) unexpectedly succeeded", value)
 		}
+	}
+}
+
+func TestCreateArchiveRejectsSymlinkedOutputParent(t *testing.T) {
+	root := makePayload(t)
+	targetDirectory := t.TempDir()
+	linkParent := filepath.Join(t.TempDir(), "output-link")
+	if err := os.Symlink(targetDirectory, linkParent); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	output := filepath.Join(linkParent, "release.tar.gz")
+	if err := createArchive(root, output, testEpoch); err == nil || !strings.Contains(err.Error(), "output parents") || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("createArchive(symlinked output parent) error = %v", err)
 	}
 }
 

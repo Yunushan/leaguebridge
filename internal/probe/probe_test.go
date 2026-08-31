@@ -179,6 +179,15 @@ func checkStatus(t *testing.T, report Report, id string) Status {
 	return check.Status
 }
 
+func checkSummary(t *testing.T, report Report, id string) string {
+	t.Helper()
+	check, ok := report.Check(id)
+	if !ok {
+		t.Fatalf("missing check %q in %+v", id, report.Checks)
+	}
+	return check.Summary
+}
+
 func TestClientPlatformEligibility(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -210,18 +219,30 @@ func TestClientPlatformEligibility(t *testing.T) {
 func TestGraphicalSessionChecks(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
-		name string
-		env  fixtureEnv
-		want Status
+		name  string
+		goos  string
+		files map[string]bool
+		env   fixtureEnv
+		want  Status
 	}{
-		{"wayland", fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, StatusPass},
-		{"x11", fixtureEnv{"DISPLAY": ":0"}, StatusPass},
-		{"type-only", fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, StatusWarn},
-		{"headless", nil, StatusFail},
+		{name: "wayland", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, want: StatusPass},
+		{name: "x11", env: fixtureEnv{"DISPLAY": ":0"}, want: StatusPass},
+		{name: "sdl-kmsdrm", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
+		{name: "qt-eglfs", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"QT_QPA_PLATFORM": "eglfs"}, want: StatusPass},
+		{name: "qt-linuxfb", files: fixturePaths(filepath.FromSlash("/dev/fb0")), env: fixtureEnv{"QT_QPA_PLATFORM": "linuxfb"}, want: StatusPass},
+		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
+		{name: "netbsd-sdl-kmsdrm-unsupported-even-with-x11", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"DISPLAY": ":0", "SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
+		{name: "direct-backend-without-device", env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
+		{name: "type-only", env: fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, want: StatusWarn},
+		{name: "headless", want: StatusFail},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := checkStatus(t, fixtureProber("linux", "amd64", nil, tt.env, nil).Client(context.Background()), "client.graphical-session")
+			goos := tt.goos
+			if goos == "" {
+				goos = "linux"
+			}
+			got := checkStatus(t, fixtureProber(goos, "amd64", tt.files, tt.env, nil).Client(context.Background()), "client.graphical-session")
 			if got != tt.want {
 				t.Fatalf("session status = %q, want %q", got, tt.want)
 			}
@@ -229,10 +250,223 @@ func TestGraphicalSessionChecks(t *testing.T) {
 	}
 }
 
+func TestInputPathChecks(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		goos  string
+		files map[string]bool
+		env   fixtureEnv
+		want  Status
+	}{
+		{name: "wayland", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, want: StatusPass},
+		{name: "x11", env: fixtureEnv{"DISPLAY": ":0"}, want: StatusPass},
+		{name: "sdl-kmsdrm-with-evdev", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
+		{name: "freebsd-sdl-kmsdrm-wscons-only", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "openbsd-sdl-kmsdrm-with-wscons", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
+		{name: "openbsd-sdl-kmsdrm-without-wscons-mouse", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "sdl-kmsdrm-without-evdev", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "type-only", env: fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, want: StatusWarn},
+		{name: "headless", want: StatusWarn},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			goos := tt.goos
+			if goos == "" {
+				goos = "linux"
+			}
+			got := checkStatus(t, fixtureProber(goos, "amd64", tt.files, tt.env, nil).Client(context.Background()), "client.input")
+			if got != tt.want {
+				t.Fatalf("input status = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInputPathReportsBackendSpecificEndpoint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		goos   string
+		files  map[string]bool
+		env    fixtureEnv
+		want   string
+		absent string
+	}{
+		{
+			name:   "linux evdev",
+			goos:   "linux",
+			files:  fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			env:    fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
+			want:   "has an evdev input endpoint",
+			absent: "WSCONS",
+		},
+		{
+			name:   "openbsd wscons",
+			goos:   "openbsd",
+			files:  fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")),
+			env:    fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
+			want:   "has a WSCONS input endpoint",
+			absent: "evdev",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := checkSummary(t, fixtureProber(tt.goos, "amd64", tt.files, tt.env, nil).Client(context.Background()), "client.input")
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("input summary = %q, want substring %q", got, tt.want)
+			}
+			if strings.Contains(got, tt.absent) {
+				t.Fatalf("input summary = %q, unexpectedly contains %q", got, tt.absent)
+			}
+		})
+	}
+}
+
+func TestClientReadinessRequiresReachableGraphicalSession(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		goos  string
+		files map[string]bool
+		env   fixtureEnv
+		want  bool
+	}{
+		{name: "display endpoint", env: fixtureEnv{"DISPLAY": ":0"}, want: true},
+		{name: "direct SDL endpoint", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
+		{name: "FreeBSD evdev endpoint", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
+		{name: "FreeBSD WSCONS-only endpoint", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: false},
+		{name: "OpenBSD WSCONS endpoint", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
+		{name: "NetBSD unsupported SDL endpoint", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: false},
+		{name: "session type without endpoint", env: fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, want: false},
+		{name: "headless", env: nil, want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			commands := &fixtureCommands{paths: map[string]bool{"moonlight": true}}
+			goos := tt.goos
+			if goos == "" {
+				goos = "linux"
+			}
+			report := fixtureProber(goos, "amd64", tt.files, tt.env, commands).Client(context.Background())
+			if got := report.Ready(); got != tt.want {
+				t.Fatalf("client readiness = %v, want %v; report = %+v", got, tt.want, report)
+			}
+		})
+	}
+}
+
+func TestClientControlReadinessAllowsHeadlessControlOperations(t *testing.T) {
+	t.Parallel()
+	report := Report{
+		SchemaVersion: SchemaVersion,
+		Profile:       ProfileClient,
+		OS:            "linux",
+		Architecture:  "amd64",
+		Status:        StatusFail,
+		Checks: []Check{
+			{ID: "client.platform", Status: StatusPass},
+			{ID: "client.graphical-session", Status: StatusFail},
+			{ID: "client.input", Status: StatusWarn},
+			{ID: "client.moonlight", Status: StatusPass},
+			{ID: "client.audio", Status: StatusWarn},
+			{ID: "client.decoder-tools", Status: StatusWarn},
+		},
+	}
+	if !report.ReadyForControl() {
+		t.Fatalf("headless control report was rejected: %+v", report)
+	}
+	if report.Ready() {
+		t.Fatalf("headless control report was accepted as stream-ready: %+v", report)
+	}
+	emptyPass := Report{Profile: ProfileClient, Status: StatusPass}
+	if emptyPass.Ready() {
+		t.Fatalf("incomplete pass report was accepted as stream-ready: %+v", emptyPass)
+	}
+	incompletePass := report
+	incompletePass.Status = StatusPass
+	incompletePass.Checks = append([]Check(nil), report.Checks[:3]...)
+	if incompletePass.Ready() {
+		t.Fatalf("incomplete pass report was accepted as stream-ready: %+v", incompletePass)
+	}
+	staleSchema := report
+	staleSchema.SchemaVersion = SchemaVersion - 1
+	if staleSchema.ReadyForControl() {
+		t.Fatalf("stale-schema report was accepted for control readiness: %+v", staleSchema)
+	}
+	wrongPlatform := report
+	wrongPlatform.OS = "windows"
+	if wrongPlatform.ReadyForControl() {
+		t.Fatalf("wrong-platform report was accepted for control readiness: %+v", wrongPlatform)
+	}
+	wrongArchitecture := report
+	wrongArchitecture.Architecture = "arm64"
+	if wrongArchitecture.ReadyForControl() {
+		t.Fatalf("wrong-architecture report was accepted for control readiness: %+v", wrongArchitecture)
+	}
+	nonClient := report
+	nonClient.Profile = ProfileCompatibility
+	nonClient.Status = StatusPass
+	if nonClient.ReadyForControl() {
+		t.Fatalf("non-client report was accepted for control readiness: %+v", nonClient)
+	}
+
+	for _, id := range []string{"client.platform", "client.moonlight"} {
+		checks := append([]Check(nil), report.Checks...)
+		for index := range checks {
+			if checks[index].ID == id {
+				checks[index].Status = StatusFail
+			}
+		}
+		blocked := report
+		blocked.Checks = checks
+		if blocked.ReadyForControl() {
+			t.Fatalf("control readiness ignored required failure %q: %+v", id, blocked)
+		}
+	}
+	missingGraphical := report
+	missingGraphical.Checks = append(append([]Check(nil), report.Checks[:1]...), report.Checks[2:]...)
+	if missingGraphical.ReadyForControl() {
+		t.Fatalf("control readiness accepted a report without the graphical-session check: %+v", missingGraphical)
+	}
+	unrelatedFailure := report
+	unrelatedFailure.Checks = append([]Check(nil), report.Checks...)
+	unrelatedFailure.Checks[3].Status = StatusFail
+	if unrelatedFailure.ReadyForControl() {
+		t.Fatalf("control readiness ignored an unrelated failure: %+v", unrelatedFailure)
+	}
+	inconsistent := report
+	inconsistent.Status = StatusPass
+	if inconsistent.ReadyForControl() {
+		t.Fatalf("control readiness accepted an inconsistent aggregate status: %+v", inconsistent)
+	}
+
+	missingAdvisory := report
+	missingAdvisory.Checks = append([]Check(nil), report.Checks[:3]...)
+	if missingAdvisory.ReadyForControl() {
+		t.Fatalf("control readiness accepted a report without advisory client checks: %+v", missingAdvisory)
+	}
+	unknownCheck := report
+	unknownCheck.Checks = append([]Check(nil), report.Checks...)
+	unknownCheck.Checks[0].ID = "client.unknown"
+	if unknownCheck.ReadyForControl() {
+		t.Fatalf("control readiness accepted an unknown client check: %+v", unknownCheck)
+	}
+	duplicateCheck := report
+	duplicateCheck.Checks = append([]Check(nil), report.Checks...)
+	duplicateCheck.Checks[4].ID = duplicateCheck.Checks[0].ID
+	if duplicateCheck.ReadyForControl() {
+		t.Fatalf("control readiness accepted duplicate client checks: %+v", duplicateCheck)
+	}
+}
+
 func TestMoonlightDiscoveryDoesNotExecuteIt(t *testing.T) {
 	t.Parallel()
 	flatpakSystem := filepath.Join(string(filepath.Separator), "var", "lib", filepath.FromSlash("flatpak/app/com.moonlight_stream.Moonlight"))
 	flatpakUser := filepath.Join(filepath.FromSlash("/home/fixture-user"), ".local", "share", filepath.FromSlash("flatpak/app/com.moonlight_stream.Moonlight"))
+	flatpakXDG := filepath.Join(filepath.FromSlash("/opt/fixture/share"), "flatpak", filepath.FromSlash("app/com.moonlight_stream.Moonlight"))
 	knownExecutable := filepath.Join(filepath.FromSlash("/usr/local/bin"), "moonlight-qt")
 	for _, tt := range []struct {
 		name    string
@@ -243,11 +477,12 @@ func TestMoonlightDiscoveryDoesNotExecuteIt(t *testing.T) {
 		want    Status
 		summary string
 	}{
-		{"binary", map[string]bool{"moonlight": true}, nil, nil, nil, StatusPass, "Moonlight is available."},
+		{"binary", map[string]bool{"moonlight": true}, nil, nil, nil, StatusPass, "Moonlight Qt is available."},
 		{"qt-binary", map[string]bool{"moonlight-qt": true}, nil, nil, nil, StatusPass, "Moonlight Qt is available."},
 		{"known-executable-not-on-path", nil, fixturePaths(knownExecutable), nil, nil, StatusWarn, "cannot resolve"},
 		{"system-flatpak", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakSystem), nil, StatusPass, "PATH-resolvable Flatpak"},
 		{"user-flatpak", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakUser), fixtureEnv{"HOME": "/home/fixture-user"}, StatusPass, "PATH-resolvable Flatpak"},
+		{"xdg-data-dirs-flatpak", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakXDG), fixtureEnv{"XDG_DATA_DIRS": "/opt/fixture/share:/usr/share"}, StatusPass, "PATH-resolvable Flatpak"},
 		{"flatpak-app-without-launcher", nil, nil, fixtureModes(fs.ModeDir|0o755, flatpakSystem), nil, StatusWarn, "cannot resolve flatpak"},
 		{"missing", nil, nil, nil, nil, StatusFail, "not detected"},
 	} {
@@ -267,6 +502,34 @@ func TestMoonlightDiscoveryDoesNotExecuteIt(t *testing.T) {
 			}
 			if calls := commands.recordedCalls(); len(calls) != 0 {
 				t.Fatalf("discovery executed commands: %+v", calls)
+			}
+		})
+	}
+}
+
+func TestMoonlightDiagnosticSelectionMatchesUnixPackageConvention(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name     string
+		goos     string
+		commands map[string]bool
+		want     string
+	}{
+		{name: "linux prefers qt", goos: "linux", commands: map[string]bool{"moonlight": true, "moonlight-qt": true}, want: "Moonlight Qt is available."},
+		{name: "freebsd prefers qt when both exist", goos: "freebsd", commands: map[string]bool{"moonlight": true, "moonlight-qt": true}, want: "Moonlight Qt is available."},
+		{name: "openbsd prefers qt when both exist", goos: "openbsd", commands: map[string]bool{"moonlight": true, "moonlight-qt": true}, want: "Moonlight Qt is available."},
+		{name: "netbsd prefers qt when both exist", goos: "netbsd", commands: map[string]bool{"moonlight": true, "moonlight-qt": true}, want: "Moonlight Qt is available."},
+		{name: "dragonfly prefers qt when both exist", goos: "dragonfly", commands: map[string]bool{"moonlight": true, "moonlight-qt": true}, want: "Moonlight Qt is available."},
+		{name: "freebsd generic is embedded", goos: "freebsd", commands: map[string]bool{"moonlight": true}, want: "Moonlight Embedded is available."},
+		{name: "dragonfly generic is embedded", goos: "dragonfly", commands: map[string]bool{"moonlight": true}, want: "Moonlight Embedded is available."},
+		{name: "linux generic follows qt convention", goos: "linux", commands: map[string]bool{"moonlight": true}, want: "Moonlight Qt is available."},
+		{name: "explicit embedded executable name", goos: "linux", commands: map[string]bool{"moonlight-embedded": true}, want: "Moonlight Embedded is available."},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			check := fixtureProber(tt.goos, "amd64", nil, nil, &fixtureCommands{paths: tt.commands}).moonlightCheck()
+			if check.Status != StatusPass || check.Summary != tt.want {
+				t.Fatalf("Moonlight check = %+v, want pass/%q", check, tt.want)
 			}
 		})
 	}
@@ -496,6 +759,53 @@ func TestVanguardRequiresBothRunningServices(t *testing.T) {
 	}
 }
 
+func TestVanguardServiceCheckDistinguishesInstallerOnlyState(t *testing.T) {
+	t.Parallel()
+	programFiles := `C:\Program Files`
+	files := fixturePaths(targetPathJoin("windows", programFiles, "Riot Vanguard", "installer.exe"))
+	prober := fixtureProber("windows", "amd64", files, fixtureEnv{
+		"ProgramFiles":      programFiles,
+		"ProgramFiles(x86)": `C:\Program Files (x86)`,
+		"SystemDrive":       `C:`,
+	}, &fixtureCommands{})
+
+	check := prober.vanguardServiceCheck(context.Background())
+	if check.Status != StatusFail {
+		t.Fatalf("Vanguard status = %q, want %q", check.Status, StatusFail)
+	}
+	if !strings.Contains(check.Summary, "installer executable is present") || !strings.Contains(check.Summary, "does not prove") {
+		t.Fatalf("Vanguard summary = %q; want installer-only distinction", check.Summary)
+	}
+}
+
+func TestSunshineServiceCheckDistinguishesStoppedService(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		state observedServiceState
+		want  Status
+	}{
+		{"running", serviceRunning, StatusPass},
+		{"registered but stopped", serviceRegistered, StatusWarn},
+		{"missing", serviceUnavailable, StatusFail},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			commands := &fixtureCommands{serviceStates: map[string]observedServiceState{}}
+			if tt.state != serviceUnavailable {
+				commands.serviceStates["sunshineservice"] = tt.state
+			}
+			check := fixtureProber("windows", "amd64", nil, nil, commands).sunshineCheck(context.Background())
+			if check.Status != tt.want {
+				t.Fatalf("Sunshine status = %q, want %q: %+v", check.Status, tt.want, check)
+			}
+			if tt.state == serviceRegistered && !strings.Contains(check.Summary, "did not report it as running") {
+				t.Fatalf("stopped Sunshine summary = %q", check.Summary)
+			}
+		})
+	}
+}
+
 func TestReportsDoNotExposeFixtureSecrets(t *testing.T) {
 	t.Parallel()
 	secret := "ULTRA-SECRET-user-path-and-command-output"
@@ -595,13 +905,23 @@ func TestSystemCommandAllowlist(t *testing.T) {
 		t.Fatal("LookPath accepted a path")
 	}
 	for _, prohibited := range []string{
-		"docker", "doas", "podman", "proton", "qemu-system-x86_64", "su", "sudo", "wine", "wine64",
+		"doas", "su", "sudo",
 	} {
 		if _, err := commands.LookPath(prohibited); err == nil {
 			t.Errorf("LookPath accepted prohibited executable %q", prohibited)
 		}
 		if _, err := commands.Run(context.Background(), prohibited, "--version"); err == nil {
 			t.Errorf("Run accepted prohibited executable %q", prohibited)
+		}
+	}
+	for _, discoverable := range []string{
+		"bhyve", "bottles", "crossover", "cxoffice", "darling", "docker", "heroic", "libvirt", "libvirtd", "lutris", "moonlight-embedded", "playonlinux", "podman", "proton", "protontricks", "qemu-system-x86_64", "steam", "umu", "umu-run", "vboxmanage", "vmrun", "vmware", "virt-install", "virt-manager", "virsh", "waydroid", "wine", "wine64", "winboat", "wsl",
+	} {
+		if _, ok := discoverableCommands[discoverable]; !ok {
+			t.Errorf("alternative executable %q is not allowlisted for passive discovery", discoverable)
+		}
+		if _, err := commands.Run(context.Background(), discoverable, "--version"); err == nil {
+			t.Errorf("Run accepted discoverable executable %q", discoverable)
 		}
 	}
 	if _, ok := discoverableCommands["flatpak"]; !ok {
@@ -717,8 +1037,8 @@ func readyWindowsFixture(t *testing.T) (*Prober, *fixtureCommands) {
 	programFiles := `C:\Program Files`
 	systemDrive := `C:`
 	files := fixturePaths(
-		filepath.Join(systemDrive+string(filepath.Separator), "Riot Games", "Riot Client", "RiotClientServices.exe"),
-		filepath.Join(systemDrive+string(filepath.Separator), "Riot Games", "League of Legends", "LeagueClient.exe"),
+		targetPathJoin("windows", systemDrive+string(filepath.Separator), "Riot Games", "Riot Client", "RiotClientServices.exe"),
+		targetPathJoin("windows", systemDrive+string(filepath.Separator), "Riot Games", "League of Legends", "LeagueClient.exe"),
 	)
 	prober := fixtureProber("windows", "amd64", files, fixtureEnv{
 		"ProgramFiles":      programFiles,

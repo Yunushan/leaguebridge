@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/native-runtime-attestation.schema.json",
+  "title": "LeagueBridge native runtime attestation subject",
+  "description": "A score-free, content-addressed statement emitted by a pinned native runtime job. The JSON and every listed file must be externally attested before it can be considered execution evidence. Host class is an explicit claim and is not inferred from this document; the GitHub-hosted verifier accepts only hosted or virtualized claims, while physical claims require an independent physical-attestation verifier.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "attestation_type",
+    "kind",
+    "generated_at",
+    "source",
+    "execution",
+    "subjects"
+  ],
+  "properties": {
+    "$schema": { "const": "https://github.com/Yunushan/leaguebridge/schemas/native-runtime-attestation.schema.json" },
+    "schema_version": { "const": 2 },
+    "attestation_type": { "const": "leaguebridge.native-runtime-attestation.v2" },
+    "kind": { "enum": ["linux-runtime", "bsd-runtime"] },
+    "generated_at": { "$ref": "#/$defs/canonicalTimestamp" },
+    "source": { "$ref": "#/$defs/source" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "subjects": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 129,
+      "items": { "$ref": "#/$defs/subject" },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": { "role": { "const": "runtime-binary" } }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": ["role"],
+            "properties": { "role": { "const": "runtime-evidence" } }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "linux-runtime" } } },
+      "then": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "job": { "const": "linux-runtime" },
+              "runner_os": { "const": "Linux" },
+              "runner_architecture": { "const": "X64" },
+              "host_class": { "const": "hosted" },
+              "target": {
+                "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "bsd-runtime" } } },
+      "then": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "job": { "const": "bsd-runtime" },
+              "runner_os": { "const": "Linux" },
+              "runner_architecture": { "const": "X64" },
+              "host_class": { "const": "virtualized" },
+              "target": {
+                "properties": {
+                  "goos": { "enum": ["freebsd", "openbsd", "netbsd", "dragonfly"] },
+                  "goarch": { "const": "amd64" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "boundedText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\x00-\\x1f\\x7f\\r\\n]+$"
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+    },
+    "objectID": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "canonicalTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "ref", "workflow", "workflow_ref", "workflow_sha", "run_id", "run_attempt"],
+      "properties": {
+        "repository": { "type": "string", "maxLength": 255, "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "commit": { "$ref": "#/$defs/objectID" },
+        "tree": { "$ref": "#/$defs/objectID" },
+        "ref": { "type": "string", "pattern": "^refs/[A-Za-z0-9._/@-]{1,250}$" },
+        "workflow": { "$ref": "#/$defs/boundedText" },
+        "workflow_ref": { "$ref": "#/$defs/boundedText" },
+        "workflow_sha": { "$ref": "#/$defs/objectID" },
+        "run_id": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        "run_attempt": { "type": "string", "pattern": "^[1-9][0-9]{0,7}$" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job", "runner_os", "runner_architecture", "host_class", "go_version", "command", "target"],
+      "properties": {
+        "job": { "$ref": "#/$defs/slug" },
+        "runner_os": { "const": "Linux" },
+        "runner_architecture": { "const": "X64" },
+        "host_class": { "enum": ["hosted", "virtualized", "physical"] },
+        "go_version": { "type": "string", "pattern": "^go1\\.[0-9]+\\.[0-9]+$" },
+        "command": { "$ref": "#/$defs/boundedText" },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["goos", "goarch"],
+          "properties": {
+            "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"] },
+            "goarch": { "const": "amd64" }
+          }
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role", "size_bytes", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+/-]*$",
+          "not": { "anyOf": [
+            { "pattern": "(^|/)\\.\\.(/|$)" },
+            { "pattern": "(^|/)\\.(/|$)" },
+            { "pattern": "//" }
+          ] }
+        },
+        "role": { "enum": ["runtime-binary", "runtime-evidence"] },
+        "size_bytes": { "type": "integer", "minimum": 1, "maximum": 134217728 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

@@ -24,6 +24,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
 )
 
@@ -153,7 +154,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(*output, data, 0o644); err != nil {
+	if err := fileinput.RejectSymlinkedParents(*output); err != nil {
+		return fmt.Errorf("inspect output parents: %w", err)
+	}
+	if err := writeExclusive(*output, data); err != nil {
 		return fmt.Errorf("write SPDX: %w", err)
 	}
 	return nil
@@ -163,12 +167,16 @@ func newDocument(version, goos, goarch, binaryName, hash string, created time.Ti
 	if !safeValue.MatchString(version) || !safeValue.MatchString(goos) || !safeValue.MatchString(goarch) {
 		return document{}, errors.New("release version or target contains unsafe characters")
 	}
-	wantBinaryName := "leaguebridge"
-	if goos == "windows" {
-		wantBinaryName += ".exe"
+	switch goos {
+	case "linux", "freebsd", "openbsd", "netbsd", "dragonfly":
+	default:
+		return document{}, fmt.Errorf("unsupported release operating system %q", goos)
 	}
-	if binaryName != wantBinaryName {
-		return document{}, fmt.Errorf("binary name is %q; want %q for %s", binaryName, wantBinaryName, goos)
+	if goarch != "amd64" {
+		return document{}, fmt.Errorf("unsupported release architecture %q", goarch)
+	}
+	if binaryName != "leaguebridge" {
+		return document{}, fmt.Errorf("binary name is %q; want %q for Linux/BSD amd64 releases", binaryName, "leaguebridge")
 	}
 	if !lowerHexSHA256.MatchString(hash) {
 		return document{}, errors.New("binary SHA-256 must be 64 lowercase hexadecimal characters")
@@ -514,6 +522,9 @@ func hashFile(path string) (string, error) {
 }
 
 func verifyPathStable(path string, file *os.File) error {
+	if err := fileinput.RejectSymlinkedParents(path); err != nil {
+		return err
+	}
 	opened, err := file.Stat()
 	if err != nil {
 		return err
@@ -531,6 +542,9 @@ func verifyPathStable(path string, file *os.File) error {
 
 func openRegularFile(path string) (*os.File, error) {
 	cleaned := filepath.Clean(path)
+	if err := fileinput.RejectSymlinkedParents(cleaned); err != nil {
+		return nil, err
+	}
 	metadata, err := os.Lstat(cleaned)
 	if err != nil {
 		return nil, err
@@ -564,6 +578,23 @@ func openRegularFile(path string) (*os.File, error) {
 		return nil, errors.New("binary changed while it was opened")
 	}
 	return file, nil
+}
+
+func writeExclusive(path string, data []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 func sourceTime() (time.Time, error) {

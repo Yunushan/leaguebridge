@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 )
 
 // ArtifactVerification is an opaque proof that every artifact declared by one
@@ -100,6 +102,9 @@ func verifyArtifactBundle(record Record, directory string, afterRootOpen func())
 
 func openArtifactDirectory(path string) (*os.Root, os.FileInfo, error) {
 	cleanPath := filepath.Clean(path)
+	if err := fileinput.RejectSymlinkedParents(cleanPath); err != nil {
+		return nil, nil, fmt.Errorf("inspect artifact bundle path: %w", err)
+	}
 	before, err := os.Lstat(cleanPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("inspect artifact bundle directory: %w", err)

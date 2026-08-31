@@ -59,6 +59,23 @@ func TestPublicConfigurationSchemaRetainsOnlyStrictLegacyV1Compatibility(t *test
 	}
 }
 
+func TestPublicConfigurationSchemaAcceptsMoonlightEmbeddedAlias(t *testing.T) {
+	schema := compileOffline(t, "schemas/config.schema.json", configSchemaID)
+	document := map[string]any{
+		"schema_version": 2,
+		"route_id":       "physical-windows-remote",
+		"remote_host": map[string]any{
+			"host":                    "gaming-pc.local",
+			"app":                     "League of Legends",
+			"client":                  "moonlight-embedded",
+			"physical_host_confirmed": true,
+		},
+	}
+	if err := schema.Validate(document); err != nil {
+		t.Fatalf("schema rejected the explicit Moonlight Embedded alias: %v", err)
+	}
+}
+
 func TestPublicConfigurationSchemaRejectsSecurityRelevantShapeDrift(t *testing.T) {
 	schema := compileOffline(t, "schemas/config.schema.json", configSchemaID)
 	tests := []struct {

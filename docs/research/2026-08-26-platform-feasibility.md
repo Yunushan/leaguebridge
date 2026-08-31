@@ -6,6 +6,12 @@ after 30 days or immediately after a material Riot/Vanguard requirement
 change. Every linked source below was checked on the date of the corresponding
 review.
 
+This is a dated feasibility record, not a snapshot of every later repository
+implementation change. The route-bound validation-evidence v1/v2 contract was
+extended after this review to represent both Windows and macOS host routes;
+that implementation still does not constitute physical-host or gameplay
+evidence.
+
 | Route | Result | Why |
 | --- | --- | --- |
 | Wine / WineHQ / Lutris | Blocked | Riot states Wine/Lutris cannot meet Vanguard's driver requirements. |
@@ -33,8 +39,10 @@ review.
 Riot's 24 June 2026 Vanguard On-Demand option changes when the Windows kernel
 driver starts, not whether it is required during play. On a PC that passes
 Vanguard Pre-Check, the driver can launch with a Riot title and remain active
-only while playing instead of starting at boot. The optional path requires at
-least Windows 11 25H2 plus UEFI Secure Boot, TPM 2.0, VBS/HVCI, and IOMMU.
+only while playing instead of starting at boot. The optional Pre-Check path
+requires at least Windows 11 25H2 plus UEFI Secure Boot, TPM 2.0, VBS/HVCI,
+and IOMMU; this is not a blanket claim that every supported League host must
+pass the optional flow.
 
 This improves the operating model for a qualifying physical Windows dual-boot
 or remote host. It does not introduce a native Linux/BSD client, make Wine or
@@ -64,7 +72,7 @@ redistribute, or load such files.
 ## Primary evidence
 
 - Riot: [Vanguard x LoL](https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/)
-- Riot: [minimum and recommended requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
+- Riot: [minimum and recommended requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements-League-of-Legends)
 - Riot: [Vanguard errors, including VM error VAN 138](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/26932165816851-Vanguard-Error-Codes-and-Solutions-LoL)
 - Riot: [Vanguard On-Demand](https://www.riotgames.com/en/news/vanguard-on-demand)
 - Riot: [Patch 25.S1.2 Embedded Vanguard on Mac](https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/)
@@ -94,7 +102,8 @@ The embedded policy remains fail-closed for local execution. LeagueBridge may
 offer an explicitly acknowledged Moonlight handoff to a user-confirmed physical
 Windows PC or an explicitly selected physical Mac. The macOS route remains
 handoff-only, denied by default policy, experimentally hosted by Sunshine, and
-outside validation-evidence schema v1. Readiness schema v3 represents it as a
-separate hard-zero route pending a future authenticated route-bound evidence
-schema v2. The project must never describe remote play as League running on
-Linux/BSD.
+unvalidated. At the time of this review, it was outside validation-evidence
+schema v1 and pending a future authenticated route-bound evidence schema v2;
+the current route-aware v1/v2 implementation does not change that evidence
+boundary. Readiness schema v3 represents it as a separate hard-zero route. The
+project must never describe remote play as League running on Linux/BSD.

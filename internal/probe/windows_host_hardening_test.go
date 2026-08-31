@@ -17,22 +17,72 @@ func TestReadyTreatsWindowsHostWarningsAsBlocking(t *testing.T) {
 		report Report
 		want   bool
 	}{
-		{name: "client pass", report: Report{Profile: ProfileClient, Status: StatusPass}, want: true},
-		{name: "client advisory warning", report: Report{Profile: ProfileClient, Status: StatusWarn}, want: true},
+		{
+			name: "client pass",
+			report: Report{
+				SchemaVersion: SchemaVersion,
+				Profile:       ProfileClient,
+				OS:            "linux",
+				Architecture:  "amd64",
+				Status:        StatusPass,
+				Checks: []Check{
+					{ID: "client.platform", Status: StatusPass},
+					{ID: "client.graphical-session", Status: StatusPass},
+					{ID: "client.input", Status: StatusPass},
+					{ID: "client.moonlight", Status: StatusPass},
+					{ID: "client.audio", Status: StatusPass},
+					{ID: "client.decoder-tools", Status: StatusPass},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "client advisory warning",
+			report: Report{
+				SchemaVersion: SchemaVersion,
+				Profile:       ProfileClient,
+				OS:            "linux",
+				Architecture:  "amd64",
+				Status:        StatusWarn,
+				Checks: []Check{
+					{ID: "client.platform", Status: StatusPass, Summary: "eligible"},
+					{ID: "client.moonlight", Status: StatusPass, Summary: "available"},
+					{ID: "client.graphical-session", Status: StatusPass, Summary: "available"},
+					{ID: "client.input", Status: StatusPass, Summary: "available"},
+					{ID: "client.audio", Status: StatusWarn, Summary: "advisory"},
+					{ID: "client.decoder-tools", Status: StatusPass, Summary: "available"},
+				},
+			},
+			want: true,
+		},
 		{
 			name: "client launcher warning",
 			report: Report{
-				Profile: ProfileClient,
-				Status:  StatusWarn,
-				Checks:  []Check{{ID: "client.moonlight", Status: StatusWarn, Summary: "not launchable"}},
+				SchemaVersion: SchemaVersion,
+				Profile:       ProfileClient,
+				OS:            "linux",
+				Architecture:  "amd64",
+				Status:        StatusWarn,
+				Checks: []Check{
+					{ID: "client.platform", Status: StatusPass},
+					{ID: "client.graphical-session", Status: StatusPass},
+					{ID: "client.input", Status: StatusPass},
+					{ID: "client.moonlight", Status: StatusWarn, Summary: "not launchable"},
+					{ID: "client.audio", Status: StatusPass},
+					{ID: "client.decoder-tools", Status: StatusPass},
+				},
 			},
 			want: false,
 		},
-		{name: "client failure", report: Report{Profile: ProfileClient, Status: StatusFail}, want: false},
-		{name: "host pass", report: Report{Profile: ProfileWindowsHost, Status: StatusPass}, want: true},
-		{name: "host unverified warning", report: Report{Profile: ProfileWindowsHost, Status: StatusWarn}, want: false},
-		{name: "host failure", report: Report{Profile: ProfileWindowsHost, Status: StatusFail}, want: false},
-		{name: "unknown status", report: Report{Profile: ProfileClient, Status: Status("unknown")}, want: false},
+		{
+			name:   "client failure",
+			report: Report{SchemaVersion: SchemaVersion, Profile: ProfileClient, OS: "linux", Architecture: "amd64", Status: StatusFail, Checks: []Check{{ID: "client.platform", Status: StatusFail}}},
+			want:   false,
+		},
+		{name: "host pass", report: Report{SchemaVersion: SchemaVersion, Profile: ProfileWindowsHost, OS: "windows", Architecture: "amd64", Status: StatusPass, Checks: []Check{{ID: "host.platform", Status: StatusPass}}}, want: true},
+		{name: "host unverified warning", report: Report{SchemaVersion: SchemaVersion, Profile: ProfileWindowsHost, OS: "windows", Architecture: "amd64", Status: StatusWarn, Checks: []Check{{ID: "host.platform", Status: StatusWarn}}}, want: false},
+		{name: "host failure", report: Report{SchemaVersion: SchemaVersion, Profile: ProfileWindowsHost, OS: "windows", Architecture: "amd64", Status: StatusFail, Checks: []Check{{ID: "host.platform", Status: StatusFail}}}, want: false},
+		{name: "unknown status", report: Report{SchemaVersion: SchemaVersion, Profile: ProfileClient, OS: "linux", Architecture: "amd64", Status: Status("unknown"), Checks: []Check{{ID: "client.platform", Status: StatusPass}}}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,7 +186,7 @@ func TestWindowsSecurityIndicatorsNeverBecomeAttestation(t *testing.T) {
 	}
 
 	configured := fixtureProber("windows", "amd64", nil, nil, enabledCommands()).windowsSecurityCheck(context.Background())
-	if configured.Status != StatusWarn || !strings.Contains(configured.Summary, "TPM 2.0") || !strings.Contains(configured.Summary, "IOMMU") {
+	if configured.Status != StatusWarn || !strings.Contains(configured.Summary, "TPM 2.0") || !strings.Contains(configured.Summary, "IOMMU") || !strings.Contains(configured.Summary, "optional Vanguard Pre-Check") || !strings.Contains(configured.Summary, "25H2") || !strings.Contains(configured.Guidance, "UEFI/Secure Boot") {
 		t.Fatalf("configured security check = %+v", configured)
 	}
 

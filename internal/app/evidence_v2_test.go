@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -21,7 +22,7 @@ func TestEvidenceV2Dispatch(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"missing subcommand", []string{"evidence", "v2"}, "expected verify"},
+		{"missing subcommand", []string{"evidence", "v2"}, "expected prepare, verify, or promote"},
 		{"unknown subcommand", []string{"evidence", "v2", "other"}, "unknown subcommand"},
 	}
 	for _, test := range tests {
@@ -34,6 +35,96 @@ func TestEvidenceV2Dispatch(t *testing.T) {
 				t.Fatalf("stderr=%q, want %q", errOut.String(), test.want)
 			}
 		})
+	}
+}
+
+func TestEvidenceV2PromoteReachesUnprovisionedProductionPolicy(t *testing.T) {
+	host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts := writeVerifiedAppEvidenceSet(t, evidence.AttestationIndependent)
+	envelope := writeStructurallyValidV2Envelope(t, host, client, session)
+
+	a, out, errOut, _, _ := newTestApp(t)
+	args := v2VerifyArgs(envelope, host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts, true)
+	args[2] = "promote"
+	code := a.Run(context.Background(), args)
+	if code != ExitBlocked || errOut.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	response := decodeEnvelope(t, out.Bytes())
+	if response.OK || response.Command != "evidence v2 promote" {
+		t.Fatalf("response=%+v", response)
+	}
+	for _, want := range []string{"promotion blocked", "trust policy", "unprovisioned", "records and artifacts are valid"} {
+		if !strings.Contains(response.Error, want) {
+			t.Fatalf("error=%q, want %q", response.Error, want)
+		}
+	}
+}
+
+func TestEvidenceV2PrepareWritesAnExactUnsignedPayload(t *testing.T) {
+	host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts := writeVerifiedAppEvidenceSet(t, evidence.AttestationIndependent)
+	outputPath := filepath.Join(t.TempDir(), "payload.json")
+	a, out, errOut, _, _ := newTestApp(t)
+	if code := a.Run(context.Background(), v2PrepareArgs(host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts, outputPath, false)); code != ExitOK || errOut.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	prepared, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(prepared, &payload); err != nil {
+		t.Fatalf("payload=%q err=%v", prepared, err)
+	}
+	if payload["$schema"] != evidencev2.PayloadSchemaID || payload["schema_version"] != float64(evidencev2.PayloadVersion) || payload["policy_id"] != evidencev2.ProductionTrustPolicy().ID() {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	for _, field := range []string{"score", "passed", "launch_authorization"} {
+		if _, present := payload[field]; present {
+			t.Fatalf("prepared payload contains promotion field %q", field)
+		}
+	}
+	if !strings.Contains(out.String(), "Prepared unsigned validation-evidence v2 payload") || !strings.Contains(out.String(), "payload_sha256=") {
+		t.Fatalf("stdout=%q", out.String())
+	}
+	original := append([]byte(nil), prepared...)
+	if code := a.Run(context.Background(), v2PrepareArgs(host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts, outputPath, false)); code != ExitUsage || !strings.Contains(errOut.String(), "destination already exists") {
+		t.Fatalf("second prepare code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	unchanged, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(original, unchanged) {
+		t.Fatal("prepare overwrote an existing payload")
+	}
+}
+
+func TestEvidenceV2PrepareJSONReportsNonPromotingMetadata(t *testing.T) {
+	host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts := writeVerifiedAppEvidenceSet(t, evidence.AttestationIndependent)
+	outputPath := filepath.Join(t.TempDir(), "payload.json")
+	a, out, errOut, _, _ := newTestApp(t)
+	if code := a.Run(context.Background(), v2PrepareArgs(host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts, outputPath, true)); code != ExitOK || errOut.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	envelope := decodeEnvelope(t, out.Bytes())
+	data := envelope.Data.(map[string]any)
+	if data["unsigned"] != true || data["readiness_promotable"] != false || data["payload_path"] != outputPath {
+		t.Fatalf("unexpected preparation metadata: %#v", data)
+	}
+	if data["payload_base64url"] == "" || data["payload_sha256"] == "" {
+		t.Fatalf("metadata did not include exact payload material: %#v", data)
+	}
+}
+
+func TestEvidenceV2PrepareRejectsUnverifiedArtifactSet(t *testing.T) {
+	host, client, session, _, _, _ := writeVerifiedAppEvidenceSet(t, evidence.AttestationIndependent)
+	empty := t.TempDir()
+	a, out, errOut, _, _ := newTestApp(t)
+	if code := a.Run(context.Background(), v2PrepareArgs(host, client, session, empty, empty, empty, "", true)); code != ExitBlocked || errOut.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if response := decodeEnvelope(t, out.Bytes()); response.OK || !strings.Contains(response.Error, "verify host artifacts") {
+		t.Fatalf("response=%+v", response)
 	}
 }
 
@@ -199,6 +290,28 @@ func v2VerifyArgs(envelope, host, client, session, hostArtifacts, clientArtifact
 		"--route", evidencev2.RoutePhysicalWindowsRemote,
 		"--client-platform", "linux",
 		"--client-arch", "amd64",
+	}
+	if asJSON {
+		args = append(args, "--json")
+	}
+	return args
+}
+
+func v2PrepareArgs(host, client, session, hostArtifacts, clientArtifacts, sessionArtifacts, output string, asJSON bool) []string {
+	args := []string{
+		"evidence", "v2", "prepare",
+		"--host", host,
+		"--client", client,
+		"--session", session,
+		"--host-artifacts", hostArtifacts,
+		"--client-artifacts", clientArtifacts,
+		"--session-artifacts", sessionArtifacts,
+		"--route", evidencev2.RoutePhysicalWindowsRemote,
+		"--client-platform", "linux",
+		"--client-arch", "amd64",
+	}
+	if output != "" {
+		args = append(args, "--output", output)
 	}
 	if asJSON {
 		args = append(args, "--json")

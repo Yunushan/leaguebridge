@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Yunushan/leaguebridge/internal/evidence"
+	"github.com/Yunushan/leaguebridge/internal/nativepackage"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -22,6 +23,7 @@ const (
 	evidenceSchemaID      = "https://leaguebridge.dev/schemas/validation-evidence.schema.json"
 	readinessSchemaID     = "https://github.com/Yunushan/leaguebridge/schemas/readiness-scorecard.schema.json"
 	packageSchemaID       = "https://github.com/Yunushan/leaguebridge/schemas/package-manifest.schema.json"
+	nativePackageSchemaID = "https://github.com/Yunushan/leaguebridge/schemas/native-package-staging.schema.json"
 )
 
 func TestRepositoryDocumentsConformToDraft202012Schemas(t *testing.T) {
@@ -55,6 +57,7 @@ func TestRepositoryDocumentsConformToDraft202012Schemas(t *testing.T) {
 			schemaID: evidenceSchemaID,
 			documents: []string{
 				"docs/evidence/examples/host-windows-unverified.json",
+				"docs/evidence/examples/host-macos-unverified.json",
 				"docs/evidence/examples/client-linux-unverified.json",
 				"docs/evidence/examples/session-linux-unverified.json",
 			},
@@ -73,6 +76,20 @@ func TestRepositoryDocumentsConformToDraft202012Schemas(t *testing.T) {
 					}
 				})
 			}
+			if test.name == "validation evidence" {
+				record, err := evidence.NewTemplateWithRoute(evidence.RecordHost, "darwin", "arm64", "schema-test", evidence.RoutePhysicalMacOSRemote, time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC))
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, err := json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				instance := decodeJSONBytes(t, data)
+				if err := schema.Validate(instance); err != nil {
+					t.Fatalf("validation evidence schema rejected a valid macOS host record: %v", err)
+				}
+			}
 		})
 	}
 }
@@ -83,8 +100,7 @@ func TestGeneratedPackageManifestsConformToPublicSchema(t *testing.T) {
 	tree := "89abcdef0123456789abcdef0123456789abcdef"
 	targets := []struct{ goos, goarch string }{
 		{"linux", "amd64"}, {"freebsd", "amd64"}, {"openbsd", "amd64"},
-		{"netbsd", "amd64"}, {"dragonfly", "amd64"}, {"windows", "amd64"},
-		{"darwin", "amd64"}, {"darwin", "arm64"},
+		{"netbsd", "amd64"}, {"dragonfly", "amd64"},
 	}
 	for _, target := range targets {
 		target := target
@@ -177,6 +193,106 @@ func TestPackageManifestSchemaRejectsRuntimeAndBuilderOverclaims(t *testing.T) {
 	if err := schema.Validate(document); err == nil {
 		t.Fatal("package manifest schema accepted non-canonical amd64 tuning")
 	}
+}
+
+func TestGeneratedNativePackageStagingManifestsConformToPublicSchema(t *testing.T) {
+	schema := compileOffline(t, "schemas/native-package-staging.schema.json", nativePackageSchemaID)
+	targets := []struct{ goos, goarch string }{
+		{"linux", "amd64"}, {"freebsd", "amd64"}, {"openbsd", "amd64"},
+		{"netbsd", "amd64"}, {"dragonfly", "amd64"},
+	}
+	for _, target := range targets {
+		target := target
+		t.Run(target.goos+"_"+target.goarch, func(t *testing.T) {
+			names, err := packageinfo.ExpectedPayloadNames(target.goos, target.goarch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bodies := make(map[string][]byte, len(names))
+			for _, name := range names {
+				bodies[name] = []byte("native package schema fixture for " + name)
+			}
+			source, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.0", bodies)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sourceData, err := packageinfo.Marshal(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, family := range nativepackage.PackageFamiliesForTarget(target.goos, target.goarch) {
+				family := family
+				t.Run(string(family), func(t *testing.T) {
+					manifest, err := nativepackage.Build(source, sourceData, strings.Repeat("a", 64), family)
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, err := nativepackage.Marshal(manifest)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var document any
+					decoder := json.NewDecoder(bytes.NewReader(data))
+					decoder.UseNumber()
+					if err := decoder.Decode(&document); err != nil {
+						t.Fatal(err)
+					}
+					if err := schema.Validate(document); err != nil {
+						t.Fatalf("schema rejected %s/%s %s staging manifest: %v", target.goos, target.goarch, family, err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestNativePackageStagingSchemaRejectsCrossTargetFamily(t *testing.T) {
+	schema := compileOffline(t, "schemas/native-package-staging.schema.json", nativePackageSchemaID)
+	names, err := packageinfo.ExpectedPayloadNames("linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := make(map[string][]byte, len(names))
+	for _, name := range names {
+		bodies[name] = []byte(name)
+	}
+	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.0", bodies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceData, err := packageinfo.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := nativepackage.Build(source, sourceData, strings.Repeat("a", 64), nativepackage.FamilyDebian)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := decodeJSONBytes(t, mustMarshalNativePackage(t, manifest))
+	document.(map[string]any)["package"].(map[string]any)["family"] = "freebsd-pkg"
+	if err := schema.Validate(document); err == nil {
+		t.Fatal("native package schema accepted a cross-target family")
+	}
+}
+
+func mustMarshalNativePackage(t *testing.T, manifest nativepackage.Manifest) []byte {
+	t.Helper()
+	data, err := nativepackage.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func decodeJSONBytes(t *testing.T, data []byte) any {
+	t.Helper()
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func TestSchemasRejectCriticalPolicyViolations(t *testing.T) {
@@ -296,7 +412,7 @@ func TestSchemasRejectCriticalPolicyViolations(t *testing.T) {
 			"sha256":         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		}}
 		if err := readiness.Validate(document); err == nil {
-			t.Fatal("readiness schema accepted v2 evidence without a schema-v4 promotion evaluator")
+			t.Fatal("readiness schema v3 accepted v2 evidence without a derived v4 promotion result")
 		}
 	})
 
@@ -310,7 +426,7 @@ func TestSchemasRejectCriticalPolicyViolations(t *testing.T) {
 			"sha256":         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		}}
 		if err := readiness.Validate(document); err == nil {
-			t.Fatal("readiness schema promoted macOS evidence before a route-bound v2 verifier exists")
+			t.Fatal("readiness schema v3 promoted macOS evidence without a derived v4 promotion result")
 		}
 	})
 
@@ -378,13 +494,18 @@ func TestSchemasRejectCriticalPolicyViolations(t *testing.T) {
 	})
 
 	evidence := compileOffline(t, "schemas/validation-evidence.schema.json", evidenceSchemaID)
-	t.Run("evidence is scoped to the physical Windows remote route", func(t *testing.T) {
-		for _, route := range []string{"wine", "physical-macos-remote"} {
-			document := decodeRepositoryJSON(t, "docs/evidence/examples/client-linux-unverified.json").(map[string]any)
-			document["route_id"] = route
-			if err := evidence.Validate(document); err == nil {
-				t.Errorf("evidence schema accepted route %q", route)
-			}
+	t.Run("evidence is scoped to the supported physical-host routes", func(t *testing.T) {
+		document := decodeRepositoryJSON(t, "docs/evidence/examples/client-linux-unverified.json").(map[string]any)
+		document["route_id"] = "wine"
+		if err := evidence.Validate(document); err == nil {
+			t.Fatal("evidence schema accepted an unsupported route")
+		}
+		document = decodeRepositoryJSON(t, "docs/evidence/examples/host-windows-unverified.json").(map[string]any)
+		document["route_id"] = "physical-macos-remote"
+		document["subject"].(map[string]any)["platform"] = "macos"
+		document["subject"].(map[string]any)["architecture"] = "arm64"
+		if err := evidence.Validate(document); err != nil {
+			t.Fatalf("evidence schema rejected a valid macOS route: %v", err)
 		}
 	})
 
@@ -396,11 +517,16 @@ func TestSchemasRejectCriticalPolicyViolations(t *testing.T) {
 		}
 	})
 
-	t.Run("host must be physical Windows amd64", func(t *testing.T) {
+	t.Run("host route and platform must agree", func(t *testing.T) {
 		document := decodeRepositoryJSON(t, "docs/evidence/examples/host-windows-unverified.json").(map[string]any)
 		document["subject"].(map[string]any)["platform"] = "macos"
 		if err := evidence.Validate(document); err == nil {
 			t.Fatal("evidence schema accepted a macOS host for the physical Windows route")
+		}
+		document = decodeRepositoryJSON(t, "docs/evidence/examples/host-windows-unverified.json").(map[string]any)
+		document["route_id"] = "physical-macos-remote"
+		if err := evidence.Validate(document); err == nil {
+			t.Fatal("evidence schema accepted a Windows host for the physical macOS route")
 		}
 	})
 
@@ -521,7 +647,7 @@ func TestValidationEvidenceExamplesPassRuntimeParser(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse %s with runtime evidence contract: %v", example, err)
 			}
-			evaluation, err := evidence.EvaluateAt(record, time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC))
+			evaluation, err := evidence.EvaluateAt(record, time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC))
 			if err != nil {
 				t.Fatalf("evaluate %s: %v", example, err)
 			}
@@ -546,7 +672,7 @@ func TestGeneratedEvidenceTemplatesConformToPublicSchema(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(string(test.recordType)+"/"+test.platform, func(t *testing.T) {
-			record, err := evidence.NewTemplate(test.recordType, test.platform, test.architecture, "contract-test", time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC))
+			record, err := evidence.NewTemplate(test.recordType, test.platform, test.architecture, "contract-test", time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC))
 			if err != nil {
 				t.Fatalf("create template: %v", err)
 			}
@@ -569,7 +695,7 @@ func TestGeneratedEvidenceTemplatesConformToPublicSchema(t *testing.T) {
 
 func TestReviewedEvidenceArtifactMetadataConformsToPublicSchema(t *testing.T) {
 	schema := compileOffline(t, "schemas/validation-evidence.schema.json", evidenceSchemaID)
-	created := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+	created := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
 	record, err := evidence.NewTemplate(evidence.RecordClient, "openbsd", "amd64", "contract-test", created)
 	if err != nil {
 		t.Fatalf("create template: %v", err)

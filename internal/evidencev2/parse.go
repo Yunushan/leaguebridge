@@ -32,6 +32,11 @@ var supportedClientPlatforms = map[string]bool{
 	"dragonflybsd": true,
 }
 
+var supportedRouteIDs = map[string]bool{
+	RoutePhysicalWindowsRemote: true,
+	RoutePhysicalMacOSRemote:   true,
+}
+
 func parseEnvelope(data []byte) (signatureEnvelope, []byte, payload, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return signatureEnvelope{}, nil, payload{}, errors.New("signature envelope is empty")
@@ -152,8 +157,8 @@ func parsePayload(data []byte) (payload, error) {
 	if !runIDPattern.MatchString(parsed.ValidationRunID) {
 		return payload{}, fmt.Errorf("invalid validation_run_id %q", parsed.ValidationRunID)
 	}
-	if parsed.RouteID != RoutePhysicalWindowsRemote {
-		return payload{}, fmt.Errorf("unsupported validation-evidence v2 route_id %q; only %q is implemented", parsed.RouteID, RoutePhysicalWindowsRemote)
+	if !supportedRouteIDs[parsed.RouteID] {
+		return payload{}, fmt.Errorf("unsupported validation-evidence v2 route_id %q", parsed.RouteID)
 	}
 	if parsed.TestProfileID != TestProfileRemotePlayV1 {
 		return payload{}, fmt.Errorf("unsupported validation-evidence v2 test_profile_id %q", parsed.TestProfileID)
@@ -183,8 +188,15 @@ func parsePayload(data []byte) (payload, error) {
 	if !shaPattern.MatchString(parsed.ManifestSHA256) {
 		return payload{}, errors.New("manifest_sha256 must be a lowercase SHA-256")
 	}
-	if parsed.HostPlatform != "windows" || parsed.HostArchitecture != "amd64" {
-		return payload{}, errors.New("physical-windows-remote host must be windows/amd64")
+	switch parsed.RouteID {
+	case RoutePhysicalWindowsRemote:
+		if parsed.HostPlatform != "windows" || parsed.HostArchitecture != "amd64" {
+			return payload{}, errors.New("physical-windows-remote host must be windows/amd64")
+		}
+	case RoutePhysicalMacOSRemote:
+		if parsed.HostPlatform != "macos" || (parsed.HostArchitecture != "amd64" && parsed.HostArchitecture != "arm64") {
+			return payload{}, errors.New("physical-macos-remote host must be macos/amd64 or macos/arm64")
+		}
 	}
 	if !supportedClientPlatforms[parsed.ClientPlatform] {
 		return payload{}, fmt.Errorf("unsupported client_platform %q", parsed.ClientPlatform)

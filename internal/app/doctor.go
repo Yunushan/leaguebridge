@@ -10,7 +10,7 @@ import (
 
 func (a *App) runDoctor(ctx context.Context, args []string) int {
 	set := a.flagSet("doctor")
-	profileName := set.String("profile", defaultProfileName(a.GOOS), "client, windows-host, or macos-host")
+	profileName := set.String("profile", defaultProfileName(a.GOOS), "client, windows-host, macos-host, or compatibility")
 	asJSON := set.Bool("json", false, "emit JSON")
 	if err := parseFlags(set, args); err != nil {
 		return a.commandError("doctor", *asJSON, ExitUsage, "%v", err)
@@ -58,7 +58,9 @@ func parseProfile(value string) (probe.Profile, error) {
 		return probe.ProfileWindowsHost, nil
 	case probe.ProfileMacOSHost:
 		return probe.ProfileMacOSHost, nil
+	case probe.ProfileCompatibility:
+		return probe.ProfileCompatibility, nil
 	default:
-		return "", fmt.Errorf("profile must be client, windows-host, or macos-host, got %q", value)
+		return "", fmt.Errorf("profile must be client, windows-host, macos-host, or compatibility, got %q", value)
 	}
 }

@@ -3,6 +3,7 @@
 /dist/
 /.cache/
 /.tmp/
+/.tmp-*
 /.tmp-go-cache/
 coverage.out
 *.test

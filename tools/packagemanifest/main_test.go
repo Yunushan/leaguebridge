@@ -47,6 +47,27 @@ func TestGenerateRejectsOutputOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestGenerateRejectsSymlinkedRoot(t *testing.T) {
+	realRoot := t.TempDir()
+	names, err := packageinfo.ExpectedPayloadNames("linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(realRoot, name), []byte("content for "+name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "root-link")
+	if err := os.Symlink(realRoot, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, err = generate(link, filepath.Join(link, packageinfo.ManifestName), "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.0")
+	if err == nil || !strings.Contains(err.Error(), "non-symlink directory") {
+		t.Fatalf("generate(symlinked root) error = %v", err)
+	}
+}
+
 func TestReadRegularBoundedRejectsOversizeAndSymlink(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "payload")
@@ -69,8 +90,8 @@ func TestReadRegularBoundedRejectsOversizeAndSymlink(t *testing.T) {
 }
 
 func TestPayloadSizeLimitsMatchMemberRoles(t *testing.T) {
-	if payloadSizeLimit("leaguebridge") != maxBinarySize || payloadSizeLimit("leaguebridge.exe") != maxBinarySize {
-		t.Fatal("binary payload limit is not applied to both executable names")
+	if payloadSizeLimit("leaguebridge") != maxBinarySize {
+		t.Fatal("binary payload limit is not applied")
 	}
 	if payloadSizeLimit("SBOM.spdx.json") != maxMetadataSize {
 		t.Fatal("SBOM metadata limit is not applied")

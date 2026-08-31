@@ -78,7 +78,7 @@ func (a *App) runConfigInit(args []string) int {
 	routeName := set.String("route", "windows", "physical-host route: windows or macos")
 	host := set.String("host", "", "physical host DNS name or IP")
 	application := set.String("app", "League of Legends", "Sunshine application name")
-	client := set.String("client", "auto", "auto, moonlight, moonlight-qt, or flatpak")
+	client := set.String("client", "auto", "auto, moonlight, moonlight-embedded, moonlight-qt, or flatpak")
 	confirmed := set.Bool("confirm-physical-host", false, "confirm that the host is not a VM")
 	if err := parseFlags(set, args); err != nil {
 		return a.commandError("config init", false, ExitUsage, "%v", err)

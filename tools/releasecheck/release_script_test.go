@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
@@ -42,7 +44,7 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 		"export GONOSUMDB=",
 		"export GOVCS='*:off'",
 		"export GOAMD64=v1",
-		"export GOARM64=v8.0",
+		"export GOTMPDIR=",
 		`! "$SOURCE_DATE_EPOCH" =~ ^[1-9][0-9]*$`,
 		`release_git rev-parse --verify "${GITHUB_SHA}^{commit}"`,
 		"release_git archive --format=tar --output=\"$snapshot_archive\" \"$commit\"",
@@ -56,15 +58,17 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 		"go run -mod=vendor ./tools/sbom",
 		"go run -mod=vendor ./tools/packagemanifest",
 		"-tree \"$tree\"",
-		"go run -mod=vendor ./tools/canonicalzip",
 		"go run -mod=vendor ./tools/canonicaltar",
 		"go run -mod=vendor ./tools/releasecheck",
+		"go run -mod=vendor ./tools/nativepackagestage",
+		"go run -mod=vendor ./tools/nativepackagecheck",
+		"native_stage_root=",
+		"native_stage_families=(",
+		"native_stage_archives=(",
 		"leaguebridge-release-contract-v4|",
 		"leaguebridge-build-v4-",
 		"filippo.io/edwards25519@v1.2.0#h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=",
-		"sha256sum --binary ./*.tar.gz ./*.zip > checksums.txt",
-		"darwin/amd64",
-		"darwin/arm64",
+		"sha256sum --binary ./*.tar.gz > checksums.txt",
 		"export-(ignore|subst)",
 		"160000)",
 		"vendor/github.com/santhosh-tekuri/jsonschema/v6/.gitmodules)",
@@ -99,6 +103,141 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 		if bareGitCommand.MatchString(line) {
 			t.Errorf("release.sh line %d bypasses release_git: %s", lineNumber+1, line)
 		}
+	}
+}
+
+func TestReleaseScriptPublishesOnlyAfterCompleteVerification(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "release.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+
+	if !strings.Contains(script, `release_staging_dir="$(mktemp -d "$repository_root/.dist-staging.XXXXXX")"`) {
+		t.Fatal("release.sh does not create a same-filesystem private dist staging directory")
+	}
+	if strings.Contains(script, `rm -rf -- "$release_output_dir"`) {
+		t.Fatal("release.sh can delete dist before the replacement release is ready")
+	}
+	for _, forbidden := range []string{
+		`-output "$release_output_dir/`,
+		`-dir "$release_output_dir"`,
+		`(cd "$release_output_dir"`,
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("release.sh writes or verifies against the publish path before commit: %q", forbidden)
+		}
+	}
+	verification := strings.LastIndex(script, `go run -mod=vendor ./tools/nativepackagecheck -staging "$native_output")`)
+	publish := strings.Index(script, `if [[ -e "$release_output_dir" || -L "$release_output_dir" ]]; then`)
+	if verification < 0 || publish < 0 || verification > publish {
+		t.Fatal("release.sh publishes before the final native-package staging verification")
+	}
+	for _, required := range []string{
+		`release_backup_parent="$(mktemp -d "$repository_root/.dist-backup.XXXXXX")"`,
+		`mv -- "$release_output_dir" "$release_backup_parent/dist"`,
+		`mv -- "$release_staging_dir" "$release_output_dir"`,
+		`mv -- "$release_backup_parent/dist" "$release_output_dir" || :`,
+		`! -L "$work_root"`,
+		`! -L "$release_backup_parent"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("release.sh is missing rollback-safe publication fragment %q", required)
+		}
+	}
+}
+
+func TestNativePackageSmokeCleanupRejectsSymlinkScratch(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		path  string
+		guard string
+		trap  string
+	}{
+		{
+			name:  "linux",
+			path:  filepath.Join("..", "..", "scripts", "native-package-linux-smoke.sh"),
+			guard: `if [[ -n "${temporary_root:-}" && -e "$temporary_root" && ! -L "$temporary_root" ]]; then`,
+			trap:  "trap cleanup EXIT",
+		},
+		{
+			name:  "bsd",
+			path:  filepath.Join("..", "..", "scripts", "native-package-bsd-smoke.sh"),
+			guard: `if [ -n "${temporary_root:-}" ] && [ -e "$temporary_root" ] && [ ! -L "$temporary_root" ]; then`,
+			trap:  "trap cleanup EXIT HUP INT TERM",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			data, err := os.ReadFile(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := string(data)
+			for _, required := range []string{`temporary_root=$(mktemp`, "cleanup() {", test.guard, `rm -rf -- "$temporary_root"`, test.trap} {
+				if !strings.Contains(script, required) {
+					t.Errorf("%s is missing scratch cleanup contract fragment %q", test.path, required)
+				}
+			}
+		})
+	}
+}
+
+func TestNativePackageSmokeGuardsWorkspaceOutputDirectories(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		path     string
+		required []string
+	}{
+		{
+			name: "linux",
+			path: filepath.Join("..", "..", "scripts", "native-package-linux-smoke.sh"),
+			required: []string{
+				"ensure_directory native-package-staging",
+				"ensure_directory native-package-output",
+				"ensure_directory native-package-evidence",
+				"ensure_directory native-package-output/debian",
+				"ensure_directory native-package-output/rpm",
+				"ensure_directory native-package-evidence/debian",
+				"ensure_directory native-package-evidence/rpm",
+				"debian_evidence=\"native-package-evidence/debian/install.txt\"",
+				"rpm_evidence=\"native-package-evidence/rpm/install.txt\"",
+				"for evidence in \"$debian_evidence\" \"$rpm_evidence\"; do",
+				"evidence output already exists",
+				"path changed into a non-directory after creation",
+			},
+		},
+		{
+			name: "bsd",
+			path: filepath.Join("..", "..", "scripts", "native-package-bsd-smoke.sh"),
+			required: []string{
+				"ensure_directory native-package-staging",
+				"ensure_directory native-package-output",
+				"ensure_directory native-package-evidence",
+				"ensure_directory \"$package_dir\"",
+				"ensure_directory \"$evidence_dir\"",
+				"if [ -e \"$evidence\" ] || [ -L \"$evidence\" ]; then",
+				"evidence output already exists",
+				"path changed into a non-directory after creation",
+			},
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			data, err := os.ReadFile(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := string(data)
+			for _, required := range test.required {
+				if !strings.Contains(script, required) {
+					t.Errorf("%s is missing workspace-directory guard fragment %q", test.path, required)
+				}
+			}
+		})
 	}
 }
 
@@ -193,6 +332,13 @@ func TestVerifyReleaseScriptPinsHermeticGitInputs(t *testing.T) {
 		`commit="$(release_git rev-parse HEAD)"`,
 		`release_git rev-parse --verify "${GITHUB_SHA}^{commit}"`,
 		`tree="$(release_git rev-parse "${commit}^{tree}")"`,
+		"export GOPATH=\"$scratch/gopath\"",
+		"export GOMODCACHE=\"$GOPATH/pkg/mod\"",
+		"export GOCACHE=\"$scratch/gocache\"",
+		"export GOTMPDIR=\"$scratch/go-tmp\"",
+		"cleanup() {",
+		`! -L "$scratch"`,
+		"trap cleanup EXIT",
 		"go run -mod=vendor ./tools/releasecheck",
 	} {
 		if !strings.Contains(script, required) {
@@ -243,13 +389,14 @@ func assertGoEnvironmentPinnedBeforeUse(t *testing.T, name, script string) {
 	noProxyLine := "export GONOPROXY="
 	noSumDBLine := "export GONOSUMDB="
 	vcsLine := "export GOVCS='*:off'"
+	tmpDirLine := "export GOTMPDIR="
 	firstGoUse := len(script)
 	for _, marker := range []string{"$(go ", "\ngo "} {
 		if index := strings.Index(script, marker); index >= 0 && index < firstGoUse {
 			firstGoUse = index
 		}
 	}
-	for _, line := range []string{fipsLine, cacheProgramLine, extlinkLine, noProxyLine, noSumDBLine, vcsLine} {
+	for _, line := range []string{fipsLine, cacheProgramLine, extlinkLine, noProxyLine, noSumDBLine, vcsLine, tmpDirLine} {
 		index := strings.Index(script, line)
 		if index < 0 {
 			t.Fatalf("%s is missing %q", name, line)
@@ -274,14 +421,15 @@ func assertGoEnvironmentPinnedBeforeUse(t *testing.T, name, script string) {
 		noProxyLine,
 		noSumDBLine,
 		vcsLine,
-		`printf '<%s>|<%s>|<%s>|<%s>|<%s>|<%s>' "$GOFIPS140" "$GOCACHEPROG" "$GO_EXTLINK_ENABLED" "$GONOPROXY" "$GONOSUMDB" "$GOVCS"`,
+		tmpDirLine,
+		`printf '<%s>|<%s>|<%s>|<%s>|<%s>|<%s>|<%s>' "$GOFIPS140" "$GOCACHEPROG" "$GO_EXTLINK_ENABLED" "$GONOPROXY" "$GONOSUMDB" "$GOVCS" "$GOTMPDIR"`,
 	}, "\n"))
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("execute %s Go-environment sanitization: %v\n%s", name, err, output)
 	}
-	if string(output) != "<off>|<>|<0>|<>|<>|<*:off>" {
-		t.Fatalf("%s sanitized Go environment = %q; want <off>|<>|<0>|<>|<>|<*:off>", name, output)
+	if string(output) != "<off>|<>|<0>|<>|<>|<*:off>|<>" {
+		t.Fatalf("%s sanitized Go environment = %q; want <off>|<>|<0>|<>|<>|<*:off>|<>", name, output)
 	}
 }
 
@@ -335,10 +483,15 @@ func TestGoModuleResolutionPolicyFailsClosedBeforeVCS(t *testing.T) {
 				overrides[key] = value
 			}
 			overrides["GONOPROXY"] = noProxy
-			command := exec.Command(goExecutable, "mod", "download", "example.invalid/unresolved.git@v0.0.0")
+			commandContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			command := exec.CommandContext(commandContext, goExecutable, "mod", "download", "example.invalid/unresolved.git@v0.0.0")
 			command.Dir = moduleDirectory
 			command.Env = testEnvironment(overrides)
 			output, err := command.CombinedOutput()
+			if commandContext.Err() != nil {
+				t.Fatalf("Go module policy command timed out: %v; output = %s", commandContext.Err(), output)
+			}
 			if err == nil || !strings.Contains(string(output), wanted) {
 				t.Fatalf("Go module policy error = %v, output = %s; want %q", err, output, wanted)
 			}

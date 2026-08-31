@@ -99,8 +99,8 @@ func (a *App) printUsage(w io.Writer) {
 Usage:
   leaguebridge status [--json]
   leaguebridge assess --backend ID [--platform OS] [--arch ARCH] [--json]
-  leaguebridge doctor [--profile client|windows-host|macos-host] [--json]
-  leaguebridge bundle [--profile client|windows-host|macos-host] [--preview | --output FILE]
+  leaguebridge doctor [--profile client|windows-host|macos-host|compatibility] [--json]
+  leaguebridge bundle [--profile client|windows-host|macos-host|compatibility] [--preview | --output FILE]
   leaguebridge config example [--route windows|macos]
   leaguebridge config init --host HOST [--route windows|macos] [options]
   leaguebridge config validate [--file FILE]
@@ -109,10 +109,13 @@ Usage:
   leaguebridge manifest verify [--json]
   leaguebridge manifest validate --file FILE
   leaguebridge readiness [--json]
-  leaguebridge evidence template --type host|client|session [--platform OS] [--arch ARCH] [--run-id ID]
+  leaguebridge evidence template --type host|client|session [--route windows|macos] [--platform OS] [--arch ARCH] [--run-id ID]
+  leaguebridge evidence template-set --directory DIR [--route windows|macos] [--host-arch ARCH] [--client-platform OS] [--client-arch amd64] [--run-id ID] [--json]
   leaguebridge evidence validate --file FILE [--artifacts DIR] [--json]
   leaguebridge evidence verify-set --host FILE --client FILE --session FILE [--host-artifacts DIR --client-artifacts DIR --session-artifacts DIR] [--json]
-  leaguebridge evidence v2 verify --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote --client-platform OS --client-arch amd64 [--json]
+  leaguebridge evidence v2 prepare --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64 [--output FILE | --json]
+  leaguebridge evidence v2 verify --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64 [--json]
+  leaguebridge evidence v2 promote --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64 [--json]
   leaguebridge remote pair|list|stream [options]
   leaguebridge version [--json]
 

@@ -54,6 +54,12 @@ func TestDiscoverExplicitSelectionsAndFailures(t *testing.T) {
 			want:      Client{Flavor: FlavorEmbedded, Binary: "/opt/moonlight", discovered: true},
 		},
 		{
+			name:      "explicit embedded executable name",
+			preferred: "moonlight-embedded",
+			env:       passiveEnv{paths: map[string]string{"moonlight-embedded": "/opt/moonlight-embedded"}},
+			want:      Client{Flavor: FlavorEmbedded, Binary: "/opt/moonlight-embedded", discovered: true},
+		},
+		{
 			name:      "auto generic stays passive",
 			preferred: "auto",
 			env:       passiveEnv{paths: map[string]string{"moonlight": "/opt/moonlight"}},
@@ -64,9 +70,9 @@ func TestDiscoverExplicitSelectionsAndFailures(t *testing.T) {
 			preferred: "auto",
 			env:       passiveEnv{paths: map[string]string{"flatpak": "/opt/flatpak"}},
 			want: Client{
-				Flavor: FlavorFlatpak,
-				Binary: "/opt/flatpak",
-				Prefix: []string{"run", "com.moonlight_stream.Moonlight"},
+				Flavor:     FlavorFlatpak,
+				Binary:     "/opt/flatpak",
+				Prefix:     []string{"run", "com.moonlight_stream.Moonlight"},
 				discovered: true,
 			},
 		},
@@ -75,9 +81,9 @@ func TestDiscoverExplicitSelectionsAndFailures(t *testing.T) {
 			preferred: "flatpak",
 			env:       passiveEnv{paths: map[string]string{"flatpak": "/opt/flatpak"}},
 			want: Client{
-				Flavor: FlavorFlatpak,
-				Binary: "/opt/flatpak",
-				Prefix: []string{"run", "com.moonlight_stream.Moonlight"},
+				Flavor:     FlavorFlatpak,
+				Binary:     "/opt/flatpak",
+				Prefix:     []string{"run", "com.moonlight_stream.Moonlight"},
 				discovered: true,
 			},
 		},
@@ -88,15 +94,16 @@ func TestDiscoverExplicitSelectionsAndFailures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Discover(): %v", err)
 			}
+			tt.want.discoveryBinding = bindClient(tt.want)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("Discover() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
 
-	for _, preferred := range []string{"auto", "moonlight", "moonlight-qt", "flatpak"} {
+	for _, preferred := range []string{"auto", "moonlight", "moonlight-embedded", "moonlight-qt", "flatpak"} {
 		t.Run("missing "+preferred, func(t *testing.T) {
-			if _, err := Discover(ctx, passiveEnv{paths: map[string]string{}}, preferred); err == nil || !strings.Contains(err.Error(), "Moonlight was not found") {
+			if _, err := Discover(ctx, passiveEnv{paths: map[string]string{}}, preferred); err == nil || !strings.Contains(err.Error(), "Moonlight was not found") || !strings.Contains(err.Error(), "moonlight-embedded") {
 				t.Fatalf("Discover() error = %v", err)
 			}
 		})
@@ -232,6 +239,77 @@ func TestRealEnvironmentLookPathNormalizesAndChecksTarget(t *testing.T) {
 	}
 }
 
+func TestRealEnvironmentBindsDiscoveredExecutableIdentity(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := bindDiscoveredClient(RealEnvironment{}, Client{
+		Flavor:     FlavorQt,
+		Binary:     executable,
+		discovered: true,
+	})
+	if err != nil {
+		t.Fatalf("bindDiscoveredClient(): %v", err)
+	}
+	if client.executableInfo == nil {
+		t.Fatal("real discovery did not bind executable identity")
+	}
+}
+
+func TestRealEnvironmentRejectsRelativeExecutablePath(t *testing.T) {
+	_, err := bindDiscoveredClient(RealEnvironment{}, Client{
+		Flavor:     FlavorQt,
+		Binary:     "moonlight-qt",
+		discovered: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("bindDiscoveredClient() error = %v; want relative-path rejection", err)
+	}
+}
+
+func TestExecuteRejectsReplacedDiscoveredExecutable(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.CreateTemp(t.TempDir(), "moonlight-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replacement.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	client := Client{
+		Flavor:         FlavorQt,
+		Binary:         replacement.Name(),
+		discovered:     true,
+		executableInfo: info,
+	}
+	plan := Plan{
+		Route:            config.RouteWindows,
+		Client:           client,
+		Arguments:        []string{"pair", "pc.local"},
+		validated:        true,
+		clientDiscovered: true,
+		clientBinding:    bindClient(client),
+		argumentBinding:  []string{"pair", "pc.local"},
+	}
+	runner := &recordingRunner{}
+	err = Execute(context.Background(), runner, nil, io.Discard, io.Discard, plan)
+	if err == nil || !strings.Contains(err.Error(), "executable changed after discovery") {
+		t.Fatalf("Execute() error = %v; want executable replacement rejection", err)
+	}
+	if runner.name != "" {
+		t.Fatalf("runner was called after executable replacement: %q", runner.name)
+	}
+}
+
 func TestExecRunnerConnectsProcessIO(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -245,7 +323,7 @@ func TestExecRunnerConnectsProcessIO(t *testing.T) {
 		&stdout,
 		io.Discard,
 		executable,
-		"-test.run=^TestRemoteHelperProcess$",
+		"--test.run=^TestRemoteHelperProcess$",
 	)
 	if err != nil {
 		t.Fatalf("ExecRunner.Run(): %v", err)
@@ -261,7 +339,7 @@ func TestExecRunnerTreatsNilContextAsBackground(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("GO_WANT_LEAGUEBRIDGE_REMOTE_HELPER", "echo")
-	if err := (ExecRunner{}).Run(nil, strings.NewReader("nil context"), io.Discard, io.Discard, executable, "-test.run=^TestRemoteHelperProcess$"); err != nil {
+	if err := (ExecRunner{}).Run(nil, strings.NewReader("nil context"), io.Discard, io.Discard, executable, "--test.run=^TestRemoteHelperProcess$"); err != nil {
 		t.Fatalf("ExecRunner.Run(nil): %v", err)
 	}
 }
@@ -345,6 +423,44 @@ func TestBuildDiscoveredPlanRequiresPassiveDiscovery(t *testing.T) {
 	}
 	if runner.name != "" {
 		t.Fatalf("runner was called after client mutation: %q", runner.name)
+	}
+}
+
+func TestBuildDiscoveredPlanRejectsClientMutationBeforePlanning(t *testing.T) {
+	request := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Pair,
+		Host:                    "pc.local",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	}
+	client, err := Discover(context.Background(), passiveEnv{paths: map[string]string{"moonlight-qt": "/opt/moonlight-qt"}}, "moonlight-qt")
+	if err != nil {
+		t.Fatalf("Discover(): %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*Client)
+	}{
+		{name: "flavor", mutate: func(client *Client) { client.Flavor = FlavorEmbedded }},
+		{name: "prefix", mutate: func(client *Client) { client.Prefix = []string{"--unsafe"} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := client
+			test.mutate(&mutated)
+			if _, err := BuildDiscoveredPlan(mutated, request); err == nil || !strings.Contains(err.Error(), "changed after discovery") {
+				t.Fatalf("BuildDiscoveredPlan() after client mutation error = %v; want discovery-mutation rejection", err)
+			}
+		})
+	}
+
+	flatpak, err := Discover(context.Background(), passiveEnv{paths: map[string]string{"flatpak": "/opt/flatpak"}}, "flatpak")
+	if err != nil {
+		t.Fatalf("Discover() Flatpak client: %v", err)
+	}
+	flatpak.Prefix[1] = "com.example.Other"
+	if _, err := BuildDiscoveredPlan(flatpak, request); err == nil || !strings.Contains(err.Error(), "changed after discovery") {
+		t.Fatalf("BuildDiscoveredPlan() after in-place prefix mutation error = %v; want discovery-mutation rejection", err)
 	}
 }
 

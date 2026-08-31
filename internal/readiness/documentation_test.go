@@ -15,7 +15,6 @@ func TestREADMEUsesCanonicalBinaryChecksumMarkers(t *testing.T) {
 	readme := string(data)
 	for _, required := range []string{
 		`awk -v name="*./$artifact"`,
-		`$Pattern = '^[0-9a-f]{64} \*\./'`,
 	} {
 		if !strings.Contains(readme, required) {
 			t.Errorf("README checksum verification is missing %q", required)
@@ -23,7 +22,6 @@ func TestREADMEUsesCanonicalBinaryChecksumMarkers(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		`awk -v name="./$artifact"`,
-		`$Pattern = '^[0-9a-f]{64}  \./'`,
 	} {
 		if strings.Contains(readme, forbidden) {
 			t.Errorf("README checksum verification retains text-mode form %q", forbidden)

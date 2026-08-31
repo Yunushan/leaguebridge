@@ -40,21 +40,25 @@ service update may demote a route immediately.
 
 Readiness schema v3 accepts no remote evidence sets and keeps all remote gates
 false, so every remote route and platform remains at zero. The implemented
-validation-evidence schema-v2 verifier authenticates one exact Windows-route
-record and artifact set, but its production reviewer policy has no keys and v3
-cannot consume its result. Readiness schema v4 must bind authenticated,
-route-specific evidence by safe relative path and SHA-256 before any gate can
-pass.
+validation-evidence schema-v2 verifier authenticates one exact route-bound
+Windows or macOS record and artifact set, but its production reviewer policy
+has no keys and v3 cannot consume its result. The schema-v4 evaluator and
+`evidence v2 promote` command derive a route-specific result only from an
+opaque authenticated set; they do not provision trust or alter v3. A gate can
+pass only after production trust, physical evidence, and the reviewed
+readiness integration are present.
 The eventual overall remote score will be the minimum platform score, never an
 average. Builds, unit tests, and package availability are engineering evidence
 and do not substitute for physical-host or end-to-end session observations.
 
-Validation-evidence schema v1 covers only `physical-windows-remote`. Readiness
-schema v3 represents both `physical-windows-remote` and
-`physical-macos-remote` as separate, fixed, hard-zero route contracts. Neither
-route can be promoted until production trust keys, signed physical evidence,
-and readiness schema v4 are implemented and reviewed. The current v2 record
-profile is Windows-only; Windows observations can never promote macOS.
+Validation-evidence schema v1 covers both `physical-windows-remote` and
+`physical-macos-remote`, with route-specific host platform and architecture
+binding. Readiness schema v3 represents both routes as separate, fixed,
+hard-zero contracts. Neither route can be promoted until production trust keys,
+signed physical evidence, and the readiness-schema-v4 integration are reviewed
+and provisioned.
+Windows observations cannot promote macOS, and macOS observations cannot
+promote Windows.
 
 Cross-compilation proves build portability, not platform support. Native smoke
 tests and real hardware evidence are required before promotion.

@@ -19,7 +19,7 @@ const (
 	// ManifestName is the exact archive member used for the package inventory.
 	ManifestName               = "PACKAGE-MANIFEST.json"
 	SchemaID                   = "https://github.com/Yunushan/leaguebridge/schemas/package-manifest.schema.json"
-	SchemaVersion              = 2
+	SchemaVersion              = 3
 	ValidationScope            = "artifact-integrity-only"
 	ProductionBuilderGoVersion = "go1.27.0"
 	// ProductionDependency* is the sole compiled third-party module admitted
@@ -84,7 +84,6 @@ type BuildEnvironment struct {
 	GOTOOLCHAIN  string `json:"gotoolchain"`
 	GOWORK       string `json:"gowork"`
 	GOAMD64      string `json:"goamd64"`
-	GOARM64      string `json:"goarm64"`
 	GO111MODULE  string `json:"go111module"`
 	GOPROXY      string `json:"goproxy"`
 	GONOPROXY    string `json:"gonoproxy"`
@@ -111,7 +110,7 @@ func Build(version, goos, goarch string, epoch int64, commit, tree, builderGoVer
 		return Manifest{}, err
 	}
 	if epoch < minimumEpoch || epoch > maximumEpoch {
-		return Manifest{}, errors.New("source date epoch must be representable by release ZIP timestamps (1980 through 2107)")
+		return Manifest{}, errors.New("source date epoch must be representable by release archive timestamps (1980 through 2107)")
 	}
 	if !validCommit(commit) {
 		return Manifest{}, errors.New("source commit must be a 40- or 64-character lowercase hexadecimal object ID")
@@ -155,7 +154,7 @@ func Build(version, goos, goarch string, epoch int64, commit, tree, builderGoVer
 			SourceTree:       tree,
 			SourceDateEpoch:  epoch,
 			BuilderGoVersion: builderGoVersion,
-			BuildEnvironment: buildEnvironmentFor(goarch),
+			BuildEnvironment: buildEnvironmentFor(),
 		},
 		ValidationScope: ValidationScope,
 		DefaultPrefix:   spec.defaultPrefix,
@@ -207,7 +206,7 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 	if !releaseversion.Valid(version) {
 		return targetSpec{}, errors.New("version must be a valid v-prefixed Semantic Version")
 	}
-	if goarch != "amd64" && !(goos == "darwin" && goarch == "arm64") {
+	if goarch != "amd64" {
 		return targetSpec{}, fmt.Errorf("unsupported architecture %q", goarch)
 	}
 	kernels := map[string]string{
@@ -216,8 +215,6 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 		"openbsd":   "OpenBSD",
 		"netbsd":    "NetBSD",
 		"dragonfly": "DragonFly",
-		"windows":   "Windows",
-		"darwin":    "Darwin",
 	}
 	kernel, ok := kernels[goos]
 	if !ok {
@@ -225,22 +222,6 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 	}
 
 	base := "leaguebridge_" + strings.TrimPrefix(version, "v") + "_" + goos + "_" + goarch
-	if goos == "windows" {
-		files := []fileSpec{
-			{archivePath: "LICENSE", role: "license", mode: "0644"},
-			{archivePath: "README.md", role: "documentation", mode: "0644"},
-			{archivePath: "SBOM.spdx.json", role: "sbom", mode: "0644"},
-			{archivePath: "leaguebridge.exe", role: "executable", mode: "0755"},
-		}
-		sort.Slice(files, func(i, j int) bool { return files[i].archivePath < files[j].archivePath })
-		return targetSpec{
-			filename:     base + ".zip",
-			format:       "zip",
-			nativeKernel: kernel,
-			files:        files,
-		}, nil
-	}
-
 	prefix := "/usr/local"
 	doc := prefix + "/share/doc/leaguebridge/"
 	files := []fileSpec{
@@ -262,7 +243,7 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 	}, nil
 }
 
-func buildEnvironmentFor(goarch string) BuildEnvironment {
+func buildEnvironmentFor() BuildEnvironment {
 	environment := BuildEnvironment{
 		CGOEnabled:   "0",
 		GOENV:        "off",
@@ -281,11 +262,7 @@ func buildEnvironmentFor(goarch string) BuildEnvironment {
 		GOVCS:        "*:off",
 		GOPRIVATE:    "",
 	}
-	if goarch == "amd64" {
-		environment.GOAMD64 = "v1"
-	} else if goarch == "arm64" {
-		environment.GOARM64 = "v8.0"
-	}
+	environment.GOAMD64 = "v1"
 	return environment
 }
 

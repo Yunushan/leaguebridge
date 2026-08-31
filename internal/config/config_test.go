@@ -257,3 +257,23 @@ func TestWriteNewRoundTripAndNoOverwrite(t *testing.T) {
 		t.Fatalf("expected ErrExists, got %v", err)
 	}
 }
+
+func TestWriteNewRejectsSymlinkedParent(t *testing.T) {
+	cfg := Default()
+	cfg.RemoteHost.Host = "pc.local"
+	cfg.RemoteHost.PhysicalHostConfirmed = true
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "config-parent-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	path := filepath.Join(link, "config.json")
+	if err := WriteNew(path, cfg); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("WriteNew(%q) = %v; want parent-symlink rejection", path, err)
+	}
+	if entries, err := os.ReadDir(target); err != nil {
+		t.Fatal(err)
+	} else if len(entries) != 0 {
+		t.Fatalf("redirected configuration directory was modified: %v", entries)
+	}
+}

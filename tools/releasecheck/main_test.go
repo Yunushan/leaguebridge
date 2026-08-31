@@ -2,13 +2,10 @@ package main
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"debug/elf"
-	"debug/macho"
-	"debug/pe"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -63,6 +60,38 @@ func TestCheckReleaseRejectsUnexpectedTopLevelEntry(t *testing.T) {
 	}
 	if err := checkRelease(dir, testVersion, testEpoch, testCommit, testTree, testBuilderGoVersion); err == nil || !strings.Contains(err.Error(), "unexpected release directory entry") {
 		t.Fatalf("checkRelease() error = %v; want unexpected-entry error", err)
+	}
+}
+
+func TestReleaseValidationRejectsSymlinkedDirectoryAndParent(t *testing.T) {
+	target := t.TempDir()
+	root := t.TempDir()
+	linkedDirectory := filepath.Join(root, "dist")
+	if err := os.Symlink(target, linkedDirectory); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	if err := checkDirectory(linkedDirectory, map[string]struct{}{}); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("checkDirectory() error = %v; want symlink rejection", err)
+	}
+
+	inputRoot := filepath.Join(root, "input-target")
+	if err := os.Mkdir(inputRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(inputRoot, "checksums.txt")
+	if err := os.WriteFile(input, []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkedParent := filepath.Join(root, "input-link")
+	if err := os.Symlink(inputRoot, linkedParent); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	redirected := filepath.Join(linkedParent, "checksums.txt")
+	if _, err := readFileBounded(redirected, maxChecksumSize); err == nil || !strings.Contains(err.Error(), "path parent") {
+		t.Fatalf("readFileBounded() error = %v; want parent-symlink rejection", err)
+	}
+	if _, err := fileSHA256(redirected, maxChecksumSize); err == nil || !strings.Contains(err.Error(), "path parent") {
+		t.Fatalf("fileSHA256() error = %v; want parent-symlink rejection", err)
 	}
 }
 
@@ -272,92 +301,6 @@ func TestCheckTarGzipRejectsTrailingAndConcatenatedStreams(t *testing.T) {
 
 }
 
-func TestCheckZipRejectsInvalidMembers(t *testing.T) {
-	tests := []struct {
-		name    string
-		members []testMember
-		want    string
-	}{
-		{
-			name:    "nested path",
-			members: []testMember{{name: "root/LICENSE", mode: 0o644}},
-			want:    "unexpected archive member",
-		},
-		{
-			name: "duplicate",
-			members: []testMember{
-				{name: "LICENSE", mode: 0o644},
-				{name: "LICENSE", mode: 0o644},
-			},
-			want: "duplicate archive member",
-		},
-		{
-			name:    "wrong binary mode",
-			members: []testMember{{name: "leaguebridge.exe", mode: 0o644}},
-			want:    "has mode 0644; want 0755",
-		},
-		{
-			name:    "unix lifecycle script",
-			members: []testMember{{name: "install.sh", mode: 0o755}},
-			want:    "unexpected archive member",
-		},
-		{
-			name:    "wrong timestamp",
-			members: []testMember{{name: "LICENSE", mode: 0o644, modTime: time.Unix(testEpoch+2, 0)}},
-			want:    "SOURCE_DATE_EPOCH",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "release.zip")
-			writeZip(t, path, test.members)
-			_, err := readZip(path, "leaguebridge.exe", testEpoch)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("readZip() error = %v; want substring %q", err, test.want)
-			}
-		})
-	}
-}
-
-func TestCheckZipRejectsTrailingBytes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "release.zip")
-	writeZip(t, path, canonicalMembers("leaguebridge.exe", false))
-	appendFile(t, path, []byte("trailing"))
-	if _, err := readZip(path, "leaguebridge.exe", testEpoch); err == nil || !strings.Contains(err.Error(), "trailing bytes") {
-		t.Fatalf("readZip() error = %v; want trailing-byte error", err)
-	}
-}
-
-func TestCheckZipRejectsStoredCompression(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "release.zip")
-	writeZipWithMethod(t, path, canonicalMembers("leaguebridge.exe", false), zip.Store)
-	if _, err := readZip(path, "leaguebridge.exe", testEpoch); err == nil || !strings.Contains(err.Error(), "canonical Deflate") {
-		t.Fatalf("readZip() error = %v; want canonical Deflate rejection", err)
-	}
-}
-
-func TestCheckZipRejectsNonCanonicalHeaderFlags(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "release.zip")
-	writeZip(t, path, canonicalMembers("leaguebridge.exe", false))
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	central := bytes.Index(data, []byte{'P', 'K', 1, 2})
-	if central < 0 {
-		t.Fatal("central directory header not found")
-	}
-	data[central+8] = 0
-	data[central+9] = 0
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readZip(path, "leaguebridge.exe", testEpoch); err == nil || !strings.Contains(err.Error(), "flags or version") {
-		t.Fatalf("readZip() error = %v; want header-flag rejection", err)
-	}
-}
-
 func TestCheckTarGzipRequiresLifecycleScripts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "release.tar.gz")
 	members := canonicalMembers("leaguebridge", true)
@@ -442,7 +385,7 @@ func TestReleaseBinaryBindsTargetAndIdentity(t *testing.T) {
 func TestReleaseBinaryRequiresTrimpath(t *testing.T) {
 	repository, commit := makeCleanRepository(t)
 	tree := strings.TrimSpace(runGit(t, repository, "rev-parse", "HEAD^{tree}"))
-	item := artifact{binaryName: "leaguebridge", goos: runtime.GOOS, goarch: runtime.GOARCH}
+	item := artifact{binaryName: "leaguebridge", goos: "linux", goarch: "amd64"}
 	binary := buildTestBinary(t, repository, commit, item, false, true, releaseIdentity(item))
 	if err := checkReleaseBinary(binary, item, testVersion, testEpoch, commit, tree, testBuilderGoVersion); err == nil || !strings.Contains(err.Error(), "-trimpath") {
 		t.Fatalf("checkReleaseBinary() error = %v; want trimpath error", err)
@@ -452,27 +395,10 @@ func TestReleaseBinaryRequiresTrimpath(t *testing.T) {
 func TestReleaseBinaryRequiresStripping(t *testing.T) {
 	repository, commit := makeCleanRepository(t)
 	tree := strings.TrimSpace(runGit(t, repository, "rev-parse", "HEAD^{tree}"))
-	item := artifact{binaryName: "leaguebridge", goos: runtime.GOOS, goarch: runtime.GOARCH}
+	item := artifact{binaryName: "leaguebridge", goos: "linux", goarch: "amd64"}
 	binary := buildTestBinary(t, repository, commit, item, true, false, releaseIdentity(item))
 	if err := checkReleaseBinary(binary, item, testVersion, testEpoch, commit, tree, testBuilderGoVersion); err == nil || !strings.Contains(err.Error(), "canonical -") {
 		t.Fatalf("checkReleaseBinary() error = %v; want stripping error", err)
-	}
-}
-
-func TestReleaseBinaryAcceptsBothDarwinArchitectures(t *testing.T) {
-	repository, commit := makeCleanRepository(t)
-	tree := strings.TrimSpace(runGit(t, repository, "rev-parse", "HEAD^{tree}"))
-	for _, goarch := range []string{"amd64", "arm64"} {
-		item := artifact{binaryName: "leaguebridge", goos: "darwin", goarch: goarch}
-		binary := buildTestBinary(t, repository, commit, item, true, true, releaseIdentity(item))
-		if err := checkReleaseBinary(binary, item, testVersion, testEpoch, commit, tree, testBuilderGoVersion); err != nil {
-			t.Fatalf("checkReleaseBinary(darwin/%s) error = %v", goarch, err)
-		}
-	}
-	unstripped := artifact{binaryName: "leaguebridge", goos: "darwin", goarch: "amd64"}
-	binary := buildTestBinary(t, repository, commit, unstripped, true, false, releaseIdentity(unstripped))
-	if err := checkReleaseBinary(binary, unstripped, testVersion, testEpoch, commit, tree, testBuilderGoVersion); err == nil || !strings.Contains(err.Error(), "canonical -") {
-		t.Fatalf("unstripped Darwin binary error = %v; want stripping rejection", err)
 	}
 }
 
@@ -531,83 +457,6 @@ func TestReleaseBinaryRejectsContainerIdentityMutations(t *testing.T) {
 			},
 			want: "ELF OSABI",
 		},
-		{
-			name: "PE machine",
-			item: artifact{binaryName: "leaguebridge.exe", goos: "windows", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				offset := peHeaderOffset(t, data)
-				binary.LittleEndian.PutUint16(data[offset+4:offset+6], pe.IMAGE_FILE_MACHINE_I386)
-			},
-			want: "PE machine",
-		},
-		{
-			name: "PE executable characteristic",
-			item: artifact{binaryName: "leaguebridge.exe", goos: "windows", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				offset := peHeaderOffset(t, data)
-				characteristics := binary.LittleEndian.Uint16(data[offset+22 : offset+24])
-				binary.LittleEndian.PutUint16(data[offset+22:offset+24], characteristics&^pe.IMAGE_FILE_EXECUTABLE_IMAGE)
-			},
-			want: "executable image",
-		},
-		{
-			name: "PE optional header",
-			item: artifact{binaryName: "leaguebridge.exe", goos: "windows", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				offset := peHeaderOffset(t, data)
-				binary.LittleEndian.PutUint16(data[offset+24:offset+26], 0x10b)
-			},
-			want: "PE optional header",
-		},
-		{
-			name: "PE subsystem",
-			item: artifact{binaryName: "leaguebridge.exe", goos: "windows", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				offset := peHeaderOffset(t, data) + 24 + 68
-				binary.LittleEndian.PutUint16(data[offset:offset+2], pe.IMAGE_SUBSYSTEM_NATIVE)
-			},
-			want: "PE subsystem",
-		},
-		{
-			name: "Mach-O CPU",
-			item: artifact{binaryName: "leaguebridge", goos: "darwin", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				binary.LittleEndian.PutUint32(data[4:8], uint32(macho.CpuArm64))
-			},
-			want: "Mach-O CPU",
-		},
-		{
-			name: "Mach-O CPU subtype",
-			item: artifact{binaryName: "leaguebridge", goos: "darwin", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				binary.LittleEndian.PutUint32(data[8:12], 4)
-			},
-			want: "Mach-O CPU subtype",
-		},
-		{
-			name: "Mach-O type",
-			item: artifact{binaryName: "leaguebridge", goos: "darwin", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				binary.LittleEndian.PutUint32(data[12:16], uint32(macho.TypeDylib))
-			},
-			want: "Mach-O type",
-		},
-		{
-			name: "Mach-O endian magic",
-			item: artifact{binaryName: "leaguebridge", goos: "darwin", goarch: "amd64"},
-			mutate: func(t *testing.T, data []byte) {
-				t.Helper()
-				copy(data[:4], []byte{0xfe, 0xed, 0xfa, 0xcf})
-			},
-			want: "little-endian 64-bit magic",
-		},
 	}
 
 	binaries := make(map[string][]byte)
@@ -630,18 +479,6 @@ func TestReleaseBinaryRejectsContainerIdentityMutations(t *testing.T) {
 			}
 		})
 	}
-}
-
-func peHeaderOffset(t *testing.T, data []byte) int {
-	t.Helper()
-	if len(data) < 0x40 {
-		t.Fatal("PE fixture is truncated before DOS e_lfanew")
-	}
-	offset := int(binary.LittleEndian.Uint32(data[0x3c:0x40]))
-	if offset < 0 || offset+24 > len(data) || !bytes.Equal(data[offset:offset+4], []byte{'P', 'E', 0, 0}) {
-		t.Fatal("PE fixture has an invalid NT-header offset")
-	}
-	return offset
 }
 
 func TestReleaseBinaryRejectsAdditionalCompiledModule(t *testing.T) {
@@ -752,7 +589,6 @@ func TestStrictPackageManifestBindsPayloadTargetAndProvenance(t *testing.T) {
 	item := artifact{
 		name:       "leaguebridge_1.2.3_linux_amd64.tar.gz",
 		binaryName: "leaguebridge",
-		format:     "tar.gz",
 		goos:       "linux",
 		goarch:     "amd64",
 	}
@@ -869,13 +705,12 @@ func TestExpectedArtifactsRejectsInvalidVersionAndCarriesTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(artifacts) != 8 {
-		t.Fatalf("artifact count = %d; want 8", len(artifacts))
+	if len(artifacts) != 5 {
+		t.Fatalf("artifact count = %d; want 5", len(artifacts))
 	}
 	wantTargets := map[string]bool{
 		"linux/amd64": true, "freebsd/amd64": true, "openbsd/amd64": true,
-		"netbsd/amd64": true, "dragonfly/amd64": true, "windows/amd64": true,
-		"darwin/amd64": true, "darwin/arm64": true,
+		"netbsd/amd64": true, "dragonfly/amd64": true,
 	}
 	for _, item := range artifacts {
 		if item.goos == "" || item.goarch == "" || !strings.Contains(item.name, "_"+item.goos+"_"+item.goarch) {
@@ -900,7 +735,7 @@ func makeValidReleaseFixture(t *testing.T) (string, string, string) {
 	for _, item := range artifacts {
 		binaryData := buildTestBinary(t, repository, commit, item, true, true, releaseIdentity(item))
 		sbom := generateSBOM(t, item, binaryData)
-		members := canonicalMembers(item.binaryName, item.format == "tar.gz")
+		members := canonicalMembers(item.binaryName, true)
 		for index := range members {
 			switch members[index].name {
 			case item.binaryName:
@@ -934,11 +769,7 @@ func makeValidReleaseFixture(t *testing.T) (string, string, string) {
 			}
 		}
 		path := filepath.Join(dir, item.name)
-		if item.format == "zip" {
-			writeZip(t, path, members)
-		} else {
-			writeTarGzip(t, path, members)
-		}
+		writeTarGzip(t, path, members)
 	}
 	writeChecksums(t, dir, artifacts)
 	return dir, commit, tree
@@ -952,13 +783,9 @@ func makeStructuralReleaseFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for _, item := range artifacts {
-		members := canonicalMembers(item.binaryName, item.format == "tar.gz")
+		members := canonicalMembers(item.binaryName, true)
 		path := filepath.Join(dir, item.name)
-		if item.format == "zip" {
-			writeZip(t, path, members)
-		} else {
-			writeTarGzip(t, path, members)
-		}
+		writeTarGzip(t, path, members)
 	}
 	writeChecksums(t, dir, artifacts)
 	return dir
@@ -980,35 +807,8 @@ func releaseIdentity(item artifact) string {
 
 func generateSBOM(t *testing.T, item artifact, binaryData []byte) []byte {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	stage := t.TempDir()
-	binaryPath := filepath.Join(stage, item.binaryName)
-	outputPath := filepath.Join(stage, "SBOM.spdx.json")
-	if err := os.WriteFile(binaryPath, binaryData, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	goExecutable := filepath.Join(runtime.GOROOT(), "bin", "go")
-	if runtime.GOOS == "windows" {
-		goExecutable += ".exe"
-	}
-	command := exec.Command(goExecutable, "run", "./tools/sbom", "-binary", binaryPath, "-version", testVersion, "-os", item.goos, "-arch", item.goarch, "-output", outputPath)
-	command.Dir = root
-	command.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOENV=off",
-		"GOEXPERIMENT=",
-		"GOFLAGS=",
-		"GOTOOLCHAIN=local",
-		"GOWORK=off",
-		fmt.Sprintf("SOURCE_DATE_EPOCH=%d", testEpoch),
-	)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("generate SBOM: %v\n%s", err, output)
-	}
-	data, err := os.ReadFile(outputPath)
+	digest := sha256.Sum256(binaryData)
+	data, err := expectedSBOM(binaryData, item, testVersion, testEpoch, fmt.Sprintf("%x", digest))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1152,6 +952,9 @@ func buildTestBinaryWithVCS(t *testing.T, repository, commit string, item artifa
 
 func buildTestBinaryMode(t *testing.T, repository, commit string, item artifact, trimpath, stripped, buildVCS bool, identity string) []byte {
 	t.Helper()
+	if testBuilderGoVersion != productionBuilderGoVersion && testBuilderGoVersion != "go1.24.13" {
+		t.Skipf("binary fixture tests require Go %s or the source-compatibility Go 1.24.13; running %s", productionBuilderGoVersion, testBuilderGoVersion)
+	}
 	binaryPath := filepath.Join(t.TempDir(), item.binaryName)
 	buildDate := time.Unix(testEpoch, 0).UTC().Format(time.RFC3339)
 	tree := strings.TrimSpace(runGit(t, repository, "rev-parse", commit+"^{tree}"))
@@ -1188,7 +991,6 @@ func buildTestBinaryMode(t *testing.T, repository, commit string, item artifact,
 		"GOOS="+item.goos,
 		"GOARCH="+item.goarch,
 		"GOAMD64=v1",
-		"GOARM64=v8.0",
 	)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build %s/%s test binary: %v\n%s", item.goos, item.goarch, err, output)
@@ -1251,45 +1053,6 @@ func writeTarGzipLevel(t *testing.T, path string, members []testMember, level in
 		t.Fatal(err)
 	}
 	if err := gzipWriter.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeZip(t *testing.T, path string, members []testMember) {
-	writeZipWithMethod(t, path, members, zip.Deflate)
-}
-
-func writeZipWithMethod(t *testing.T, path string, members []testMember, method uint16) {
-	t.Helper()
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	archive := zip.NewWriter(file)
-	for _, member := range members {
-		header := &zip.FileHeader{Name: member.name, Method: method}
-		header.SetMode(member.mode)
-		modTime := member.modTime
-		if modTime.IsZero() {
-			modTime = time.Unix(testEpoch, 0).UTC()
-		}
-		header.ModifiedDate, header.ModifiedTime = msDOSDateTime(modTime)
-		writer, err := archive.CreateHeader(header)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body := member.body
-		if body == nil {
-			body = []byte("content for " + member.name)
-		}
-		if _, err := writer.Write(body); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := archive.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {

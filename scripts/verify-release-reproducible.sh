@@ -24,10 +24,19 @@ export GOVCS='*:off'
 export GOPRIVATE=
 export CGO_ENABLED=0
 export GOAMD64=v1
-export GOARM64=v8.0
 
 scratch="$(mktemp -d)"
-trap 'rm -rf -- "$scratch"' EXIT
+cleanup() {
+  if [[ -n "${scratch:-}" && -e "$scratch" && ! -L "$scratch" ]]; then
+    rm -rf -- "$scratch"
+  fi
+}
+trap cleanup EXIT
+export GOPATH="$scratch/gopath"
+export GOMODCACHE="$GOPATH/pkg/mod"
+export GOCACHE="$scratch/gocache"
+export GOTMPDIR="$scratch/go-tmp"
+mkdir -p "$GOMODCACHE" "$GOCACHE" "$GOTMPDIR"
 
 # Establish the same Git boundary as release.sh before deriving the default
 # epoch, commit, or tree used to verify the two builds.

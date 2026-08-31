@@ -19,8 +19,8 @@ service changes, security changes, or anti-cheat workarounds.
 
 Config schema v2 stores one exact `route_id` and one `remote_host`; there is no
 parallel Windows/macOS state or implicit precedence. The loader may strictly
-accept the original Windows-only schema v1 and normalize it in memory, but all
-new output is v2.
+accept the original Windows-only config schema v1 and normalize it in memory,
+but all new output is v2.
 
 The optional `macos-host` doctor runs on the Mac, accepts Darwin amd64/arm64,
 performs only passive discovery, executes no commands, and cannot return ready
@@ -34,11 +34,12 @@ a user-confirmed physical Mac after explicit stream acknowledgement. This is
 not Riot endorsement, local Linux/BSD support, or evidence that macOS streaming
 works.
 
-Validation-evidence schema v1 remains scoped to `physical-windows-remote`;
-macOS observations cannot be submitted under that contract. Readiness schema
-v3 represents the macOS route separately at hard zero. The initial signed
-schema-v2 set verifier is also Windows/v1-record backed, so macOS still needs a
-separate route-bound record profile, production reviewer trust, physical
-evidence, and readiness schema v4. The release contract includes Darwin amd64
-and arm64 diagnostic archives, but cross-compilation and hosted lifecycle
-execution alone do not establish physical-Mac or gameplay support.
+Validation-evidence schema v1 and the signed schema-v2 verifier now accept
+route-bound macOS host records for `physical-macos-remote`, including Intel
+`amd64` and Apple-silicon `arm64`; Windows records cannot be reused for that
+route. Readiness schema v3 still represents the macOS route separately at hard
+zero because the production reviewer policy is unprovisioned and no physical
+Mac evidence exists. The release contract publishes exactly five Linux/BSD
+amd64 archives and no Darwin archive or macOS LeagueBridge package;
+cross-compilation and hosted lifecycle execution alone do not establish
+physical-Mac or gameplay support.

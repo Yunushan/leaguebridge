@@ -17,7 +17,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.27.0"
           cache: false
@@ -39,14 +39,20 @@ jobs:
         id: source_identity
         run: echo "commit=$(git rev-parse --verify HEAD)" >>"$GITHUB_OUTPUT"
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.27.0"
           cache: false
       - name: Verify committed dependency source
         run: go run -mod=vendor ./tools/vendorcheck -root .
       - name: Format check
-        run: test -z "$(gofmt -l .)"
+        shell: bash
+        run: |
+          mapfile -t go_files < <(git ls-files -- '*.go' ':!vendor/**')
+          if [[ "${#go_files[@]}" -eq 0 ]]; then
+            exit 0
+          fi
+          test -z "$(gofmt -l "${go_files[@]}")"
       - name: Test release source with race detector
         run: go test -mod=vendor -race ./...
       - name: Vet release source
@@ -74,6 +80,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - name: Require a protected release tag
         env:
@@ -83,6 +90,16 @@ jobs:
             echo "release publication requires a repository ruleset protecting the v* tag namespace" >&2
             exit 1
           fi
+      - name: Check out the tested verifier source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.build.outputs.tested_commit }}
+          persist-credentials: false
+      - name: Set up Go for release attestation verification
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.27.0"
+          cache: false
       - name: Download artifacts built by the unprivileged job
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -101,9 +118,6 @@ jobs:
             "leaguebridge_${release_version}_openbsd_amd64.tar.gz"
             "leaguebridge_${release_version}_netbsd_amd64.tar.gz"
             "leaguebridge_${release_version}_dragonfly_amd64.tar.gz"
-            "leaguebridge_${release_version}_windows_amd64.zip"
-            "leaguebridge_${release_version}_darwin_amd64.tar.gz"
-            "leaguebridge_${release_version}_darwin_arm64.tar.gz"
           )
           expected=("${archives[@]}" checksums.txt)
           if find dist -mindepth 1 -maxdepth 1 ! -type f | grep -q .; then
@@ -160,9 +174,38 @@ jobs:
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_openbsd_amd64.tar.gz
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_netbsd_amd64.tar.gz
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_dragonfly_amd64.tar.gz
-            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_windows_amd64.zip
-            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_darwin_amd64.tar.gz
-            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_darwin_arm64.tar.gz
+      - name: Verify release attestations before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ needs.build.outputs.tested_commit }}
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verified=false
+          for attempt in 1 2 3 4 5; do
+            if go run -mod=vendor ./tools/ciattestation \
+              -verify -kind release \
+              -release-dir dist \
+              -release-version "$GITHUB_REF_NAME" \
+              -expected-repository "$GITHUB_REPOSITORY" \
+              -expected-workflow .github/workflows/release.yml \
+              -expected-commit "$EXPECTED_COMMIT" \
+              -expected-ref "$GITHUB_REF" \
+              -expected-workflow-sha "$EXPECTED_WORKFLOW_SHA" \
+              -run-id "$EXPECTED_RUN_ID" \
+              -run-attempt "$EXPECTED_RUN_ATTEMPT"; then
+              verified=true
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$verified" != true ]]; then
+            echo "release attestation verification failed for the exact release subject set" >&2
+            exit 1
+          fi
       - name: Recheck the protected release tag immediately before publication
         env:
           GH_TOKEN: ${{ github.token }}
@@ -197,9 +240,6 @@ jobs:
             "dist/leaguebridge_${release_version}_openbsd_amd64.tar.gz" \
             "dist/leaguebridge_${release_version}_netbsd_amd64.tar.gz" \
             "dist/leaguebridge_${release_version}_dragonfly_amd64.tar.gz" \
-            "dist/leaguebridge_${release_version}_windows_amd64.zip" \
-            "dist/leaguebridge_${release_version}_darwin_amd64.tar.gz" \
-            "dist/leaguebridge_${release_version}_darwin_arm64.tar.gz" \
             --verify-tag \
             --generate-notes \
             --title "LeagueBridge $GITHUB_REF_NAME"

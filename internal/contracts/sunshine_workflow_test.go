@@ -54,7 +54,7 @@ func TestSunshineArtifactLockIsExactAndBounded(t *testing.T) {
 	if lock.ReleaseTag != "v2026.516.143833" {
 		t.Fatalf("unexpected Sunshine release tag %q", lock.ReleaseTag)
 	}
-	if parsed, err := time.Parse("2006-01-02", lock.SourceCheckedAt); err != nil || parsed.Format("2006-01-02") != "2026-08-26" {
+	if parsed, err := time.Parse("2006-01-02", lock.SourceCheckedAt); err != nil || parsed.Format("2006-01-02") != "2026-08-29" {
 		t.Fatalf("invalid source_checked_at: %v", err)
 	}
 	expectedReleaseURL := "https://github.com/LizardByte/Sunshine/releases/tag/" + lock.ReleaseTag

@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/native-package-staging.schema.json",
+  "title": "LeagueBridge native package staging manifest",
+  "description": "A content-addressed staging inventory for an optional native package builder. It proves staging integrity only and is not package-manager, runtime, or gameplay evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "name",
+    "version",
+    "target",
+    "source_artifact",
+    "package",
+    "validation_scope",
+    "payload"
+  ],
+  "properties": {
+    "$schema": { "const": "https://github.com/Yunushan/leaguebridge/schemas/native-package-staging.schema.json" },
+    "schema_version": { "const": 1 },
+    "name": { "const": "leaguebridge" },
+    "version": {
+      "type": "string",
+      "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goos", "goarch", "required_kernel"],
+      "properties": {
+        "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"] },
+        "goarch": { "const": "amd64" },
+        "required_kernel": { "enum": ["Linux", "FreeBSD", "OpenBSD", "NetBSD", "DragonFly"] }
+      },
+      "oneOf": [
+        { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Linux" } } },
+        { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "FreeBSD" } } },
+        { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "OpenBSD" } } },
+        { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "NetBSD" } } },
+        { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "DragonFly" } } }
+      ]
+    },
+    "source_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "format", "sha256"],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "pattern": "^leaguebridge_[0-9A-Za-z.+-]+_(?:linux|freebsd|openbsd|netbsd|dragonfly)_amd64\\.tar\\.gz$"
+        },
+        "format": { "const": "tar.gz" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "name", "version", "architecture", "install_root"],
+      "properties": {
+        "family": { "enum": ["debian", "rpm", "freebsd-pkg", "openbsd-pkg", "pkgsrc", "dports"] },
+        "name": { "const": "leaguebridge" },
+        "version": {
+          "type": "string",
+          "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "architecture": { "enum": ["amd64", "x86_64"] },
+        "install_root": { "enum": ["/", "/usr/local"] }
+      }
+    },
+    "validation_scope": { "const": "staging-integrity-only" },
+    "payload": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/license" },
+        { "$ref": "#/$defs/packageManifest" },
+        { "$ref": "#/$defs/readme" },
+        { "$ref": "#/$defs/sbom" },
+        { "$ref": "#/$defs/executable" }
+      ],
+      "items": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "package": { "properties": { "family": { "const": "debian" } } } } },
+      "then": {
+        "properties": {
+          "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
+          "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "package": { "properties": { "family": { "const": "rpm" } } } } },
+      "then": {
+        "properties": {
+          "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
+          "package": { "properties": { "architecture": { "const": "x86_64" }, "install_root": { "const": "/" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "package": { "properties": { "family": { "const": "freebsd-pkg" } } } } },
+      "then": {
+        "properties": {
+          "target": { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" } } },
+          "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/usr/local" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "package": { "properties": { "family": { "const": "openbsd-pkg" } } } } },
+      "then": {
+        "properties": {
+          "target": { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" } } },
+          "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/usr/local" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "package": { "properties": { "family": { "const": "pkgsrc" } } } } },
+      "then": {
+        "properties": {
+          "target": { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" } } },
+          "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/usr/local" } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "package": { "properties": { "family": { "const": "dports" } } } } },
+      "then": {
+        "properties": {
+          "target": { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" } } },
+          "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/usr/local" } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "payloadFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "install_path", "role", "mode", "size", "sha256"],
+      "properties": {
+        "source_path": { "enum": ["LICENSE", "PACKAGE-MANIFEST.json", "README.md", "SBOM.spdx.json", "leaguebridge"] },
+        "install_path": {
+          "type": "string",
+          "pattern": "^/(?:usr/bin/leaguebridge|usr/share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json|PACKAGE-MANIFEST\\.json)|usr/local/bin/leaguebridge|usr/local/share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json|PACKAGE-MANIFEST\\.json))$"
+        },
+        "role": { "enum": ["license", "documentation", "sbom", "executable"] },
+        "mode": { "enum": ["0644", "0755"] },
+        "size": { "type": "integer", "minimum": 0, "maximum": 134217728 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "license": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "LICENSE" }, "role": { "const": "license" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "packageManifest": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "PACKAGE-MANIFEST.json" }, "role": { "const": "documentation" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "readme": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "README.md" }, "role": { "const": "documentation" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "sbom": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "SBOM.spdx.json" }, "role": { "const": "sbom" }, "mode": { "const": "0644" } } }
+      ]
+    },
+    "executable": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "leaguebridge" }, "role": { "const": "executable" }, "mode": { "const": "0755" } } }
+      ]
+    }
+  }
+}

@@ -1,17 +1,19 @@
 # Validation evidence contract
 
 LeagueBridge validation evidence is a versioned record of observations made on
-a physical Windows streaming host, a native Linux/BSD client, or an end-to-end
-remote session. Every schema-v1 record is scoped to the single
-`physical-windows-remote` route and the `remote-play-v1` test profile. It is an
-input to readiness evaluation. It is **not** an authorization token, a launcher
-bypass, or proof that Riot supports Linux or BSD.
+a physical Windows or native macOS streaming host, a native Linux/BSD client,
+or an end-to-end remote session. Every schema-v1 record is scoped to one of the
+route-bound `physical-windows-remote` or `physical-macos-remote` routes and the
+`remote-play-v1` test profile. It is an input to readiness evaluation. It is
+**not** an authorization token, a launcher bypass, or proof that Riot supports
+Linux or BSD.
 
 The public Draft 2020-12 schema is
 [`schemas/validation-evidence.schema.json`](../schemas/validation-evidence.schema.json).
 The checked-in examples are deliberately unverified templates:
 
 - [`host-windows-unverified.json`](evidence/examples/host-windows-unverified.json)
+- [`host-macos-unverified.json`](evidence/examples/host-macos-unverified.json)
 - [`client-linux-unverified.json`](evidence/examples/client-linux-unverified.json)
 - [`session-linux-unverified.json`](evidence/examples/session-linux-unverified.json)
 
@@ -21,21 +23,22 @@ platform-support evidence.
 
 ## Record types
 
-Every schema-v1 record has `route_id: "physical-windows-remote"`,
-`test_profile_id: "remote-play-v1"`, a privacy-safe `validation_run_id` of
-`run-` plus 32 lowercase hexadecimal digits, a type-specific ID prefix and
-subject, and an exact check inventory. The host, client, and session in a set
-must use the same run ID; it is a random correlation value, not an account,
-machine, or reviewer identifier. `manifest_sha256` binds each record to the validated embedded
-compatibility manifest's canonical JSON content corresponding to
-`manifest_as_of`. The canonical representation normalizes the known schema URI,
-so whitespace and checkout line endings do not change the digest. Array order
-remains content-significant. Check order is conventional rather than semantic;
-no required ID may be missing, duplicated, or replaced.
+Every schema-v1 record has a route ID of `physical-windows-remote` or
+`physical-macos-remote`, `test_profile_id: "remote-play-v1"`, a privacy-safe
+`validation_run_id` of `run-` plus 32 lowercase hexadecimal digits, a
+type-specific ID prefix and subject, and an exact check inventory. The host,
+client, and session in a set must use the same route and run ID; the run ID is
+a random correlation value, not an account, machine, or reviewer identifier.
+`manifest_sha256` binds each record to the validated embedded compatibility
+manifest's canonical JSON content corresponding to `manifest_as_of`. The
+canonical representation normalizes the known schema URI, so whitespace and
+checkout line endings do not change the digest. Array order remains
+content-significant. Check order is conventional rather than semantic; no
+required ID may be missing, duplicated, or replaced.
 
 | Type | Allowed subject | Required checks |
 | --- | --- | --- |
-| `host` | Physical Windows `amd64` only | `host.physical-machine`, `host.supported-os`, `host.hardware-requirements`, `host.security-requirements`, `host.riot-installation`, `host.local-practice-tool`, `host.streaming-server` |
+| `host` | Physical Windows `amd64` on `physical-windows-remote`, or native macOS `amd64`/`arm64` on `physical-macos-remote` | `host.physical-machine`, `host.supported-os`, `host.hardware-requirements`, `host.security-requirements`, `host.riot-installation`, `host.local-practice-tool`, `host.streaming-server` |
 | `client` | Linux, FreeBSD, OpenBSD, NetBSD, or DragonFly BSD on `amd64` | `client.platform`, `client.moonlight`, `client.display`, `client.audio`, `client.decoder` |
 | `session` | Linux, FreeBSD, OpenBSD, NetBSD, or DragonFly BSD on `amd64` | `session.pair`, `session.app-list`, `session.video`, `session.keyboard-mouse`, `session.audio`, `session.latency`, `session.practice-tool`, `session.vanguard-errors`, `session.patch-current` |
 
@@ -153,8 +156,9 @@ Structural validation requires:
 
 - schema ID `https://leaguebridge.dev/schemas/validation-evidence.schema.json`;
 - `schema_version` 1;
-- route ID `physical-windows-remote`, test profile `remote-play-v1`, and a
-  physical Windows `amd64` host;
+- route ID `physical-windows-remote` or `physical-macos-remote`, test profile
+  `remote-play-v1`, and a route-matching physical host: Windows `amd64`, or
+  macOS `amd64`/`arm64`;
 - a lowercase SHA-256 binding to the embedded compatibility manifest's
   canonical JSON content;
 - RFC 3339 creation/expiry timestamps and a `YYYY-MM-DD` manifest date;
@@ -203,12 +207,12 @@ completion state as authorization.
 ## Authenticated set verifier (schema v2)
 
 LeagueBridge also defines a separate signed-set schema v2. It wraps the exact
-raw bytes of one complete, artifact-verified schema-v1 Windows host/client/
-session chain in a bounded set payload and authenticates that payload with
-Ed25519 signatures. The payload binds one route, one Linux/BSD client cell, the
-shared run and profile, current compatibility-manifest identity, expiry, and
-the SHA-256 of all three raw records. It never carries a score, mutable gate,
-or `passed` field.
+raw bytes of one complete, artifact-verified schema-v1 Windows-route or
+macOS-route host/client/session chain in a bounded set payload and authenticates
+that payload with Ed25519 signatures. The payload binds one route, one
+Linux/BSD client cell, the shared run and profile, current
+compatibility-manifest identity, expiry, and the SHA-256 of all three raw
+records. It never carries a score, mutable gate, or `passed` field.
 
 `leaguebridge evidence v2 verify` requires the signed envelope, all three raw
 records, all three exact artifact directories, and an expected route/client
@@ -240,8 +244,26 @@ blocked even for otherwise well-formed input. Test keys exist only in Go test
 files. Readiness schema v3 still rejects every nonempty `evidence_sets` array
 and derives a zero remote matrix. Production promotion requires a separately
 reviewed readiness schema v4, embedded/root-authorized reviewer keys, and real
-signed physical-run evidence. The current v2 slice is Windows-route and
-schema-v1-record backed; it does not validate the experimental macOS route.
+signed physical-run evidence. The v2 verifier now supports both route-bound
+Windows and macOS schema-v1 record sets, but it does not create production
+trust or validate the experimental macOS host in this release. The repository
+also ships `evidencev2.PromoteRemoteSetAt` and
+`schemas/readiness-promotion-v4.schema.json`: once an application-owned
+production policy yields an opaque verified set, that evaluator derives one
+route/client cell's four fixed remote gates. It cannot be called with a parsed
+or self-authenticated scorecard. The `evidence v2 promote` command uses the
+same verifier and derives that result only after authentication; the current
+CLI still stops at the unprovisioned production policy.
+
+Use `leaguebridge evidence v2 prepare` after the v1 set reaches
+`state=complete` with all artifact directories verified. The command derives
+the v2 payload's set ID, validity instants, current manifest binding, and exact
+record digests, then writes those exact bytes to a new output file or stdout.
+It does not sign the payload and does not accept a policy, key, or signing
+flag. If a session record uses fractional-second validity instants, prepare
+stops rather than silently rounding them, because the v2 payload uses
+whole-second UTC timestamps while preserving the original v1 bytes by digest.
+Reviewers must sign the emitted bytes without parsing and re-serializing them.
 
 If a provisioned-policy build successfully verifies a set, its output describes
 only that verification: `authenticated=true`, `artifacts_verified=true`, and
@@ -266,14 +288,19 @@ treating schema validation alone as a pass.
 
 ## Collection workflow
 
-1. Generate the host template first with `leaguebridge evidence template --type
-   host --platform windows --arch amd64`. Save its generated
-   `validation_run_id`, then pass the same value with `--run-id ID` when
-   generating the client and session templates. Save each JSON output to a new
-   file; do not reuse the deterministic example IDs.
-2. Work on a non-valuable test account and a supported physical host. Observe
-   every check directly; retain redacted artifacts outside the JSON record and
-   record their exact digest, byte length, and media type.
+1. Choose one route and generate a complete set with
+   `leaguebridge evidence template-set --directory DIR --route windows
+   --client-platform linux` (or one of the supported BSD values). Use
+   `--route macos --host-arch arm64` for an Apple-silicon Mac, or
+   `--host-arch amd64` for an Intel Mac. The command creates a fresh shared
+   `validation_run_id`, writes `host.json`, `client.json`, and `session.json`
+   together, refuses to overwrite an existing member, and rolls back staged
+   files if publication fails. Save the three paths it prints; do not reuse the
+   deterministic example IDs. The individual `evidence template` command
+   remains available when a record must be regenerated separately.
+2. Work on a non-valuable test account and a route-matching supported physical
+   host. Observe every check directly; retain redacted artifacts outside the
+   JSON record and record their exact digest, byte length, and media type.
 3. Change a check only after observation. Record failures honestly; never mark a
    blocked or skipped check as passing.
 4. Validate the host and client records with their artifact directories, bind
@@ -286,20 +313,27 @@ treating schema validation alone as a pass.
 6. Run `evidence verify-set` with all three final files and all three trusted,
    non-writable artifact directories. A standalone session validation is not a
    substitute for this set verification.
-7. Repeat after material League, Vanguard, operating-system, driver, Sunshine,
+7. Run `evidence v2 prepare` with the same exact files and artifact directories,
+   save the resulting payload as a new file, and send it to the separately
+   governed reviewers for signing. Keep the payload bytes unchanged when their
+   detached envelope is assembled.
+8. Repeat after material League, Vanguard, operating-system, driver, Sunshine,
    Moonlight, kernel, or network changes, and before the record expires.
 
-The consent-gated `scripts/inspect-sunshine-host.ps1` output may be retained as
-one input artifact for the host review. Its `artifact.integrity_verified` field
-means only that the inspected MSI matched the repository-pinned official asset
-digest and had a locally valid Authenticode signature. Its embedded doctor
-report remains a bounded preflight. Its MSI-table inventory is inert metadata;
-custom actions are not executed, and the absence of declarative service tables
-does not prove that setup will avoid service or firewall changes. The script
-always denies installation and launch authorization, and neither its output nor
-a passing hash is sufficient to mark `host.physical-machine`,
-`host.hardware-requirements`, `host.security-requirements`,
-`host.local-practice-tool`, or `host.streaming-server` as passed.
+The consent-gated `scripts/inspect-sunshine-host.ps1` output is a Windows-host
+artifact only and may be retained as one input for that route's review. Its
+`artifact.integrity_verified` field means only that the inspected MSI matched
+the repository-pinned official asset digest and had a locally valid
+Authenticode signature. Its embedded doctor report remains a bounded preflight.
+Its MSI-table inventory is inert metadata; custom actions are not executed, and
+the absence of declarative service tables does not prove that setup will avoid
+service or firewall changes. The script always denies installation and launch
+authorization, and neither its output nor a passing hash is sufficient to mark
+`host.physical-machine`, `host.hardware-requirements`,
+`host.security-requirements`, `host.local-practice-tool`, or
+`host.streaming-server` as passed. macOS host artifacts require a separate,
+reviewed, read-only collection procedure; no Mac installer or Riot binary is
+shipped here.
 
 This contract is intentionally fail-closed. Missing, malformed, stale,
 self-attested, partially passing, or unbound session evidence cannot promote a

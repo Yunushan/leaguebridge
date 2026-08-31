@@ -25,7 +25,7 @@ const (
 	// SchemaID is the canonical public identifier for schema version 1.0.0.
 	SchemaID = "https://leaguebridge.dev/schemas/compatibility-manifest.schema.json"
 	// AuthoritativeAsOf is the evidence date of the compiled-in manifest.
-	AuthoritativeAsOf = "2026-08-26"
+	AuthoritativeAsOf = "2026-08-30"
 	// MaxManifestBytes limits untrusted external manifest input.
 	MaxManifestBytes = 1 << 20
 )

@@ -26,6 +26,7 @@ const (
 	SchemaID                   = "https://leaguebridge.dev/schemas/validation-evidence.schema.json"
 	SchemaVersion              = 1
 	RoutePhysicalWindowsRemote = "physical-windows-remote"
+	RoutePhysicalMacOSRemote   = "physical-macos-remote"
 	TestProfileRemotePlayV1    = "remote-play-v1"
 	SessionMetricsV1           = "session-metrics-v1"
 	MaxRecordSize              = 1 << 20
@@ -200,6 +201,11 @@ var (
 	artifactNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 )
 
+var supportedRouteIDs = map[string]bool{
+	RoutePhysicalWindowsRemote: true,
+	RoutePhysicalMacOSRemote:   true,
+}
+
 var requiredChecks = map[RecordType][]string{
 	RecordHost: {
 		"host.physical-machine",
@@ -281,8 +287,25 @@ func NewTemplate(recordType RecordType, platform, architecture, toolVersion stri
 // NewTemplateWithRunID creates a template for an existing validation run. An
 // empty runID generates a new privacy-safe random identifier.
 func NewTemplateWithRunID(recordType RecordType, platform, architecture, toolVersion, runID string, now time.Time) (Record, error) {
+	return NewTemplateWithRunIDAndRoute(recordType, platform, architecture, toolVersion, runID, RoutePhysicalWindowsRemote, now)
+}
+
+// NewTemplateWithRoute creates a deliberately unverified record for the
+// selected physical-host route. The default NewTemplate API remains bound to
+// the original Windows route for source compatibility.
+func NewTemplateWithRoute(recordType RecordType, platform, architecture, toolVersion, routeID string, now time.Time) (Record, error) {
+	return NewTemplateWithRunIDAndRoute(recordType, platform, architecture, toolVersion, "", routeID, now)
+}
+
+// NewTemplateWithRunIDAndRoute creates a template for an existing validation
+// run and an explicitly selected physical-host route. An empty runID
+// generates a new privacy-safe random identifier.
+func NewTemplateWithRunIDAndRoute(recordType RecordType, platform, architecture, toolVersion, runID, routeID string, now time.Time) (Record, error) {
 	if now.IsZero() {
 		return Record{}, errors.New("template time is required")
+	}
+	if !supportedRouteIDs[routeID] {
+		return Record{}, fmt.Errorf("unsupported evidence route_id %q", routeID)
 	}
 	if toolVersion = strings.TrimSpace(toolVersion); toolVersion == "" {
 		toolVersion = "unknown"
@@ -321,7 +344,7 @@ func NewTemplateWithRunID(recordType RecordType, platform, architecture, toolVer
 		RecordID:        recordID,
 		RecordType:      recordType,
 		ValidationRunID: runID,
-		RouteID:         RoutePhysicalWindowsRemote,
+		RouteID:         routeID,
 		TestProfileID:   TestProfileRemotePlayV1,
 		CreatedAt:       now.UTC().Format(time.RFC3339),
 		ExpiresAt:       now.UTC().Add(7 * 24 * time.Hour).Format(time.RFC3339),
@@ -443,7 +466,7 @@ func Validate(record Record) error {
 	if !runIDPattern.MatchString(record.ValidationRunID) {
 		return fmt.Errorf("invalid validation_run_id %q", record.ValidationRunID)
 	}
-	if record.RouteID != RoutePhysicalWindowsRemote {
+	if !supportedRouteIDs[record.RouteID] {
 		return fmt.Errorf("unsupported evidence route_id %q", record.RouteID)
 	}
 	if record.TestProfileID != TestProfileRemotePlayV1 {
@@ -474,7 +497,7 @@ func Validate(record Record) error {
 	if !validText(record.ToolVersion, 256) {
 		return errors.New("tool_version is required and must not exceed 256 bytes")
 	}
-	if err := validateSubject(record.RecordType, record.Subject); err != nil {
+	if err := validateSubject(record.RecordType, record.Subject, record.RouteID); err != nil {
 		return err
 	}
 	if err := validateAttestation(record.Attestation); err != nil {
@@ -564,7 +587,7 @@ func validateTimeOrder(record Record, created, expires time.Time) error {
 	return nil
 }
 
-func validateSubject(recordType RecordType, subject Subject) error {
+func validateSubject(recordType RecordType, subject Subject, routeID string) error {
 	if subject.Role != recordType {
 		return fmt.Errorf("subject.role %q does not match record_type %q", subject.Role, recordType)
 	}
@@ -573,11 +596,23 @@ func validateSubject(recordType RecordType, subject Subject) error {
 	}
 	switch recordType {
 	case RecordHost:
-		if subject.Platform != "windows" {
-			return errors.New("physical-windows-remote host evidence platform must be windows")
-		}
-		if subject.Architecture != "amd64" {
-			return errors.New("Windows host evidence architecture must be amd64")
+		switch routeID {
+		case RoutePhysicalWindowsRemote:
+			if subject.Platform != "windows" {
+				return errors.New("physical-windows-remote host evidence platform must be windows")
+			}
+			if subject.Architecture != "amd64" {
+				return errors.New("Windows host evidence architecture must be amd64")
+			}
+		case RoutePhysicalMacOSRemote:
+			if subject.Platform != "macos" {
+				return errors.New("physical-macos-remote host evidence platform must be macos")
+			}
+			if subject.Architecture != "amd64" && subject.Architecture != "arm64" {
+				return errors.New("macOS host evidence architecture must be amd64 or arm64")
+			}
+		default:
+			return fmt.Errorf("unsupported evidence route_id %q", routeID)
 		}
 	case RecordClient, RecordSession:
 		switch subject.Platform {

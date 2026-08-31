@@ -1,0 +1,85 @@
+{
+  "$schema": "https://leaguebridge.dev/schemas/validation-evidence.schema.json",
+  "schema_version": 1,
+  "record_id": "host-00000000000000000000000000000002",
+  "record_type": "host",
+  "validation_run_id": "run-00000000000000000000000000000001",
+  "route_id": "physical-macos-remote",
+  "test_profile_id": "remote-play-v1",
+  "created_at": "2026-08-30T00:00:00Z",
+  "expires_at": "2026-09-06T00:00:00Z",
+  "manifest_as_of": "2026-08-30",
+  "manifest_sha256": "6e73736ea84cc6f84f89d34ba1f1b32ce35f5cef2c0011c69291b9986c81700c",
+  "tool_version": "example-unverified",
+  "subject": {
+    "role": "host",
+    "platform": "macos",
+    "architecture": "arm64",
+    "environment": "Unverified example only; replace with a non-identifying physical-Mac description."
+  },
+  "attestation": {
+    "level": "self-attested",
+    "reviewer": "",
+    "reviewed_at": "",
+    "artifacts": [],
+    "notes": "Template data only. This file does not claim a working League session or authorize launch."
+  },
+  "checks": [
+    {
+      "id": "host.physical-machine",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Confirm a retail physical host without concealing or spoofing virtualization.",
+      "artifacts": []
+    },
+    {
+      "id": "host.supported-os",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Record a currently supported and updated host operating system.",
+      "artifacts": []
+    },
+    {
+      "id": "host.hardware-requirements",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify CPU, GPU, memory, storage, display, and driver requirements against Riot and Sunshine guidance.",
+      "artifacts": []
+    },
+    {
+      "id": "host.security-requirements",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify the applicable native macOS security and account requirements using vendor guidance.",
+      "artifacts": []
+    },
+    {
+      "id": "host.riot-installation",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify official Riot Client, League, and embedded anti-cheat installation integrity.",
+      "artifacts": []
+    },
+    {
+      "id": "host.local-practice-tool",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Complete a direct local Practice Tool session before streaming.",
+      "artifacts": []
+    },
+    {
+      "id": "host.streaming-server",
+      "status": "unverified",
+      "method": "manual",
+      "observed_at": "",
+      "summary": "Verify Sunshine is current, safely bound, and configured without exposing credentials.",
+      "artifacts": []
+    }
+  ]
+}

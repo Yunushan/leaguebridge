@@ -1,11 +1,17 @@
 package app
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Yunushan/leaguebridge/internal/evidence"
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/version"
 )
 
@@ -27,11 +33,13 @@ type evidenceSetValidation struct {
 
 func (a *App) runEvidence(args []string) int {
 	if len(args) == 0 {
-		return a.commandError("evidence", false, ExitUsage, "expected template, validate, verify-set, or v2")
+		return a.commandError("evidence", false, ExitUsage, "expected template, template-set, validate, verify-set, or v2")
 	}
 	switch args[0] {
 	case "template":
 		return a.runEvidenceTemplate(args[1:])
+	case "template-set":
+		return a.runEvidenceTemplateSet(args[1:])
 	case "validate":
 		return a.runEvidenceValidate(args[1:])
 	case "verify-set":
@@ -163,8 +171,9 @@ func (a *App) runEvidenceVerifySet(args []string) int {
 func (a *App) runEvidenceTemplate(args []string) int {
 	set := a.flagSet("evidence template")
 	recordType := set.String("type", "", "host, client, or session")
-	platform := set.String("platform", a.GOOS, "windows for a host; linux or supported BSD for a client/session")
-	architecture := set.String("arch", a.GOARCH, "amd64 (the only supported evidence architecture)")
+	route := set.String("route", evidence.RoutePhysicalWindowsRemote, "physical-host route: physical-windows-remote or physical-macos-remote")
+	platform := set.String("platform", a.GOOS, "windows/macos for a host; linux or supported BSD for a client/session")
+	architecture := set.String("arch", a.GOARCH, "amd64 for Windows/Linux/BSD; amd64 or arm64 for a macOS host")
 	runID := set.String("run-id", "", "shared run- plus 32 lowercase hexadecimal digits; generated when omitted")
 	if err := parseFlags(set, args); err != nil {
 		return a.commandError("evidence template", false, ExitUsage, "%v", err)
@@ -172,12 +181,17 @@ func (a *App) runEvidenceTemplate(args []string) int {
 	if strings.TrimSpace(*recordType) == "" {
 		return a.commandError("evidence template", false, ExitUsage, "--type is required")
 	}
-	record, err := evidence.NewTemplateWithRunID(
+	routeID, err := normalizeEvidenceRoute(*route)
+	if err != nil {
+		return a.commandError("evidence template", false, ExitUsage, "%v", err)
+	}
+	record, err := evidence.NewTemplateWithRunIDAndRoute(
 		evidence.RecordType(strings.ToLower(strings.TrimSpace(*recordType))),
 		*platform,
 		*architecture,
 		version.Current().Version,
 		*runID,
+		routeID,
 		a.now(),
 	)
 	if err != nil {
@@ -244,4 +258,233 @@ func (a *App) runEvidenceValidate(args []string) int {
 		return ExitBlocked
 	}
 	return ExitOK
+}
+
+// evidenceTemplateSetResult is deliberately a small, path-oriented result.
+// The records themselves are written to separate files so that the exact bytes
+// later hashed into a session binding are not changed by a presentation layer.
+type evidenceTemplateSetResult struct {
+	ValidationRunID string `json:"validation_run_id"`
+	Directory       string `json:"directory"`
+	Host            string `json:"host"`
+	Client          string `json:"client"`
+	Session         string `json:"session"`
+}
+
+type evidenceTemplateFile struct {
+	name string
+	data []byte
+}
+
+type stagedEvidenceTemplate struct {
+	target        string
+	temporaryName string
+	identity      os.FileInfo
+	linked        bool
+}
+
+// runEvidenceTemplateSet creates the three schema-v1 records for one shared
+// validation run and publishes them as an overwrite-protected set. The host
+// route and architecture are explicit; the client platform remains an
+// explicit Linux/BSD choice. No record is marked observed or promotion-safe.
+func (a *App) runEvidenceTemplateSet(args []string) int {
+	set := a.flagSet("evidence template-set")
+	directory := set.String("directory", "", "destination directory for host.json, client.json, and session.json")
+	route := set.String("route", evidence.RoutePhysicalWindowsRemote, "physical-host route: physical-windows-remote or physical-macos-remote")
+	hostArchitecture := set.String("host-arch", "amd64", "host architecture: amd64 for Windows; amd64 or arm64 for macOS")
+	clientPlatform := set.String("client-platform", "linux", "linux, freebsd, openbsd, netbsd, or dragonflybsd")
+	clientArchitecture := set.String("client-arch", "amd64", "amd64 (the only supported evidence architecture)")
+	runID := set.String("run-id", "", "shared run- plus 32 lowercase hexadecimal digits; generated when omitted")
+	asJSON := set.Bool("json", false, "emit JSON")
+	if err := parseFlags(set, args); err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "%v", err)
+	}
+	if strings.TrimSpace(*directory) == "" {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "--directory is required")
+	}
+	routeID, err := normalizeEvidenceRoute(*route)
+	if err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "%v", err)
+	}
+
+	now := a.now()
+	hostPlatform := "windows"
+	if routeID == evidence.RoutePhysicalMacOSRemote {
+		hostPlatform = "macos"
+	}
+	host, err := evidence.NewTemplateWithRunIDAndRoute(evidence.RecordHost, hostPlatform, *hostArchitecture, version.Current().Version, *runID, routeID, now)
+	if err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "cannot create host template: %v", err)
+	}
+	client, err := evidence.NewTemplateWithRunIDAndRoute(evidence.RecordClient, *clientPlatform, *clientArchitecture, version.Current().Version, host.ValidationRunID, routeID, now)
+	if err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "cannot create client template: %v", err)
+	}
+	session, err := evidence.NewTemplateWithRunIDAndRoute(evidence.RecordSession, *clientPlatform, *clientArchitecture, version.Current().Version, host.ValidationRunID, routeID, now)
+	if err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "cannot create session template: %v", err)
+	}
+
+	files := make([]evidenceTemplateFile, 0, 3)
+	for _, item := range []struct {
+		name   string
+		record evidence.Record
+	}{{"host.json", host}, {"client.json", client}, {"session.json", session}} {
+		data, encodeErr := encodeEvidenceRecord(item.record)
+		if encodeErr != nil {
+			return a.commandError("evidence template-set", *asJSON, ExitInternal, "encode %s: %v", item.name, encodeErr)
+		}
+		files = append(files, evidenceTemplateFile{name: item.name, data: data})
+	}
+
+	absoluteDirectory, err := prepareEvidenceTemplateDirectory(*directory)
+	if err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "prepare destination: %v", err)
+	}
+	paths, err := publishEvidenceTemplateSet(absoluteDirectory, files)
+	if err != nil {
+		return a.commandError("evidence template-set", *asJSON, ExitUsage, "publish template set: %v", err)
+	}
+	result := evidenceTemplateSetResult{
+		ValidationRunID: host.ValidationRunID,
+		Directory:       absoluteDirectory,
+		Host:            paths["host.json"],
+		Client:          paths["client.json"],
+		Session:         paths["session.json"],
+	}
+	if *asJSON {
+		return a.writeJSON("evidence template-set", result)
+	}
+	fmt.Fprintf(a.Stdout, "Created unverified evidence templates for validation_run_id=%s\n", result.ValidationRunID)
+	fmt.Fprintf(a.Stdout, "host=%s\nclient=%s\nsession=%s\n", result.Host, result.Client, result.Session)
+	fmt.Fprintln(a.Stdout, "The three files are overwrite-protected and share the same validation run; replace checks only with observed evidence.")
+	return ExitOK
+}
+
+func normalizeEvidenceRoute(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "windows", evidence.RoutePhysicalWindowsRemote:
+		return evidence.RoutePhysicalWindowsRemote, nil
+	case "macos", "darwin", evidence.RoutePhysicalMacOSRemote:
+		return evidence.RoutePhysicalMacOSRemote, nil
+	default:
+		return "", fmt.Errorf("route must be windows, macos, %s, or %s", evidence.RoutePhysicalWindowsRemote, evidence.RoutePhysicalMacOSRemote)
+	}
+}
+
+func encodeEvidenceRecord(record evidence.Record) ([]byte, error) {
+	var output bytes.Buffer
+	if err := printJSONValue(&output, record); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func prepareEvidenceTemplateDirectory(directory string) (string, error) {
+	directory = strings.TrimSpace(directory)
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return "", fmt.Errorf("resolve directory: %w", err)
+	}
+	if err := fileinput.EnsureDirectoryTree(absolute, 0o700); err != nil {
+		return "", fmt.Errorf("create directory: %w", err)
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return "", fmt.Errorf("inspect directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", errors.New("destination must be a regular, non-symlink directory")
+	}
+	return absolute, nil
+}
+
+// publishEvidenceTemplateSet stages every file before linking any destination.
+// Final paths are created with an exclusive same-directory hard link, so an
+// existing file is never overwritten. If publication fails after one link, the
+// helper removes only files whose identity still matches its own staged file.
+func publishEvidenceTemplateSet(directory string, files []evidenceTemplateFile) (map[string]string, error) {
+	root, err := fileinput.OpenDirectoryRoot(directory)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	staged := make([]stagedEvidenceTemplate, 0, len(files))
+	cleanup := func(removePublished bool) {
+		for _, item := range staged {
+			if removePublished && item.linked {
+				targetName := filepath.Base(item.target)
+				if info, err := root.Lstat(targetName); err == nil && item.identity != nil && os.SameFile(info, item.identity) {
+					_ = root.Remove(targetName)
+				}
+			}
+			if item.temporaryName != "" {
+				_ = root.Remove(item.temporaryName)
+			}
+		}
+	}
+
+	// Check the complete destination set first so a collision cannot leave a
+	// newly generated subset beside an older set.
+	for _, file := range files {
+		target := filepath.Join(directory, file.name)
+		if _, err := root.Lstat(file.name); err == nil {
+			return nil, fmt.Errorf("destination already exists: %s", target)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("inspect destination %s: %w", target, err)
+		}
+	}
+
+	for _, file := range files {
+		target := filepath.Join(directory, file.name)
+		temporary, temporaryName, err := fileinput.CreateTempFile(root, ".leaguebridge-evidence-", 0o600)
+		if err != nil {
+			cleanup(false)
+			return nil, fmt.Errorf("create temporary file for %s: %w", file.name, err)
+		}
+		stagedItem := stagedEvidenceTemplate{target: target, temporaryName: temporaryName}
+		staged = append(staged, stagedItem)
+		if chmodErr := temporary.Chmod(0o600); chmodErr != nil {
+			err = chmodErr
+		} else {
+			if n, writeErr := temporary.Write(file.data); writeErr != nil {
+				err = writeErr
+			} else if n != len(file.data) {
+				err = io.ErrShortWrite
+			}
+		}
+		if err == nil {
+			err = temporary.Sync()
+		}
+		if closeErr := temporary.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			cleanup(false)
+			return nil, fmt.Errorf("stage %s: %w", file.name, err)
+		}
+		identity, err := root.Lstat(temporaryName)
+		if err != nil {
+			cleanup(false)
+			return nil, fmt.Errorf("inspect staged %s: %w", file.name, err)
+		}
+		if identity.Mode()&os.ModeSymlink != 0 || !identity.Mode().IsRegular() {
+			cleanup(false)
+			return nil, fmt.Errorf("staged %s is not a regular, non-symlink file", file.name)
+		}
+		staged[len(staged)-1].identity = identity
+	}
+
+	paths := make(map[string]string, len(staged))
+	for index := range staged {
+		item := &staged[index]
+		if err := fileinput.LinkInRoot(root, item.temporaryName, filepath.Base(item.target)); err != nil {
+			cleanup(true)
+			return nil, fmt.Errorf("publish %s: %w", filepath.Base(item.target), err)
+		}
+		item.linked = true
+		paths[filepath.Base(item.target)] = item.target
+	}
+	cleanup(false)
+	return paths, nil
 }

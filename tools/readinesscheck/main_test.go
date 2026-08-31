@@ -26,6 +26,24 @@ func TestReadRegularBoundedRejectsMissingOversizeAndDirectory(t *testing.T) {
 	}
 }
 
+func TestReadRegularBoundedRejectsSymlinkedParent(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "scorecard.json"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if _, err := readRegularBounded(filepath.Join(link, "scorecard.json"), 100); err == nil || !strings.Contains(err.Error(), "parent") {
+		t.Fatalf("symlinked parent error = %v", err)
+	}
+}
+
 func TestVerifyRejectsMissingPublicScorecard(t *testing.T) {
 	if err := verify(t.TempDir()); err == nil || !strings.Contains(err.Error(), "public readiness scorecard") {
 		t.Fatalf("verify error = %v", err)
@@ -45,5 +63,11 @@ func TestVerifyRejectsSemanticallyEquivalentReformattedScorecard(t *testing.T) {
 	err := verify(root)
 	if err == nil || !strings.Contains(err.Error(), "byte-identical") {
 		t.Fatalf("reformatted scorecard error = %v", err)
+	}
+}
+
+func TestVerifyAcceptsCurrentRepository(t *testing.T) {
+	if err := verify(filepath.Join("..", "..")); err != nil {
+		t.Fatalf("current repository verification failed: %v", err)
 	}
 }

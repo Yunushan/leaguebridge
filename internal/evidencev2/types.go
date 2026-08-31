@@ -19,6 +19,7 @@ const (
 	Algorithm       = "ed25519"
 
 	RoutePhysicalWindowsRemote = "physical-windows-remote"
+	RoutePhysicalMacOSRemote   = "physical-macos-remote"
 	TestProfileRemotePlayV1    = "remote-play-v1"
 
 	MaxEnvelopeSize = 256 << 10
@@ -112,6 +113,8 @@ type VerifiedSet struct {
 	routeID               string
 	testProfileID         string
 	policyID              string
+	hostPlatform          string
+	hostArchitecture      string
 	clientPlatform        string
 	clientArchitecture    string
 	manifestAsOf          string
@@ -135,6 +138,8 @@ func (set VerifiedSet) ValidationRunID() string     { return set.validationRunID
 func (set VerifiedSet) RouteID() string             { return set.routeID }
 func (set VerifiedSet) TestProfileID() string       { return set.testProfileID }
 func (set VerifiedSet) PolicyID() string            { return set.policyID }
+func (set VerifiedSet) HostPlatform() string        { return set.hostPlatform }
+func (set VerifiedSet) HostArchitecture() string    { return set.hostArchitecture }
 func (set VerifiedSet) ClientPlatform() string      { return set.clientPlatform }
 func (set VerifiedSet) ClientArchitecture() string  { return set.clientArchitecture }
 func (set VerifiedSet) ManifestAsOf() string        { return set.manifestAsOf }

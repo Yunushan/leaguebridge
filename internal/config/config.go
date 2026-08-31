@@ -336,9 +336,9 @@ func validateRemoteHost(field string, target RemoteHost) error {
 		return fmt.Errorf("%s.app: %w", field, err)
 	}
 	switch target.Client {
-	case "auto", "moonlight", "moonlight-qt", "flatpak":
+	case "auto", "moonlight", "moonlight-embedded", "moonlight-qt", "flatpak":
 	default:
-		return fmt.Errorf("%s.client must be auto, moonlight, moonlight-qt, or flatpak, got %q", field, target.Client)
+		return fmt.Errorf("%s.client must be auto, moonlight, moonlight-embedded, moonlight-qt, or flatpak, got %q", field, target.Client)
 	}
 	return nil
 }
@@ -458,7 +458,7 @@ func WriteNew(path string, cfg Config) error {
 		return fmt.Errorf("resolve configuration path: %w", err)
 	}
 	directory := filepath.Dir(target)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	if err := fileinput.EnsureDirectoryTree(directory, 0o700); err != nil {
 		return fmt.Errorf("create configuration directory: %w", err)
 	}
 	if _, err := os.Lstat(target); err == nil {
@@ -466,18 +466,26 @@ func WriteNew(path string, cfg Config) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect configuration destination: %w", err)
 	}
+	root, err := fileinput.OpenDirectoryRoot(directory)
+	if err != nil {
+		return fmt.Errorf("open configuration directory: %w", err)
+	}
+	defer root.Close()
+	targetName := filepath.Base(target)
+	if targetName == "" || targetName == "." || targetName == string(filepath.Separator) {
+		return errors.New("configuration destination is not a regular child path")
+	}
 
-	temporary, err := os.CreateTemp(directory, ".leaguebridge-config-*.tmp")
+	temporary, temporaryName, err := fileinput.CreateTempFile(root, ".leaguebridge-config-", 0o600)
 	if err != nil {
 		return fmt.Errorf("create temporary configuration: %w", err)
 	}
-	temporaryPath := temporary.Name()
 	closed := false
 	defer func() {
 		if !closed {
 			_ = temporary.Close()
 		}
-		_ = os.Remove(temporaryPath)
+		_ = root.Remove(temporaryName)
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return fmt.Errorf("set configuration permissions: %w", err)
@@ -494,7 +502,7 @@ func WriteNew(path string, cfg Config) error {
 		return fmt.Errorf("close configuration: %w", err)
 	}
 	closed = true
-	if err := os.Link(temporaryPath, target); err != nil {
+	if err := fileinput.LinkInRoot(root, temporaryName, targetName); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return ErrExists
 		}

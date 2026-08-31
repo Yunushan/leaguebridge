@@ -4,15 +4,11 @@ package main
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"debug/buildinfo"
 	"debug/elf"
-	"debug/macho"
-	"debug/pe"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
 	"github.com/Yunushan/leaguebridge/internal/readiness"
 	"github.com/Yunushan/leaguebridge/internal/releaseversion"
@@ -49,7 +46,6 @@ const (
 type artifact struct {
 	name       string
 	binaryName string
-	format     string
 	goos       string
 	goarch     string
 }
@@ -119,7 +115,7 @@ func parseSourceDateEpoch(raw string) (int64, error) {
 	}
 	year := time.Unix(epoch, 0).UTC().Year()
 	if year < 1980 || year > 2107 {
-		return 0, errors.New("source-date-epoch must be representable by the release ZIP format (years 1980 through 2107)")
+		return 0, errors.New("source-date-epoch must be representable by the release archive timestamp range (years 1980 through 2107)")
 	}
 	return epoch, nil
 }
@@ -140,23 +136,20 @@ func checkRelease(dir, version string, epoch int64, commit, tree, builderGoVersi
 	for _, item := range artifacts {
 		expectedFiles[item.name] = struct{}{}
 	}
-	if err := checkDirectory(dir, expectedFiles); err != nil {
+	releaseRoot, err := fileinput.OpenDirectoryRoot(dir)
+	if err != nil {
+		return fmt.Errorf("release directory: %w", err)
+	}
+	defer releaseRoot.Close()
+	if err := checkDirectoryFromRoot(releaseRoot, expectedFiles); err != nil {
 		return err
 	}
-	if err := checkChecksums(dir, artifacts); err != nil {
+	if err := checkChecksumsFromRoot(releaseRoot, artifacts); err != nil {
 		return err
 	}
 
 	for _, item := range artifacts {
-		path := filepath.Join(dir, item.name)
-		switch item.format {
-		case "tar.gz":
-			err = checkTarGzip(path, item, version, epoch, commit, tree, builderGoVersion)
-		case "zip":
-			err = checkZip(path, item, version, epoch, commit, tree, builderGoVersion)
-		default:
-			return fmt.Errorf("internal error: unsupported archive format %q", item.format)
-		}
+		err = checkTarGzipFromRoot(releaseRoot, item.name, item, version, epoch, commit, tree, builderGoVersion)
 		if err != nil {
 			return fmt.Errorf("%s: %w", item.name, err)
 		}
@@ -187,18 +180,28 @@ func expectedArtifacts(version string) ([]artifact, error) {
 	}
 	base := "leaguebridge_" + strings.TrimPrefix(version, "v")
 	return []artifact{
-		{name: base + "_linux_amd64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "linux", goarch: "amd64"},
-		{name: base + "_freebsd_amd64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "freebsd", goarch: "amd64"},
-		{name: base + "_openbsd_amd64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "openbsd", goarch: "amd64"},
-		{name: base + "_netbsd_amd64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "netbsd", goarch: "amd64"},
-		{name: base + "_dragonfly_amd64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "dragonfly", goarch: "amd64"},
-		{name: base + "_windows_amd64.zip", binaryName: "leaguebridge.exe", format: "zip", goos: "windows", goarch: "amd64"},
-		{name: base + "_darwin_amd64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "darwin", goarch: "amd64"},
-		{name: base + "_darwin_arm64.tar.gz", binaryName: "leaguebridge", format: "tar.gz", goos: "darwin", goarch: "arm64"},
+		{name: base + "_linux_amd64.tar.gz", binaryName: "leaguebridge", goos: "linux", goarch: "amd64"},
+		{name: base + "_freebsd_amd64.tar.gz", binaryName: "leaguebridge", goos: "freebsd", goarch: "amd64"},
+		{name: base + "_openbsd_amd64.tar.gz", binaryName: "leaguebridge", goos: "openbsd", goarch: "amd64"},
+		{name: base + "_netbsd_amd64.tar.gz", binaryName: "leaguebridge", goos: "netbsd", goarch: "amd64"},
+		{name: base + "_dragonfly_amd64.tar.gz", binaryName: "leaguebridge", goos: "dragonfly", goarch: "amd64"},
 	}, nil
 }
 
 func checkDirectory(dir string, expected map[string]struct{}) error {
+	if err := fileinput.RejectSymlinkedParents(dir); err != nil {
+		return fmt.Errorf("release directory path: %w", err)
+	}
+	directoryInfo, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("inspect release directory: %w", err)
+	}
+	if directoryInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("release directory must not be a symbolic link")
+	}
+	if !directoryInfo.IsDir() {
+		return errors.New("release path is not a directory")
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("read release directory: %w", err)
@@ -215,6 +218,58 @@ func checkDirectory(dir string, expected map[string]struct{}) error {
 		info, err := entry.Info()
 		if err != nil {
 			return fmt.Errorf("inspect %q: %w", name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("release directory entry %q is not a regular file", name)
+		}
+		seen[name] = struct{}{}
+	}
+	for name := range expected {
+		if _, ok := seen[name]; !ok {
+			return fmt.Errorf("missing release file %q", name)
+		}
+	}
+	return nil
+}
+
+func checkDirectoryFromRoot(root *os.Root, expected map[string]struct{}) error {
+	if root == nil {
+		return errors.New("release directory root is nil")
+	}
+	directoryInfo, err := root.Lstat(".")
+	if err != nil {
+		return fmt.Errorf("inspect release directory: %w", err)
+	}
+	if directoryInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("release directory must not be a symbolic link")
+	}
+	if !directoryInfo.IsDir() {
+		return errors.New("release path is not a directory")
+	}
+	directory, err := root.Open(".")
+	if err != nil {
+		return fmt.Errorf("open release directory: %w", err)
+	}
+	entries, err := directory.ReadDir(-1)
+	closeErr := directory.Close()
+	if err != nil {
+		return fmt.Errorf("read release directory: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close release directory: %w", closeErr)
+	}
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if _, ok := expected[name]; !ok {
+			return fmt.Errorf("unexpected release directory entry %q", name)
+		}
+		info, err := root.Lstat(name)
+		if err != nil {
+			return fmt.Errorf("inspect %q: %w", name, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("release directory entry %q is a symbolic link", name)
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("release directory entry %q is not a regular file", name)
@@ -271,6 +326,47 @@ func checkChecksums(dir string, artifacts []artifact) error {
 	return nil
 }
 
+func checkChecksumsFromRoot(root *os.Root, artifacts []artifact) error {
+	data, err := readFileBoundedFromRoot(root, "checksums.txt", maxChecksumSize)
+	if err != nil {
+		return fmt.Errorf("read checksums.txt: %w", err)
+	}
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		return errors.New("checksums.txt must be non-empty and end with a newline")
+	}
+	if bytes.ContainsRune(data, '\r') {
+		return errors.New("checksums.txt must use LF line endings")
+	}
+
+	expectedNames := make([]string, 0, len(artifacts))
+	for _, item := range artifacts {
+		expectedNames = append(expectedNames, item.name)
+	}
+	sort.Strings(expectedNames)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(lines) != len(expectedNames) {
+		return fmt.Errorf("checksums.txt has %d entries; want %d", len(lines), len(expectedNames))
+	}
+
+	for index, line := range lines {
+		if len(line) < 69 || line[64:68] != " *./" || !lowerHex(line[:64]) {
+			return fmt.Errorf("checksums.txt line %d is not canonical binary-mode sha256sum output", index+1)
+		}
+		name := line[68:]
+		if name != expectedNames[index] {
+			return fmt.Errorf("checksums.txt line %d names %q; want canonical entry %q", index+1, name, expectedNames[index])
+		}
+		actual, err := fileSHA256FromRoot(root, name, maxArchiveSize)
+		if err != nil {
+			return fmt.Errorf("hash %q: %w", name, err)
+		}
+		if actual != line[:64] {
+			return fmt.Errorf("checksum mismatch for %q", name)
+		}
+	}
+	return nil
+}
+
 func lowerHex(value string) bool {
 	if len(value) != sha256.Size*2 {
 		return false
@@ -288,6 +384,9 @@ func lowerHexLength(value string) bool {
 }
 
 func readFileBounded(path string, maximum int64) ([]byte, error) {
+	if err := fileinput.RejectSymlinkedParents(path); err != nil {
+		return nil, err
+	}
 	before, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
@@ -336,6 +435,9 @@ func readFileBounded(path string, maximum int64) ([]byte, error) {
 }
 
 func fileSHA256(path string, maximum int64) (string, error) {
+	if err := fileinput.RejectSymlinkedParents(path); err != nil {
+		return "", err
+	}
 	before, err := os.Lstat(path)
 	if err != nil {
 		return "", err
@@ -385,6 +487,106 @@ func fileSHA256(path string, maximum int64) (string, error) {
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
+func validateReleaseRootFileName(name string) error {
+	if strings.TrimSpace(name) == "" || name == "." || name == ".." || filepath.IsAbs(name) || filepath.VolumeName(name) != "" || filepath.Base(name) != name || filepath.Clean(name) != name || strings.ContainsAny(name, `/\`+"\x00\r\n") {
+		return fmt.Errorf("release file name %q is unsafe", name)
+	}
+	return nil
+}
+
+func openReleaseFileFromRoot(root *os.Root, name string, maximum int64) (*os.File, os.FileInfo, error) {
+	if root == nil {
+		return nil, nil, errors.New("release directory root is nil")
+	}
+	if maximum < 0 {
+		return nil, nil, errors.New("release file size limit is negative")
+	}
+	if err := validateReleaseRootFileName(name); err != nil {
+		return nil, nil, err
+	}
+	before, err := root.Lstat(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return nil, nil, errors.New("not a regular, non-symlink file")
+	}
+	if before.Size() > maximum {
+		return nil, nil, fmt.Errorf("size %d exceeds limit %d", before.Size(), maximum)
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !opened.Mode().IsRegular() || opened.Size() > maximum || !os.SameFile(before, opened) {
+		_ = file.Close()
+		return nil, nil, errors.New("file changed while opening")
+	}
+	return file, before, nil
+}
+
+func readFileBoundedFromRoot(root *os.Root, name string, maximum int64) ([]byte, error) {
+	file, before, err := openReleaseFileFromRoot(root, name, maximum)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maximum {
+		return nil, fmt.Errorf("content exceeds limit %d", maximum)
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	finalPath, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || finalPath.Mode()&os.ModeSymlink != 0 || !finalPath.Mode().IsRegular() ||
+		!os.SameFile(before, opened) || !os.SameFile(before, finalPath) || opened.Size() != int64(len(data)) || finalPath.Size() != int64(len(data)) {
+		return nil, errors.New("file changed while reading")
+	}
+	return data, nil
+}
+
+func fileSHA256FromRoot(root *os.Root, name string, maximum int64) (string, error) {
+	file, before, err := openReleaseFileFromRoot(root, name, maximum)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	written, err := io.Copy(digest, io.LimitReader(file, maximum+1))
+	if err != nil {
+		return "", err
+	}
+	if written > maximum {
+		return "", fmt.Errorf("content exceeds limit %d", maximum)
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	finalPath, err := root.Lstat(name)
+	if err != nil {
+		return "", err
+	}
+	if !opened.Mode().IsRegular() || finalPath.Mode()&os.ModeSymlink != 0 || !finalPath.Mode().IsRegular() ||
+		!os.SameFile(before, opened) || !os.SameFile(before, finalPath) || opened.Size() != written || finalPath.Size() != written {
+		return "", errors.New("file changed while reading")
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
 func checkTarGzip(path string, item artifact, version string, epoch int64, commit, tree, builderGoVersion string) error {
 	payload, err := readTarGzip(path, item.binaryName, epoch)
 	if err != nil {
@@ -398,6 +600,26 @@ func readTarGzip(path, binaryName string, epoch int64) (archivePayload, error) {
 	if err != nil {
 		return archivePayload{}, err
 	}
+	return readTarGzipData(data, binaryName, epoch)
+}
+
+func checkTarGzipFromRoot(root *os.Root, name string, item artifact, version string, epoch int64, commit, tree, builderGoVersion string) error {
+	payload, err := readTarGzipFromRoot(root, name, item.binaryName, epoch)
+	if err != nil {
+		return err
+	}
+	return checkArchivePayload(payload, item, version, epoch, commit, tree, builderGoVersion)
+}
+
+func readTarGzipFromRoot(root *os.Root, name, binaryName string, epoch int64) (archivePayload, error) {
+	data, err := readFileBoundedFromRoot(root, name, maxArchiveSize)
+	if err != nil {
+		return archivePayload{}, err
+	}
+	return readTarGzipData(data, binaryName, epoch)
+}
+
+func readTarGzipData(data []byte, binaryName string, epoch int64) (archivePayload, error) {
 	source := bytes.NewReader(data)
 	gzipReader, err := gzip.NewReader(source)
 	if err != nil {
@@ -559,175 +781,6 @@ func (zeroWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func checkZip(path string, item artifact, version string, epoch int64, commit, tree, builderGoVersion string) error {
-	payload, err := readZip(path, item.binaryName, epoch)
-	if err != nil {
-		return err
-	}
-	return checkArchivePayload(payload, item, version, epoch, commit, tree, builderGoVersion)
-}
-
-func readZip(path, binaryName string, epoch int64) (archivePayload, error) {
-	data, err := readFileBounded(path, maxArchiveSize)
-	if err != nil {
-		return archivePayload{}, err
-	}
-	if err := checkCanonicalZipEnd(data); err != nil {
-		return archivePayload{}, err
-	}
-	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return archivePayload{}, err
-	}
-	if archive.Comment != "" {
-		return archivePayload{}, errors.New("ZIP archive comment is not canonical")
-	}
-
-	expectedNames := expectedMemberNames(binaryName, false)
-	seen := make(map[string]struct{}, len(expectedNames))
-	payload := archivePayload{members: make(map[string][]byte, len(expectedNames))}
-	var total uint64
-	wantDate, wantTime := msDOSDateTime(time.Unix(epoch, 0).UTC())
-	for index, file := range archive.File {
-		if err := checkMember(file.Name, file.Mode(), binaryName, false, seen); err != nil {
-			return archivePayload{}, err
-		}
-		if index >= len(expectedNames) || file.Name != expectedNames[index] {
-			want := "end of archive"
-			if index < len(expectedNames) {
-				want = expectedNames[index]
-			}
-			return archivePayload{}, fmt.Errorf("member %q is out of canonical order; want %q", file.Name, want)
-		}
-		if file.ModifiedDate != wantDate || file.ModifiedTime != wantTime {
-			return archivePayload{}, fmt.Errorf("member %q does not carry canonical SOURCE_DATE_EPOCH %d", file.Name, epoch)
-		}
-		wantMode, _ := expectedMemberMode(file.Name, binaryName, false)
-		const canonicalZIPFlags = uint16(0x0008)
-		const canonicalZIPVersion = uint16(20)
-		const canonicalZIPCreatorVersion = uint16(3<<8) | canonicalZIPVersion
-		if file.Method != zip.Deflate {
-			return archivePayload{}, fmt.Errorf("member %q uses ZIP method %d; want canonical Deflate", file.Name, file.Method)
-		}
-		if file.Flags != canonicalZIPFlags || file.ReaderVersion != canonicalZIPVersion || file.CreatorVersion != canonicalZIPCreatorVersion || file.NonUTF8 {
-			return archivePayload{}, fmt.Errorf("member %q has non-canonical ZIP flags or version headers", file.Name)
-		}
-		if file.ExternalAttrs != uint32(0o100000|wantMode.Perm())<<16 {
-			return archivePayload{}, fmt.Errorf("member %q has non-canonical ZIP external attributes", file.Name)
-		}
-		if uint64(file.CompressedSize) != file.CompressedSize64 || uint64(file.UncompressedSize) != file.UncompressedSize64 {
-			return archivePayload{}, fmt.Errorf("member %q uses non-canonical ZIP64 size fields", file.Name)
-		}
-		if len(file.Extra) != 0 || file.Comment != "" {
-			return archivePayload{}, fmt.Errorf("member %q has non-canonical ZIP metadata", file.Name)
-		}
-		limit := uint64(memberSizeLimit(file.Name, binaryName))
-		if file.UncompressedSize64 > limit {
-			return archivePayload{}, fmt.Errorf("member %q size %d exceeds limit %d", file.Name, file.UncompressedSize64, limit)
-		}
-		total += file.UncompressedSize64
-		if total > uint64(maxUncompressedSize) {
-			return archivePayload{}, errors.New("archive members exceed uncompressed size limit")
-		}
-		reader, err := file.Open()
-		if err != nil {
-			return archivePayload{}, fmt.Errorf("open member %q: %w", file.Name, err)
-		}
-		member, readErr := io.ReadAll(io.LimitReader(reader, int64(limit)+1))
-		closeErr := reader.Close()
-		if readErr != nil {
-			return archivePayload{}, fmt.Errorf("read member %q: %w", file.Name, readErr)
-		}
-		if closeErr != nil {
-			return archivePayload{}, fmt.Errorf("close member %q: %w", file.Name, closeErr)
-		}
-		if uint64(len(member)) != file.UncompressedSize64 {
-			return archivePayload{}, fmt.Errorf("member %q size changed while reading", file.Name)
-		}
-		payload.members[file.Name] = member
-		switch file.Name {
-		case binaryName:
-			payload.binary = member
-		case "SBOM.spdx.json":
-			payload.sbom = member
-		case packageinfo.ManifestName:
-			payload.packageManifest = member
-		}
-	}
-	if err := checkCompleteMembers(seen, binaryName, false); err != nil {
-		return archivePayload{}, err
-	}
-	canonical, err := canonicalZipBytes(payload.members, binaryName, epoch)
-	if err != nil {
-		return archivePayload{}, fmt.Errorf("reconstruct canonical ZIP: %w", err)
-	}
-	if !bytes.Equal(data, canonical) {
-		return archivePayload{}, errors.New("ZIP bytes do not match the canonical Deflate and header contract")
-	}
-	return payload, nil
-}
-
-func canonicalZipBytes(members map[string][]byte, binaryName string, epoch int64) ([]byte, error) {
-	var output bytes.Buffer
-	archive := zip.NewWriter(&output)
-	date, clock := msDOSDateTime(time.Unix(epoch, 0).UTC())
-	for _, name := range expectedMemberNames(binaryName, false) {
-		mode, ok := expectedMemberMode(name, binaryName, false)
-		if !ok {
-			return nil, fmt.Errorf("no canonical mode for %q", name)
-		}
-		header := &zip.FileHeader{Name: name, Method: zip.Deflate, ModifiedDate: date, ModifiedTime: clock}
-		header.SetMode(mode)
-		writer, err := archive.CreateHeader(header)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := writer.Write(members[name]); err != nil {
-			return nil, err
-		}
-	}
-	if err := archive.Close(); err != nil {
-		return nil, err
-	}
-	return output.Bytes(), nil
-}
-
-func checkCanonicalZipEnd(data []byte) error {
-	const (
-		eocdSignature = uint32(0x06054b50)
-		eocdSize      = 22
-		maxComment    = 1<<16 - 1
-	)
-	if len(data) < eocdSize {
-		return errors.New("ZIP archive is missing its end record")
-	}
-	start := len(data) - eocdSize - maxComment
-	if start < 0 {
-		start = 0
-	}
-	for index := len(data) - eocdSize; index >= start; index-- {
-		if binary.LittleEndian.Uint32(data[index:index+4]) != eocdSignature {
-			continue
-		}
-		commentLength := int(binary.LittleEndian.Uint16(data[index+20 : index+22]))
-		if index+eocdSize+commentLength != len(data) {
-			continue
-		}
-		if commentLength != 0 {
-			return errors.New("ZIP archive comment is not canonical")
-		}
-		return nil
-	}
-	return errors.New("ZIP stream has trailing bytes or no canonical end record")
-}
-
-func msDOSDateTime(value time.Time) (uint16, uint16) {
-	value = value.UTC()
-	date := uint16(value.Day()) | uint16(value.Month())<<5 | uint16(value.Year()-1980)<<9
-	clock := uint16(value.Second()/2) | uint16(value.Minute())<<5 | uint16(value.Hour())<<11
-	return date, clock
-}
-
 func expectedMemberNames(binaryName string, includeLifecycle bool) []string {
 	names := []string{"LICENSE", packageinfo.ManifestName, "README.md", "SBOM.spdx.json", binaryName}
 	if includeLifecycle {
@@ -883,13 +936,10 @@ func checkReleaseBinary(binaryData []byte, item artifact, version string, epoch 
 	default:
 		return fmt.Errorf("unsupported Go builder version %q", builderGoVersion)
 	}
-	if item.goarch == "amd64" {
-		wantSettings["GOAMD64"] = "v1"
-	} else if item.goarch == "arm64" {
-		wantSettings["GOARM64"] = "v8.0"
-	} else {
+	if item.goarch != "amd64" {
 		return fmt.Errorf("unsupported release architecture %q", item.goarch)
 	}
+	wantSettings["GOAMD64"] = "v1"
 	for key, want := range wantSettings {
 		got, ok := settings[key]
 		if !ok {
@@ -973,96 +1023,6 @@ func checkBinaryContainer(binaryData []byte, item artifact) error {
 			return fmt.Errorf("ELF machine is %s; want %s for %s", file.Machine, elf.EM_X86_64, item.goarch)
 		}
 		return nil
-	case "windows":
-		if len(binaryData) < 0x40 || !bytes.Equal(binaryData[:2], []byte{'M', 'Z'}) {
-			return errors.New("PE DOS header is missing")
-		}
-		peOffset := uint64(binary.LittleEndian.Uint32(binaryData[0x3c:0x40]))
-		if peOffset+26 > uint64(len(binaryData)) {
-			return errors.New("PE NT-header offset is outside the binary")
-		}
-		peStart := int(peOffset)
-		if !bytes.Equal(binaryData[peStart:peStart+4], []byte{'P', 'E', 0, 0}) {
-			return errors.New("PE NT signature is missing")
-		}
-		if machine := binary.LittleEndian.Uint16(binaryData[peStart+4 : peStart+6]); machine != pe.IMAGE_FILE_MACHINE_AMD64 {
-			return fmt.Errorf("PE machine is %#x; want %#x for %s", machine, pe.IMAGE_FILE_MACHINE_AMD64, item.goarch)
-		}
-		characteristics := binary.LittleEndian.Uint16(binaryData[peStart+22 : peStart+24])
-		if characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE == 0 {
-			return errors.New("PE characteristics do not identify an executable image")
-		}
-		if characteristics&pe.IMAGE_FILE_DLL != 0 {
-			return errors.New("PE characteristics identify a DLL instead of an executable")
-		}
-		if magic := binary.LittleEndian.Uint16(binaryData[peStart+24 : peStart+26]); magic != 0x20b {
-			return fmt.Errorf("PE optional header is not PE32+: magic is %#x; want 0x20b", magic)
-		}
-		file, err := pe.NewFile(bytes.NewReader(binaryData))
-		if err != nil {
-			return fmt.Errorf("parse PE executable: %w", err)
-		}
-		defer file.Close()
-		if item.goarch != "amd64" {
-			return fmt.Errorf("unsupported PE release architecture %q", item.goarch)
-		}
-		if file.Machine != pe.IMAGE_FILE_MACHINE_AMD64 {
-			return fmt.Errorf("PE machine is %#x; want %#x for %s", file.Machine, pe.IMAGE_FILE_MACHINE_AMD64, item.goarch)
-		}
-		if file.Characteristics&pe.IMAGE_FILE_EXECUTABLE_IMAGE == 0 {
-			return errors.New("PE characteristics do not identify an executable image")
-		}
-		if file.Characteristics&pe.IMAGE_FILE_DLL != 0 {
-			return errors.New("PE characteristics identify a DLL instead of an executable")
-		}
-		optionalHeader, ok := file.OptionalHeader.(*pe.OptionalHeader64)
-		if !ok {
-			return fmt.Errorf("PE optional header is %T; want 64-bit PE32+ executable header", file.OptionalHeader)
-		}
-		if optionalHeader.Magic != 0x20b {
-			return fmt.Errorf("PE optional-header magic is %#x; want PE32+ magic 0x20b", optionalHeader.Magic)
-		}
-		if optionalHeader.Subsystem != pe.IMAGE_SUBSYSTEM_WINDOWS_CUI {
-			return fmt.Errorf("PE subsystem is %#x; want Windows CUI %#x", optionalHeader.Subsystem, pe.IMAGE_SUBSYSTEM_WINDOWS_CUI)
-		}
-		return nil
-	case "darwin":
-		if len(binaryData) < 4 || !bytes.Equal(binaryData[:4], []byte{0xcf, 0xfa, 0xed, 0xfe}) {
-			return errors.New("Mach-O header does not use canonical little-endian 64-bit magic")
-		}
-		file, err := macho.NewFile(bytes.NewReader(binaryData))
-		if err != nil {
-			return fmt.Errorf("parse Mach-O executable: %w", err)
-		}
-		defer file.Close()
-		if file.Magic != macho.Magic64 {
-			return fmt.Errorf("Mach-O magic is %#x; want 64-bit magic %#x", file.Magic, macho.Magic64)
-		}
-		if file.ByteOrder != binary.LittleEndian {
-			return errors.New("Mach-O byte order is not canonical little endian")
-		}
-		var wantCPU macho.Cpu
-		var wantSubCPU uint32
-		switch item.goarch {
-		case "amd64":
-			wantCPU = macho.CpuAmd64
-			wantSubCPU = 3
-		case "arm64":
-			wantCPU = macho.CpuArm64
-			wantSubCPU = 0
-		default:
-			return fmt.Errorf("unsupported Mach-O release architecture %q", item.goarch)
-		}
-		if file.Cpu != wantCPU {
-			return fmt.Errorf("Mach-O CPU is %s; want %s for %s", file.Cpu, wantCPU, item.goarch)
-		}
-		if file.SubCpu != wantSubCPU {
-			return fmt.Errorf("Mach-O CPU subtype is %#x; want %#x for %s", file.SubCpu, wantSubCPU, item.goarch)
-		}
-		if file.Type != macho.TypeExec {
-			return fmt.Errorf("Mach-O type is %s; want %s", file.Type, macho.TypeExec)
-		}
-		return nil
 	default:
 		return fmt.Errorf("unsupported release operating system %q", item.goos)
 	}
@@ -1078,17 +1038,14 @@ func expectedBuildID(version string, item artifact, epoch int64, commit, tree, b
 		commit,
 		tree,
 		builderGoVersion,
-		architectureTuning(item.goarch),
+		architectureTuning(),
 		packageinfo.ProductionDependencyIdentity,
 	}, "|")
 	digest := sha256.Sum256([]byte(contract))
 	return "leaguebridge-build-v4-" + hex.EncodeToString(digest[:])
 }
 
-func architectureTuning(goarch string) string {
-	if goarch == "arm64" {
-		return "goarm64=v8.0"
-	}
+func architectureTuning() string {
 	return "goamd64=v1"
 }
 
@@ -1155,45 +1112,6 @@ func readRawGoBuildID(binaryData []byte) string {
 }
 
 func checkStrippedBinary(binaryData []byte, goos string) error {
-	if goos == "windows" {
-		file, err := pe.NewFile(bytes.NewReader(binaryData))
-		if err != nil {
-			return fmt.Errorf("parse PE executable: %w", err)
-		}
-		defer file.Close()
-		if len(file.Symbols) != 0 {
-			return errors.New("PE executable retains a COFF symbol table; canonical -s was not applied")
-		}
-		for _, section := range file.Sections {
-			if strings.HasPrefix(section.Name, ".debug") {
-				return fmt.Errorf("PE executable retains DWARF section %q; canonical -w was not applied", section.Name)
-			}
-		}
-		return nil
-	}
-	if goos == "darwin" {
-		file, err := macho.NewFile(bytes.NewReader(binaryData))
-		if err != nil {
-			return fmt.Errorf("parse Mach-O executable: %w", err)
-		}
-		defer file.Close()
-		if file.Dysymtab != nil && file.Dysymtab.Nlocalsym != 0 {
-			return fmt.Errorf("Mach-O executable retains %d local symbols; canonical -s was not applied", file.Dysymtab.Nlocalsym)
-		}
-		if file.Symtab != nil {
-			for _, symbol := range file.Symtab.Syms {
-				if symbol.Type&0xe0 != 0 || symbol.Type&0x01 == 0 {
-					return fmt.Errorf("Mach-O executable retains non-external symbol %q; canonical -s was not applied", symbol.Name)
-				}
-			}
-		}
-		for _, section := range file.Sections {
-			if strings.HasPrefix(section.Name, "__debug") || strings.HasPrefix(section.Name, "__zdebug") {
-				return fmt.Errorf("Mach-O executable retains DWARF section %q; canonical -w was not applied", section.Name)
-			}
-		}
-		return nil
-	}
 	file, err := elf.NewFile(bytes.NewReader(binaryData))
 	if err != nil {
 		return fmt.Errorf("parse ELF executable: %w", err)

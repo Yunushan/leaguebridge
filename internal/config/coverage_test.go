@@ -133,7 +133,7 @@ func TestValidateCoversAllConfigConstraints(t *testing.T) {
 		})
 	}
 
-	for _, client := range []string{"auto", "moonlight", "moonlight-qt", "flatpak"} {
+	for _, client := range []string{"auto", "moonlight", "moonlight-embedded", "moonlight-qt", "flatpak"} {
 		cfg := valid
 		cfg.RemoteHost.Client = client
 		if err := cfg.Validate(); err != nil {
@@ -205,7 +205,7 @@ func TestWriteNewRejectsInvalidConfigAndUncreatableDirectory(t *testing.T) {
 	valid := Default()
 	valid.RemoteHost.Host = "pc.local"
 	err := WriteNew(filepath.Join(blocker, "config.json"), valid)
-	if err == nil || !strings.Contains(err.Error(), "create configuration directory") {
-		t.Fatalf("WriteNew() error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "create configuration directory") || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("WriteNew() error = %v; want fail-closed non-directory parent error", err)
 	}
 }

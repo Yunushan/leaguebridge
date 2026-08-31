@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://leaguebridge.dev/schemas/validation-evidence-v2.schema.json",
   "title": "LeagueBridge authenticated validation-evidence set payload",
-  "description": "Schema version 2 binds one physical-windows-remote validation run to the exact bytes of its three schema-v1 records and the production reviewer policy that must authenticate it. This payload contains observations and bindings only; scores, gates, passed flags, and launch authorization are deliberately absent.",
+  "description": "Schema version 2 binds one physical-windows-remote or physical-macos-remote validation run to the exact bytes of its three schema-v1 records and the production reviewer policy that must authenticate it. This payload contains observations and bindings only; scores, gates, passed flags, and launch authorization are deliberately absent.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -41,7 +41,7 @@
       "pattern": "^run-[a-f0-9]{32}$"
     },
     "route_id": {
-      "const": "physical-windows-remote"
+      "enum": ["physical-windows-remote", "physical-macos-remote"]
     },
     "test_profile_id": {
       "const": "remote-play-v1"
@@ -62,10 +62,10 @@
       "$ref": "#/$defs/sha256"
     },
     "host_platform": {
-      "const": "windows"
+      "enum": ["windows", "macos"]
     },
     "host_architecture": {
-      "const": "amd64"
+      "enum": ["amd64", "arm64"]
     },
     "client_platform": {
       "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"]
@@ -104,5 +104,31 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "route_id": { "const": "physical-windows-remote" } },
+        "required": ["route_id"]
+      },
+      "then": {
+        "properties": {
+          "host_platform": { "const": "windows" },
+          "host_architecture": { "const": "amd64" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "route_id": { "const": "physical-macos-remote" } },
+        "required": ["route_id"]
+      },
+      "then": {
+        "properties": {
+          "host_platform": { "const": "macos" },
+          "host_architecture": { "enum": ["amd64", "arm64"] }
+        }
+      }
+    }
+  ]
 }

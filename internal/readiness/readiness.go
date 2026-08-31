@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Yunushan/leaguebridge/internal/exactjson"
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 )
 
 //go:embed data/scorecard.json
@@ -82,7 +83,7 @@ var engineeringContract = []categoryContract{
 		Subcriteria: []subcriterionContract{
 			{ID: "scope-support-matrix", Name: "Support matrix", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "docs-support-matrix-v1", Paths: []string{"README.md"}},
 			{ID: "scope-explicit-limitations", Name: "Explicit limitations", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "docs-explicit-limitations-v1", Paths: []string{"docs/SUPPORT_POLICY.md"}},
-			{ID: "scope-primary-source-research", Name: "Dated primary-source research", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "docs-primary-source-research-v1", Paths: []string{"docs/research/2026-08-26-platform-feasibility.md"}},
+			{ID: "scope-primary-source-research", Name: "Dated primary-source research", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "docs-primary-source-research-v1", Paths: []string{"docs/research/2026-08-26-platform-feasibility.md", "docs/research/2026-08-29-route-revalidation.md"}},
 		},
 	},
 	{
@@ -96,7 +97,7 @@ var engineeringContract = []categoryContract{
 	{
 		ID: "architecture-contracts", Name: "Architecture and data contracts", Weight: 15,
 		Subcriteria: []subcriterionContract{
-			{ID: "architecture-versioned-schemas", Name: "Versioned schemas", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "schemas-offline-conformance-v1", Paths: []string{"schemas/compatibility-manifest.schema.json", "schemas/config.schema.json", "schemas/evidence-signature-envelope.schema.json", "schemas/evidence-trust-policy.schema.json", "schemas/package-manifest.schema.json", "schemas/readiness-scorecard.schema.json", "schemas/validation-evidence-v2.schema.json", "schemas/validation-evidence.schema.json"}},
+			{ID: "architecture-versioned-schemas", Name: "Versioned schemas", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "schemas-offline-conformance-v1", Paths: []string{"schemas/compatibility-manifest.schema.json", "schemas/config.schema.json", "schemas/evidence-signature-envelope.schema.json", "schemas/evidence-trust-policy.schema.json", "schemas/package-manifest.schema.json", "schemas/readiness-scorecard.schema.json", "schemas/readiness-promotion-v4.schema.json", "schemas/validation-evidence-v2.schema.json", "schemas/validation-evidence.schema.json", "schemas/ci-attestation.schema.json", "schemas/native-package-staging.schema.json", "schemas/native-runtime-attestation.schema.json", "schemas/native-package-attestation.schema.json"}},
 			{ID: "architecture-fail-closed-policy", Name: "Fail-closed policy", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "compat-fail-closed-v1", Paths: []string{"internal/compat/policy.go", "internal/compat/policy_test.go"}},
 			{ID: "architecture-reason-codes-adrs", Name: "Stable reason codes and ADRs", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "reason-codes-adrs-v1", Paths: []string{"docs/adr/0001-fail-closed-policy.md", "docs/adr/0002-no-wine-vm-or-dll-backend.md", "docs/adr/0003-remote-physical-host-handoff.md", "docs/adr/0004-physical-macos-remote-handoff.md", "docs/adr/0005-authenticated-validation-evidence-v2.md", "internal/compat/manifest.go"}},
 			{ID: "architecture-upstream-authorization", Name: "Authorized upstream extension contract", Weight: 2, EvidenceType: VendorAuthorization, VerifierID: "riot-linux-bsd-authorization-v1"},
@@ -105,20 +106,20 @@ var engineeringContract = []categoryContract{
 	{
 		ID: "implementation", Name: "Implementation quality", Weight: 20,
 		Subcriteria: []subcriterionContract{
-			{ID: "implementation-cli-controller", Name: "CLI/controller", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "cli-controller-v1", Paths: []string{"cmd/leaguebridge/main.go", "internal/app/app.go", "internal/app/evidence.go", "internal/app/evidence_v2.go", "internal/app/readiness.go", "internal/evidence/artifacts.go", "internal/evidence/evidence.go", "internal/evidencev2/parse.go", "internal/evidencev2/policy.go", "internal/evidencev2/types.go", "internal/evidencev2/verify.go", "internal/readiness/readiness.go"}},
+			{ID: "implementation-cli-controller", Name: "CLI/controller", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "cli-controller-v1", Paths: []string{"cmd/leaguebridge/main.go", "internal/app/app.go", "internal/app/evidence.go", "internal/app/evidence_v2.go", "internal/app/readiness.go", "internal/evidence/artifacts.go", "internal/evidence/evidence.go", "internal/evidencev2/parse.go", "internal/evidencev2/policy.go", "internal/evidencev2/prepare.go", "internal/evidencev2/promotion.go", "internal/evidencev2/types.go", "internal/evidencev2/verify.go", "internal/readiness/readiness.go"}},
 			{ID: "implementation-strict-config-fixed-argv", Name: "Strict config and fixed remote argv", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "strict-config-fixed-argv-v1", Paths: []string{"internal/app/remote.go", "internal/config/config.go", "internal/exactjson/exactjson.go", "internal/fileinput/fileinput.go", "internal/fileinput/open_other.go", "internal/fileinput/open_unix.go", "internal/remote/remote.go"}},
 			{ID: "implementation-bounded-diagnostics-redaction", Name: "Bounded diagnostics and redaction", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "bounded-diagnostics-redaction-v1", Paths: []string{"internal/diagnostics/bundle.go", "internal/diagnostics/report.go", "internal/redact/redact.go"}},
-			{ID: "implementation-read-only-probes", Name: "Read-only host/client probes", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "read-only-probes-v1", Paths: []string{"compatibility/sunshine-windows-amd64.lock.json", "internal/probe/client.go", "internal/probe/macos_host.go", "internal/probe/probe.go", "internal/probe/service.go", "internal/probe/service_other.go", "internal/probe/service_windows.go", "internal/probe/system.go", "internal/probe/system_tool_other.go", "internal/probe/system_tool_windows.go", "internal/probe/windows_host.go", "scripts/inspect-sunshine-host.ps1"}},
+			{ID: "implementation-read-only-probes", Name: "Read-only host/client probes", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "read-only-probes-v1", Paths: []string{"compatibility/sunshine-windows-amd64.lock.json", "internal/probe/alternatives.go", "internal/probe/client.go", "internal/probe/macos_host.go", "internal/probe/probe.go", "internal/probe/service.go", "internal/probe/service_other.go", "internal/probe/service_windows.go", "internal/probe/system.go", "internal/probe/system_tool_other.go", "internal/probe/system_tool_windows.go", "internal/probe/windows_host.go", "scripts/inspect-sunshine-host.ps1"}},
 			{ID: "implementation-native-validated-integration", Name: "Native validated platform integration", Weight: 3, EvidenceType: NativeRuntimeV2, VerifierID: "native-integration-v2"},
 		},
 	},
 	{
 		ID: "tests-ci", Name: "Tests and CI", Weight: 20,
 		Subcriteria: []subcriterionContract{
-			{ID: "tests-unit-negative", Name: "Unit and negative tests", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "unit-negative-tests-v1", Paths: []string{"internal/app/app_test.go", "internal/app/evidence_v2_test.go", "internal/compat/manifest_test.go", "internal/compat/policy_test.go", "internal/config/config_test.go", "internal/contracts/evidence_v2_schema_test.go", "internal/contracts/sunshine_workflow_test.go", "internal/contracts/sunshine_workflow_windows_test.go", "internal/evidence/artifacts_test.go", "internal/evidence/evidence_test.go", "internal/evidencev2/evidencev2_test.go", "internal/exactjson/exactjson_test.go", "internal/fileinput/fileinput_test.go", "internal/fileinput/fileinput_unix_test.go", "internal/packageinfo/manifest_test.go", "internal/probe/macos_host_test.go", "internal/probe/probe_test.go", "internal/probe/windows_host_hardening_test.go", "internal/remote/remote_test.go", "internal/vendorintegrity/vendorintegrity_test.go", "tools/releasecheck/main_test.go", "tools/releasecheck/release_script_test.go", "tools/sbom/main_test.go", "tools/vendorcheck/main_test.go"}},
+			{ID: "tests-unit-negative", Name: "Unit and negative tests", Weight: 5, EvidenceType: RepositoryContentV1, VerifierID: "unit-negative-tests-v1", Paths: []string{"internal/app/app_test.go", "internal/app/evidence_v2_test.go", "internal/compat/manifest_test.go", "internal/compat/policy_test.go", "internal/config/config_test.go", "internal/contracts/evidence_v2_schema_test.go", "internal/contracts/readiness_v4_schema_test.go", "internal/contracts/sunshine_workflow_test.go", "internal/contracts/sunshine_workflow_windows_test.go", "internal/evidence/artifacts_test.go", "internal/evidence/evidence_test.go", "internal/evidencev2/evidencev2_test.go", "internal/evidencev2/promotion_test.go", "internal/exactjson/exactjson_test.go", "internal/fileinput/fileinput_test.go", "internal/fileinput/fileinput_unix_test.go", "internal/packageinfo/manifest_test.go", "internal/probe/alternatives_test.go", "internal/probe/macos_host_test.go", "internal/probe/probe_test.go", "internal/probe/windows_host_hardening_test.go", "internal/remote/remote_test.go", "internal/vendorintegrity/vendorintegrity_test.go", "tools/releasecheck/main_test.go", "tools/releasecheck/release_script_test.go", "tools/sbom/main_test.go", "tools/vendorcheck/main_test.go", "internal/contracts/ci_attestation_schema_test.go", "internal/nativepackage/staging_test.go", "tools/ciattestation/main_test.go", "tools/nativepackagestage/main_test.go", "tools/releasecheck/workflow_format_test.go"}},
 			{ID: "tests-coverage-80", Name: "80% aggregate core coverage gate", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "core-coverage-80-v1", Paths: []string{"tools/coverage/main.go", "tools/coverage/main_test.go"}},
-			{ID: "tests-race-vet-linux-windows", Name: "Linux/Windows race and vet", Weight: 3, EvidenceType: CIAttestationV1, VerifierID: "ci-race-vet-v1"},
-			{ID: "tests-eight-target-cross-build", Name: "Eight-target cross-build", Weight: 3, EvidenceType: CIAttestationV1, VerifierID: "ci-eight-target-cross-build-v1"},
+			{ID: "tests-race-vet-linux", Name: "Linux race and vet", Weight: 3, EvidenceType: CIAttestationV1, VerifierID: "ci-race-vet-v1"},
+			{ID: "tests-five-target-cross-build", Name: "Five-target Linux/BSD cross-build", Weight: 3, EvidenceType: CIAttestationV1, VerifierID: "ci-five-target-cross-build-v1"},
 			{ID: "tests-native-bsd-physical-smoke", Name: "Native BSD and physical-hardware smoke tests", Weight: 5, EvidenceType: NativeRuntimeV2, VerifierID: "native-bsd-physical-smoke-v2"},
 		},
 	},
@@ -126,16 +127,16 @@ var engineeringContract = []categoryContract{
 		ID: "security-supply-chain", Name: "Security and supply chain", Weight: 15,
 		Subcriteria: []subcriterionContract{
 			{ID: "security-threat-model", Name: "Threat model and scope", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "threat-model-v1", Paths: []string{"SECURITY.md", "docs/THREAT_MODEL.md"}},
-			{ID: "security-injection-bounds-redaction", Name: "Injection, bounds, and redaction tests", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "security-negative-tests-v1", Paths: []string{"internal/app/evidence_v2_test.go", "internal/compat/manifest_test.go", "internal/config/config_test.go", "internal/contracts/evidence_v2_schema_test.go", "internal/contracts/sunshine_workflow_test.go", "internal/contracts/sunshine_workflow_windows_test.go", "internal/diagnostics/bundle_test.go", "internal/diagnostics/report_test.go", "internal/evidence/artifacts_test.go", "internal/evidence/evidence_test.go", "internal/evidencev2/evidencev2_test.go", "internal/exactjson/exactjson_test.go", "internal/fileinput/fileinput_test.go", "internal/fileinput/fileinput_unix_test.go", "internal/probe/probe_test.go", "internal/probe/windows_host_hardening_test.go", "internal/redact/redact_test.go", "internal/remote/remote_test.go", "internal/vendorintegrity/vendorintegrity_test.go", "tools/releasecheck/main_test.go", "tools/releasecheck/release_script_test.go", "tools/vendorcheck/main_test.go"}},
+			{ID: "security-injection-bounds-redaction", Name: "Injection, bounds, and redaction tests", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "security-negative-tests-v1", Paths: []string{"internal/app/evidence_v2_test.go", "internal/compat/manifest_test.go", "internal/config/config_test.go", "internal/contracts/evidence_v2_schema_test.go", "internal/contracts/readiness_v4_schema_test.go", "internal/contracts/sunshine_workflow_test.go", "internal/contracts/sunshine_workflow_windows_test.go", "internal/diagnostics/bundle_test.go", "internal/diagnostics/report_test.go", "internal/evidence/artifacts_test.go", "internal/evidence/evidence_test.go", "internal/evidencev2/evidencev2_test.go", "internal/evidencev2/promotion_test.go", "internal/exactjson/exactjson_test.go", "internal/fileinput/fileinput_test.go", "internal/fileinput/fileinput_unix_test.go", "internal/probe/alternatives_test.go", "internal/probe/probe_test.go", "internal/probe/windows_host_hardening_test.go", "internal/redact/redact_test.go", "internal/remote/remote_test.go", "internal/vendorintegrity/vendorintegrity_test.go", "tools/releasecheck/main_test.go", "tools/releasecheck/release_script_test.go", "tools/vendorcheck/main_test.go", "internal/contracts/ci_attestation_schema_test.go", "tools/ciattestation/main_test.go"}},
 			{ID: "security-pinned-least-privilege-ci", Name: "Pinned least-privilege CI", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "pinned-least-privilege-ci-v1", Paths: []string{".github/workflows/ci.yml", ".github/workflows/evidence-freshness.yml", ".github/workflows/release.yml"}},
-			{ID: "security-sbom-checksum-provenance", Name: "SBOM, checksum, and provenance tooling", Weight: 2, EvidenceType: RepositoryContentV1, VerifierID: "sbom-checksum-provenance-tools-v1", Paths: []string{".gitattributes", "go.mod", "go.sum", "scripts/release.sh", "scripts/install.sh", "scripts/uninstall.sh", "scripts/verify-install.sh", "scripts/verify-release-reproducible.sh", "internal/packageinfo/manifest.go", "internal/packageinfo/manifest_test.go", "internal/vendorintegrity/lock.go", "internal/vendorintegrity/vendorintegrity.go", "internal/vendorintegrity/vendorintegrity_test.go", "vendor/filippo.io/edwards25519/LICENSE", "vendor/modules.txt", "tools/canonicaltar/main.go", "tools/canonicalzip/main.go", "tools/packagemanifest/main.go", "tools/readinesscheck/main.go", "tools/releasecheck/main.go", "tools/releasecheck/main_test.go", "tools/releasecheck/release_script_test.go", "tools/sbom/main.go", "tools/sbom/main_test.go", "tools/vendorcheck/main.go", "tools/vendorcheck/main_test.go"}},
+			{ID: "security-sbom-checksum-provenance", Name: "SBOM, checksum, and provenance tooling", Weight: 2, EvidenceType: RepositoryContentV1, VerifierID: "sbom-checksum-provenance-tools-v1", Paths: []string{".gitattributes", "go.mod", "go.sum", "scripts/release.sh", "scripts/install.sh", "scripts/uninstall.sh", "scripts/verify-install.sh", "scripts/verify-release-reproducible.sh", "internal/packageinfo/manifest.go", "internal/packageinfo/manifest_test.go", "internal/vendorintegrity/lock.go", "internal/vendorintegrity/vendorintegrity.go", "internal/vendorintegrity/vendorintegrity_test.go", "vendor/filippo.io/edwards25519/LICENSE", "vendor/modules.txt", "tools/canonicaltar/main.go", "tools/packagemanifest/main.go", "tools/readinesscheck/main.go", "tools/releasecheck/main.go", "tools/releasecheck/main_test.go", "tools/releasecheck/release_script_test.go", "tools/sbom/main.go", "tools/sbom/main_test.go", "tools/vendorcheck/main.go", "tools/vendorcheck/main_test.go"}},
 			{ID: "security-independent-audit-closed", Name: "Closed independent audit findings", Weight: 2, EvidenceType: IndependentAuditV1, VerifierID: "independent-audit-v1"},
 		},
 	},
 	{
 		ID: "packaging-operations", Name: "Packaging and operations", Weight: 10,
 		Subcriteria: []subcriterionContract{
-			{ID: "packaging-eight-release-archives", Name: "Eight published release archives", Weight: 2, EvidenceType: ReleaseAttestation, VerifierID: "release-eight-archives-v1"},
+			{ID: "packaging-five-release-archives", Name: "Five published Linux/BSD release archives", Weight: 2, EvidenceType: ReleaseAttestation, VerifierID: "release-five-archives-v1"},
 			{ID: "packaging-version-sbom-checksums", Name: "Version metadata, SBOMs, and checksums tooling", Weight: 2, EvidenceType: RepositoryContentV1, VerifierID: "release-metadata-tools-v1", Paths: []string{"internal/packageinfo/manifest.go", "internal/version/version.go", "tools/releasecheck/main.go", "tools/sbom/main.go"}},
 			{ID: "packaging-publication-attestation", Name: "Release publication and attestation", Weight: 1, EvidenceType: ReleaseAttestation, VerifierID: "release-publication-attestation-v1"},
 			{ID: "packaging-native-os-packages", Name: "Native OS packages", Weight: 3, EvidenceType: PackageAttestation, VerifierID: "native-packages-v1"},
@@ -153,7 +154,7 @@ var remoteRouteContract = []remoteRouteDefinition{
 	},
 	{
 		ID:     RemoteMacOSRouteID,
-		Reason: "Sunshine's macOS host support is experimental and gamepad hosting is unavailable; validation-evidence v2 currently verifies only Windows/v1-record-backed sets, no production reviewer trust keys or authenticated macOS evidence are provisioned, and readiness schema v3 remains hard-zero.",
+		Reason: "Sunshine's macOS host support is experimental and gamepad hosting is unavailable; validation-evidence v2 now verifies route-bound Windows or macOS/v1-record-backed sets, but no production reviewer trust keys or authenticated physical-run evidence are provisioned, and readiness schema v3 remains hard-zero.",
 	},
 }
 
@@ -413,7 +414,7 @@ func (r RemoteHandoff) validate(contract remoteRouteDefinition, routeIndex int) 
 			return fmt.Errorf("%s platform %q evidence_sets must be an array", location, platform.Platform)
 		}
 		if len(platform.EvidenceSets) != 0 {
-			return fmt.Errorf("%s platform %q cannot be promoted: readiness schema v3 requires evidence_sets to remain empty; authenticated v2 evidence is not connected to a promotion evaluator", location, platform.Platform)
+			return fmt.Errorf("%s platform %q cannot be promoted: readiness schema v3 requires evidence_sets to remain empty; derived schema-v4 promotion is evaluated separately from this scorecard", location, platform.Platform)
 		}
 	}
 	return nil
@@ -496,6 +497,24 @@ func (s Scorecard) VerifyRepositoryEvidence(root string) error {
 		return err
 	}
 	defer evidenceRoot.Close()
+	return s.verifyRepositoryEvidenceFromRoot(evidenceRoot)
+}
+
+// VerifyRepositoryEvidenceFromRoot validates every awarded repository
+// reference beneath an already-pinned repository root. Callers that also
+// need to inspect another repository file can therefore keep the scorecard
+// and all evidence checks on the same directory handle.
+func (s Scorecard) VerifyRepositoryEvidenceFromRoot(evidenceRoot *os.Root) error {
+	if evidenceRoot == nil {
+		return errors.New("repository root is nil")
+	}
+	if err := s.Validate(); err != nil {
+		return fmt.Errorf("validate readiness scorecard: %w", err)
+	}
+	return s.verifyRepositoryEvidenceFromRoot(evidenceRoot)
+}
+
+func (s Scorecard) verifyRepositoryEvidenceFromRoot(evidenceRoot *os.Root) error {
 	for categoryIndex, category := range s.Engineering {
 		if categoryIndex >= len(engineeringContract) {
 			return errors.New("engineering contract is invalid")
@@ -526,6 +545,9 @@ func openEvidenceRoot(root string) (*os.Root, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := fileinput.RejectSymlinkedParents(absRoot); err != nil {
+		return nil, fmt.Errorf("inspect repository root path: %w", err)
 	}
 	rootInfo, err := os.Lstat(absRoot)
 	if err != nil {

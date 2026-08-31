@@ -51,6 +51,17 @@
   or hand-built client plans fail closed.
 - A physical-host acknowledgement is mandatory. LeagueBridge does not inspect,
   alter, or conceal hypervisor identity.
+- Native-runtime subjects are score-free and hash the exact runtime executable
+  plus bounded evidence files. The GitHub-hosted verifier pins the repository,
+  workflow, commit, tree, ref, run, attempt, and artifact digests; it accepts
+  only hosted or virtualized claims and rejects `physical` promotion because a
+  hosted attestation cannot prove physical hardware. Physical promotion needs
+  an independent attestation path.
+- Native-package subjects additionally hash the package bytes, every verified
+  staging-tree file, and the package install-test log. Their exact six-family
+  Linux/BSD set verifier binds those artifacts to one CI source/run and rejects
+  physical claims; package-manager signatures and target-kernel behavior remain
+  outside this repository's score-free subject contract.
 - Reports are constructed from an allowlist. Redaction is defense in depth, not
   permission to collect raw logs.
 - Bundles are local, bounded, atomically created, previewable, and never

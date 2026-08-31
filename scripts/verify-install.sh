@@ -22,7 +22,7 @@ if [ -L "$archive" ] || [ ! -f "$archive" ]; then
 	fail "archive must be a regular, non-symlink file"
 fi
 case "$expected_goos/$expected_goarch" in
-	linux/amd64|freebsd/amd64|openbsd/amd64|netbsd/amd64|dragonfly/amd64|darwin/amd64|darwin/arm64) ;;
+	linux/amd64|freebsd/amd64|openbsd/amd64|netbsd/amd64|dragonfly/amd64) ;;
 	*) fail "expected target is not an installable production artifact" ;;
 esac
 case "$(basename "$archive")" in
@@ -40,13 +40,11 @@ case "$(uname -s)" in
 	OpenBSD) runtime_goos=openbsd ;;
 	NetBSD) runtime_goos=netbsd ;;
 	DragonFly) runtime_goos=dragonfly ;;
-	Darwin) runtime_goos=darwin ;;
-	*) fail "install smoke requires a supported Linux, BSD, or Darwin kernel" ;;
+	*) fail "install smoke requires a supported Linux or BSD kernel" ;;
 esac
 [ "$runtime_goos" = "$expected_goos" ] || fail "runtime kernel does not match the expected archive GOOS"
 case "$(uname -m)" in
 	x86_64|amd64) runtime_goarch=amd64 ;;
-	arm64|aarch64) runtime_goarch=arm64 ;;
 	*) fail "install smoke is running on an unsupported machine architecture" ;;
 esac
 [ "$runtime_goarch" = "$expected_goarch" ] || fail "runtime machine architecture does not match the expected archive GOARCH"

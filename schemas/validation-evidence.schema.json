@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://leaguebridge.dev/schemas/validation-evidence.schema.json",
   "title": "LeagueBridge validation evidence record",
-  "description": "Versioned, bounded manual-validation evidence for the physical-windows-remote route: a physical Windows streaming host, a Linux/BSD client, or an end-to-end remote-play session. A conforming record is evidence input and never launch authorization by itself.",
+  "description": "Versioned, bounded manual-validation evidence for the physical-windows-remote and physical-macos-remote routes: a physical supported Windows or native macOS streaming host, a Linux/BSD client, or an end-to-end remote-play session. A conforming record is evidence input and never launch authorization by itself.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -40,7 +40,7 @@
       "$ref": "#/$defs/validationRunID"
     },
     "route_id": {
-      "const": "physical-windows-remote"
+      "enum": ["physical-windows-remote", "physical-macos-remote"]
     },
     "test_profile_id": {
       "const": "remote-play-v1"
@@ -55,7 +55,7 @@
       "$ref": "#/$defs/date"
     },
     "manifest_sha256": {
-      "const": "211cb4440f7529bb9498dc5439ee9728f8cb88440ef096a9620f5a0e399eebf1"
+      "const": "6e73736ea84cc6f84f89d34ba1f1b32ce35f5cef2c0011c69291b9986c81700c"
     },
     "tool_version": {
       "$ref": "#/$defs/toolVersion"
@@ -129,6 +129,44 @@
           "measurements": { "$ref": "#/$defs/sessionMeasurements" }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "route_id": { "const": "physical-windows-remote" },
+          "record_type": { "const": "host" }
+        },
+        "required": ["route_id", "record_type"]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "platform": { "const": "windows" },
+              "architecture": { "const": "amd64" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "route_id": { "const": "physical-macos-remote" },
+          "record_type": { "const": "host" }
+        },
+        "required": ["route_id", "record_type"]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "platform": { "const": "macos" },
+              "architecture": { "enum": ["amd64", "arm64"] }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -196,9 +234,9 @@
       "properties": {
         "role": { "enum": ["host", "client", "session"] },
         "platform": {
-          "enum": ["windows", "linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"]
+          "enum": ["windows", "macos", "linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"]
         },
-        "architecture": { "const": "amd64" },
+        "architecture": { "enum": ["amd64", "arm64"] },
         "environment": {
           "type": "string",
           "minLength": 1,
@@ -213,8 +251,8 @@
         {
           "properties": {
             "role": { "const": "host" },
-            "platform": { "const": "windows" },
-            "architecture": { "const": "amd64" }
+            "platform": { "enum": ["windows", "macos"] },
+            "architecture": { "enum": ["amd64", "arm64"] }
           }
         }
       ]

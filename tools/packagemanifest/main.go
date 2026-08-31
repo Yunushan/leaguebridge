@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
 )
 
@@ -70,6 +71,19 @@ func generate(root, output, version, goos, goarch string, epoch int64, commit, t
 	if err != nil {
 		return nil, fmt.Errorf("resolve output: %w", err)
 	}
+	if err := fileinput.RejectSymlinkedParents(rootAbsolute); err != nil {
+		return nil, fmt.Errorf("inspect root parents: %w", err)
+	}
+	rootInfo, err := os.Lstat(rootAbsolute)
+	if err != nil {
+		return nil, fmt.Errorf("inspect root: %w", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, errors.New("root must be a non-symlink directory")
+	}
+	if err := fileinput.RejectSymlinkedParents(outputAbsolute); err != nil {
+		return nil, fmt.Errorf("inspect output parents: %w", err)
+	}
 	if filepath.Dir(outputAbsolute) != filepath.Clean(rootAbsolute) || filepath.Base(outputAbsolute) != packageinfo.ManifestName {
 		return nil, fmt.Errorf("output must be %s directly beneath root", packageinfo.ManifestName)
 	}
@@ -95,7 +109,7 @@ func generate(root, output, version, goos, goarch string, epoch int64, commit, t
 
 func payloadSizeLimit(name string) int64 {
 	switch name {
-	case "leaguebridge", "leaguebridge.exe":
+	case "leaguebridge":
 		return maxBinarySize
 	case "SBOM.spdx.json":
 		return maxMetadataSize
@@ -105,6 +119,9 @@ func payloadSizeLimit(name string) int64 {
 }
 
 func readRegularBounded(path string, maximum int64) ([]byte, error) {
+	if err := fileinput.RejectSymlinkedParents(path); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
@@ -148,10 +165,15 @@ func writeExclusive(path string, data []byte) error {
 		return err
 	}
 	if _, err := file.Write(data); err != nil {
-		file.Close()
+		_ = file.Close()
+		_ = os.Remove(path)
 		return err
 	}
-	return file.Close()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 func fatalf(format string, arguments ...any) {

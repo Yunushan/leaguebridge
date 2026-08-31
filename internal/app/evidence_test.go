@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -35,17 +36,32 @@ func TestEvidenceTemplateCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("macOS host template", func(t *testing.T) {
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template", "--type", "host", "--route", "macos", "--platform", "darwin", "--arch", "arm64"})
+		if code != ExitOK || errOut.Len() != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		record, err := evidence.Parse(out.Bytes())
+		if err != nil {
+			t.Fatalf("parse macOS template: %v\n%s", err, out.String())
+		}
+		if record.RouteID != evidence.RoutePhysicalMacOSRemote || record.Subject.Platform != "macos" || record.Subject.Architecture != "arm64" {
+			t.Fatalf("record = %+v", record)
+		}
+	})
+
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"missing subcommand", []string{"evidence"}, "expected template, validate, verify-set, or v2"},
+		{"missing subcommand", []string{"evidence"}, "expected template, template-set, validate, verify-set, or v2"},
 		{"unknown subcommand", []string{"evidence", "other"}, "unknown subcommand"},
 		{"missing type", []string{"evidence", "template"}, "--type is required"},
 		{"invalid type", []string{"evidence", "template", "--type", "other"}, "unsupported evidence type"},
 		{"invalid target", []string{"evidence", "template", "--type", "host", "--platform", "linux"}, "host evidence platform"},
-		{"unimplemented macOS route", []string{"evidence", "template", "--type", "host", "--platform", "darwin", "--arch", "arm64"}, "platform must be windows"},
+		{"invalid route", []string{"evidence", "template", "--type", "host", "--route", "wine", "--platform", "darwin", "--arch", "arm64"}, "route must be windows, macos"},
 		{"invalid run id", []string{"evidence", "template", "--type", "client", "--run-id", "host-name"}, "validation run id"},
 		{"unexpected argument", []string{"evidence", "template", "--type", "client", "extra"}, "unexpected arguments"},
 	}
@@ -88,6 +104,171 @@ func TestEvidenceTemplateCommand(t *testing.T) {
 			t.Fatalf("code=%d stderr=%q", code, errOut.String())
 		}
 	})
+}
+
+func TestEvidenceTemplateSetCommand(t *testing.T) {
+	const runID = "run-0123456789abcdef0123456789abcdef"
+
+	t.Run("creates one bound set", func(t *testing.T) {
+		directory := filepath.Join(t.TempDir(), "nested", "evidence")
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--client-platform", "freebsd", "--run-id", runID})
+		if code != ExitOK || errOut.Len() != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if !strings.Contains(out.String(), runID) || !strings.Contains(out.String(), "host.json") || !strings.Contains(out.String(), "client.json") || !strings.Contains(out.String(), "session.json") {
+			t.Fatalf("stdout=%q", out.String())
+		}
+		var records []evidence.Record
+		for _, name := range []string{"host.json", "client.json", "session.json"} {
+			record, err := evidence.ReadFile(filepath.Join(directory, name))
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			records = append(records, record)
+		}
+		if records[0].RecordType != evidence.RecordHost || records[0].Subject.Platform != "windows" || records[0].Subject.Architecture != "amd64" {
+			t.Fatalf("host=%+v", records[0])
+		}
+		if records[1].RecordType != evidence.RecordClient || records[1].Subject.Platform != "freebsd" || records[2].RecordType != evidence.RecordSession || records[2].Subject.Platform != "freebsd" {
+			t.Fatalf("client/session=%+v/%+v", records[1], records[2])
+		}
+		for _, record := range records {
+			if record.ValidationRunID != runID || record.Subject.Architecture != "amd64" {
+				t.Fatalf("record binding=%+v", record)
+			}
+		}
+	})
+
+	t.Run("creates a bound macOS arm64 host set", func(t *testing.T) {
+		directory := filepath.Join(t.TempDir(), "macos-evidence")
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--route", "macos", "--host-arch", "arm64", "--client-platform", "linux", "--run-id", runID})
+		if code != ExitOK || errOut.Len() != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		host, err := evidence.ReadFile(filepath.Join(directory, "host.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		client, err := evidence.ReadFile(filepath.Join(directory, "client.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		session, err := evidence.ReadFile(filepath.Join(directory, "session.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if host.RouteID != evidence.RoutePhysicalMacOSRemote || host.Subject.Platform != "macos" || host.Subject.Architecture != "arm64" {
+			t.Fatalf("host=%+v", host)
+		}
+		if client.RouteID != host.RouteID || session.RouteID != host.RouteID || client.Subject.Platform != "linux" || session.Subject.Platform != "linux" {
+			t.Fatalf("route/client/session=%s/%+v/%+v", host.RouteID, client, session)
+		}
+	})
+
+	t.Run("JSON result", func(t *testing.T) {
+		directory := t.TempDir()
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--json", "--run-id", runID})
+		if code != ExitOK || errOut.Len() != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		if envelope.Command != "evidence template-set" || !envelope.OK {
+			t.Fatalf("envelope=%+v", envelope)
+		}
+		data := envelope.Data.(map[string]any)
+		if data["validation_run_id"] != runID || data["directory"] != directory {
+			t.Fatalf("data=%v", data)
+		}
+	})
+
+	t.Run("accepts every supported client platform", func(t *testing.T) {
+		for _, platform := range []string{"linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"} {
+			t.Run(platform, func(t *testing.T) {
+				directory := t.TempDir()
+				a, out, errOut, _, _ := newTestApp(t)
+				code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--client-platform", platform, "--run-id", runID})
+				if code != ExitOK || errOut.Len() != 0 {
+					t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+				}
+				for _, name := range []string{"client.json", "session.json"} {
+					record, err := evidence.ReadFile(filepath.Join(directory, name))
+					if err != nil || record.Subject.Platform != platform || record.ValidationRunID != runID {
+						t.Fatalf("%s record=%+v err=%v", name, record, err)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("collision does not publish a partial set", func(t *testing.T) {
+		directory := t.TempDir()
+		hostPath := filepath.Join(directory, "host.json")
+		original := []byte("keep this file")
+		writeFile(t, hostPath, original)
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--run-id", runID})
+		if code != ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "destination already exists") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if data, err := os.ReadFile(hostPath); err != nil || !bytes.Equal(data, original) {
+			t.Fatalf("host file changed: data=%q err=%v", data, err)
+		}
+		for _, name := range []string{"client.json", "session.json"} {
+			if _, err := os.Lstat(filepath.Join(directory, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unexpected partial %s: %v", name, err)
+			}
+		}
+	})
+
+	t.Run("invalid client target does not create directory", func(t *testing.T) {
+		directory := filepath.Join(t.TempDir(), "not-created")
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--client-platform", "windows"})
+		if code != ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "client template") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if _, err := os.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("directory exists after rejected target: %v", err)
+		}
+	})
+
+	t.Run("rejects symlinked directory parent", func(t *testing.T) {
+		target := t.TempDir()
+		link := filepath.Join(t.TempDir(), "evidence-parent-link")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		directory := filepath.Join(link, "new-evidence")
+		a, out, errOut, _, _ := newTestApp(t)
+		code := a.Run(context.Background(), []string{"evidence", "template-set", "--directory", directory, "--run-id", runID})
+		if code != ExitUsage || out.Len() != 0 || !strings.Contains(errOut.String(), "symlink") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if _, err := os.Lstat(filepath.Join(target, "new-evidence")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("redirected directory was created: %v", err)
+		}
+	})
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"missing directory", []string{"evidence", "template-set"}, "--directory is required"},
+		{"invalid run id", []string{"evidence", "template-set", "--directory", t.TempDir(), "--run-id", "nope"}, "host template"},
+		{"unexpected argument", []string{"evidence", "template-set", "--directory", t.TempDir(), "extra"}, "unexpected arguments"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, _, errOut, _, _ := newTestApp(t)
+			if code := a.Run(context.Background(), tt.args); code != ExitUsage || !strings.Contains(errOut.String(), tt.want) {
+				t.Fatalf("code=%d stderr=%q", code, errOut.String())
+			}
+		})
+	}
 }
 
 func TestEvidenceValidateCommand(t *testing.T) {

@@ -2,7 +2,7 @@
   "$schema": "../schemas/compatibility-manifest.schema.json",
   "schemaVersion": "1.0.0",
   "manifestId": "leaguebridge-authoritative-compatibility",
-  "asOf": "2026-08-26",
+  "asOf": "2026-08-30",
   "game": {
     "name": "League of Legends",
     "publisher": "Riot Games"
@@ -18,7 +18,7 @@
       "title": "Minimum and Recommended System Requirements (League of Legends)",
       "publisher": "Riot Games Player Support",
       "url": "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "riot-vanguard-linux",
@@ -26,7 +26,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/",
       "publishedAt": "2024-04-11",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "riot-patch-14-9",
@@ -34,7 +34,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-us/news/game-updates/patch-14-9-notes/",
       "publishedAt": "2024-04-30",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "riot-macos-embedded-vanguard",
@@ -42,7 +42,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/",
       "publishedAt": "2025-01-22",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "riot-vanguard-on-demand",
@@ -50,14 +50,14 @@
       "publisher": "Riot Games",
       "url": "https://www.riotgames.com/en/news/vanguard-on-demand",
       "publishedAt": "2026-06-24",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "riot-vm-policy",
       "title": "Vanguard Error Codes and Solutions (VAN 138)",
       "publisher": "Riot Games Player Support",
-      "url": "https://support-leagueoflegends.riotgames.com/hc/en-us/articles/26932165816851-Vanguard-Error-Codes-and-Solutions-LoL",
-      "checkedAt": "2026-08-26"
+      "url": "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes",
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "winehq-about",
@@ -100,6 +100,13 @@
       "publisher": "Moonlight Game Streaming Project",
       "url": "https://github.com/moonlight-stream/moonlight-qt",
       "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "moonlight-embedded",
+      "title": "Moonlight Embedded",
+      "publisher": "Moonlight Game Streaming Project",
+      "url": "https://github.com/moonlight-stream/moonlight-embedded",
+      "checkedAt": "2026-08-30"
     },
     {
       "id": "microsoft-bcdboot",
@@ -238,7 +245,7 @@
       "authorization": "unverified",
       "reasonCode": "REMOTE_HANDOFF_NOT_A_LOCAL_COMPATIBILITY_PATH",
       "summary": "A separately managed physical Windows computer may meet Riot's Windows requirements, but remote-control and streaming integration is not an authorized local Linux or BSD gameplay backend in this manifest.",
-      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "moonlight-qt"],
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "moonlight-qt", "moonlight-embedded"],
       "safetyNotes": [
         "The Windows machine must independently satisfy Riot's current requirements and policies.",
         "Do not forward credentials through LeagueBridge or claim that streaming makes Linux or BSD natively supported."
@@ -256,7 +263,7 @@
       "authorization": "unverified",
       "reasonCode": "MACOS_REMOTE_HANDOFF_EXPERIMENTAL_AND_UNVALIDATED",
       "summary": "A separately managed physical Mac may run Riot's native macOS client, while Sunshine documents macOS host support as experimental; LeagueBridge has no validated macOS capture, input, audio, gamepad, or gameplay evidence.",
-      "sourceIds": ["riot-system-requirements", "riot-macos-embedded-vanguard", "sunshine-docs", "moonlight-qt"],
+      "sourceIds": ["riot-system-requirements", "riot-macos-embedded-vanguard", "sunshine-docs", "moonlight-qt", "moonlight-embedded"],
       "safetyNotes": [
         "League must run through Riot's unmodified native macOS client on the physical Mac; this route does not make Linux or BSD natively supported.",
         "Sunshine's macOS host behavior is experimental and gamepad support is unavailable; do not treat a successful handoff as Riot endorsement or gameplay validation."

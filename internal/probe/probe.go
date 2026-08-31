@@ -13,11 +13,20 @@ import (
 
 const (
 	// SchemaVersion changes only when the serialized report contract changes.
-	SchemaVersion = 1
+	SchemaVersion = 2
 
 	defaultCommandTimeout = 2 * time.Second
 	maximumCommandTimeout = 5 * time.Second
 )
+
+var clientReadinessCheckIDs = map[string]struct{}{
+	"client.platform":          {},
+	"client.graphical-session": {},
+	"client.input":             {},
+	"client.moonlight":         {},
+	"client.audio":             {},
+	"client.decoder-tools":     {},
+}
 
 // Status is the stable, machine-readable outcome of a Check or Report.
 type Status string
@@ -32,9 +41,10 @@ const (
 type Profile string
 
 const (
-	ProfileClient      Profile = "client"
-	ProfileWindowsHost Profile = "windows-host"
-	ProfileMacOSHost   Profile = "macos-host"
+	ProfileClient        Profile = "client"
+	ProfileWindowsHost   Profile = "windows-host"
+	ProfileMacOSHost     Profile = "macos-host"
+	ProfileCompatibility Profile = "compatibility"
 )
 
 // Check is one privacy-safe preflight result. Summary and Guidance are written
@@ -61,19 +71,109 @@ type Report struct {
 }
 
 // Ready reports whether the preflight contains enough evidence to continue.
-// Most client warnings are advisory, but an unresolved Moonlight launcher is a
-// required handoff gate. Every Windows-host warning blocks host readiness.
+// Most client warnings are advisory, but Moonlight, a reachable graphical
+// session, and a display-backed input-path indicator are required stream
+// gates. Every Windows-host warning blocks host readiness.
 func (r Report) Ready() bool {
-	if r.Status == StatusPass {
+	if r.Profile != ProfileClient {
+		if r.SchemaVersion != SchemaVersion {
+			return false
+		}
+		expectedStatus, ok := aggregateStatus(r.Checks)
+		return ok && r.Status == StatusPass && expectedStatus == StatusPass
+	}
+	if !r.ReadyForControl() {
+		return false
+	}
+	graphicalSession, ok := r.Check("client.graphical-session")
+	if !ok || graphicalSession.Status != StatusPass {
+		return false
+	}
+	input, ok := r.Check("client.input")
+	return ok && input.Status == StatusPass
+}
+
+// ReadyForControl reports whether a client preflight contains enough evidence
+// for Moonlight control operations such as pairing or listing applications.
+// Those operations do not open a video stream, so missing graphical and input
+// endpoints are not control-plane blockers. The target platform and a
+// PATH-resolvable Moonlight launcher remain required.
+func (r Report) ReadyForControl() bool {
+	if r.SchemaVersion != SchemaVersion || r.Profile != ProfileClient || r.Architecture != "amd64" {
+		return false
+	}
+	if _, ok := eligibleClientOS[r.OS]; !ok {
+		return false
+	}
+	seen := make(map[string]struct{}, len(r.Checks))
+	for _, check := range r.Checks {
+		if _, allowed := clientReadinessCheckIDs[check.ID]; !allowed {
+			return false
+		}
+		if _, duplicate := seen[check.ID]; duplicate {
+			return false
+		}
+		seen[check.ID] = struct{}{}
+	}
+	if len(seen) != len(clientReadinessCheckIDs) {
+		return false
+	}
+	platform, ok := r.Check("client.platform")
+	if !ok || platform.Status != StatusPass {
+		return false
+	}
+	moonlight, ok := r.Check("client.moonlight")
+	if !ok || moonlight.Status != StatusPass {
+		return false
+	}
+	graphicalSession, ok := r.Check("client.graphical-session")
+	if !ok {
+		return false
+	}
+
+	// A headless report is allowed to fail only at the graphical-session gate;
+	// platform and Moonlight failures must remain blocking. Recompute the
+	// aggregate status so hand-built or stale reports cannot claim pass while
+	// omitting a required check or carrying an unrelated failure.
+	expectedStatus, ok := aggregateStatus(r.Checks)
+	if !ok {
+		return false
+	}
+	if r.Status != expectedStatus {
+		return false
+	}
+	if graphicalSession.Status == StatusFail {
+		for _, check := range r.Checks {
+			if check.Status == StatusFail && check.ID != "client.graphical-session" {
+				return false
+			}
+		}
+	}
+	if graphicalSession.Status == StatusFail {
 		return true
 	}
-	if r.Profile != ProfileClient || r.Status != StatusWarn {
-		return false
+	return r.Status == StatusPass || r.Status == StatusWarn
+}
+
+func aggregateStatus(checks []Check) (Status, bool) {
+	if len(checks) == 0 {
+		return "", false
 	}
-	if moonlight, ok := r.Check("client.moonlight"); ok && moonlight.Status != StatusPass {
-		return false
+	status := StatusPass
+	for _, check := range checks {
+		switch check.Status {
+		case StatusPass:
+		case StatusWarn:
+			if status == StatusPass {
+				status = StatusWarn
+			}
+		case StatusFail:
+			status = StatusFail
+		default:
+			return "", false
+		}
 	}
-	return true
+	return status, true
 }
 
 // Check returns the check with id, if present.
@@ -211,12 +311,14 @@ func (p *Prober) Run(ctx context.Context, profile Profile) Report {
 		return p.WindowsHost(ctx)
 	case ProfileMacOSHost:
 		return p.MacOSHost(ctx)
+	case ProfileCompatibility:
+		return p.Compatibility(ctx)
 	default:
 		return p.report(profile, []Check{{
 			ID:       "profile",
 			Status:   StatusFail,
 			Summary:  "Unknown preflight profile.",
-			Guidance: "Select the client, windows-host, or macos-host profile.",
+			Guidance: "Select the client, windows-host, macos-host, or compatibility profile.",
 		}})
 	}
 }
@@ -308,7 +410,7 @@ func (p *Prober) localEnvironmentRoot(value string) (string, bool) {
 			return "", false
 		}
 		rest := path.Clean("/" + normalized[3:])
-		return strings.ToUpper(normalized[:1]) + ":" + filepathFromSlash(rest), true
+		return strings.ToUpper(normalized[:1]) + ":" + filepathFromSlash(rest, p.goos), true
 	}
 
 	if !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.Contains(value, `\`) {
@@ -322,13 +424,28 @@ func isASCIILetter(value byte) bool {
 }
 
 // filepathFromSlash is kept small so target-path validation is deterministic
-// under cross-platform unit tests while native Windows still receives its
-// preferred separator from filepath.FromSlash.
-func filepathFromSlash(value string) string {
-	if runtime.GOOS == "windows" {
+// under cross-platform unit tests. The target OS, rather than the host running
+// a cross-target fixture, determines the preferred separator.
+func filepathFromSlash(value, targetGOOS string) string {
+	if targetGOOS == "windows" {
 		return strings.ReplaceAll(value, "/", `\`)
 	}
 	return value
+}
+
+// targetPathJoin joins a path using the target platform's separators. The
+// prober normally runs on the target platform, but tests also exercise a
+// Windows target from Unix hosts and must not turn a drive path into a mixed
+// separator string.
+func targetPathJoin(targetGOOS string, elements ...string) string {
+	if targetGOOS != "windows" {
+		return path.Join(elements...)
+	}
+	normalized := make([]string, len(elements))
+	for index, element := range elements {
+		normalized[index] = strings.ReplaceAll(element, `\`, "/")
+	}
+	return strings.ReplaceAll(path.Join(normalized...), "/", `\`)
 }
 
 func (p *Prober) run(ctx context.Context, name string, args ...string) (CommandResult, error) {

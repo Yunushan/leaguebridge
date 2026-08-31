@@ -114,6 +114,23 @@ func TestWriteBundleRejectsOverwrite(t *testing.T) {
 	assertNoTemporaryBundles(t, directory)
 }
 
+func TestWriteBundleRejectsSymlinkedParent(t *testing.T) {
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "bundle-parent-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	destination := filepath.Join(link, "support.zip")
+	if err := WriteBundle(destination, fixedReport()); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("WriteBundle(%q) = %v; want parent-symlink rejection", destination, err)
+	}
+	if entries, err := os.ReadDir(target); err != nil {
+		t.Fatal(err)
+	} else if len(entries) != 0 {
+		t.Fatalf("redirected output directory was modified: %v", entries)
+	}
+}
+
 func TestWriteBundleConcurrentWritersAreExclusive(t *testing.T) {
 	directory := t.TempDir()
 	destination := filepath.Join(directory, "support.zip")
@@ -154,7 +171,7 @@ func TestWriteBundleCleansPartialPublicationFailure(t *testing.T) {
 	destination := filepath.Join(directory, "support.zip")
 	publisherSawCompleteTemp := false
 	injected := errors.New("injected publication failure")
-	err := writeBundle(destination, fixedReport(), func(oldPath, newPath string) error {
+	err := writeBundle(destination, fixedReport(), func(_ *os.Root, oldPath, newPath string) error {
 		info, statErr := os.Stat(oldPath)
 		if statErr == nil && info.Size() > 0 && newPath == destination {
 			publisherSawCompleteTemp = true

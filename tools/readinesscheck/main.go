@@ -10,7 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/readiness"
 )
 
@@ -30,35 +32,90 @@ func verify(root string) error {
 	if err != nil {
 		return fmt.Errorf("parse embedded readiness scorecard: %w", err)
 	}
-	publicData, err := readRegularBounded(filepath.Join(root, "readiness", "scorecard.json"), readiness.MaximumScorecardSize)
+	repositoryRoot, err := fileinput.OpenDirectoryRoot(root)
+	if err != nil {
+		return fmt.Errorf("open repository root: %w", err)
+	}
+	defer repositoryRoot.Close()
+	publicData, err := readRegularBoundedFromRoot(repositoryRoot, filepath.Join("readiness", "scorecard.json"), readiness.MaximumScorecardSize)
 	if err != nil {
 		return fmt.Errorf("read public readiness scorecard: %w", err)
 	}
 	if !bytes.Equal(publicData, readiness.EmbeddedJSON()) {
 		return errors.New("public readiness scorecard is not byte-identical to the embedded production scorecard")
 	}
-	if err := embedded.VerifyRepositoryEvidence(root); err != nil {
+	if err := embedded.VerifyRepositoryEvidenceFromRoot(repositoryRoot); err != nil {
 		return fmt.Errorf("verify content-addressed readiness evidence: %w", err)
 	}
 	return nil
 }
 
 func readRegularBounded(path string, maximum int64) ([]byte, error) {
-	before, err := os.Lstat(path)
+	parent, err := fileinput.OpenDirectoryRoot(filepath.Dir(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open parent directory: %w", err)
 	}
-	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
-		return nil, errors.New("scorecard must be a regular, non-symlink file")
+	defer parent.Close()
+	return readRegularBoundedFromRoot(parent, filepath.Base(path), maximum)
+}
+
+func readRegularBoundedFromRoot(root *os.Root, name string, maximum int64) ([]byte, error) {
+	if root == nil {
+		return nil, errors.New("repository root is nil")
 	}
-	if before.Size() > maximum {
-		return nil, fmt.Errorf("scorecard exceeds %d bytes", maximum)
+	if maximum < 0 {
+		return nil, errors.New("maximum scorecard size is negative")
 	}
-	file, err := os.Open(path)
+	clean := filepath.Clean(name)
+	if name == "" || filepath.IsAbs(name) || filepath.VolumeName(name) != "" || clean != name || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("scorecard path %q is unsafe", name)
+	}
+	components := strings.Split(clean, string(filepath.Separator))
+	current := ""
+	var before os.FileInfo
+	for index, component := range components {
+		if component == "" || component == "." || component == ".." {
+			return nil, fmt.Errorf("scorecard path %q is unsafe", name)
+		}
+		if current == "" {
+			current = component
+		} else {
+			current = filepath.Join(current, component)
+		}
+		info, err := root.Lstat(current)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("scorecard must be beneath non-symlink directories")
+		}
+		if index < len(components)-1 {
+			if !info.IsDir() {
+				return nil, errors.New("scorecard parent is not a directory")
+			}
+			continue
+		}
+		before = info
+		if !info.Mode().IsRegular() {
+			return nil, errors.New("scorecard must be a regular, non-symlink file")
+		}
+		if info.Size() > maximum {
+			return nil, fmt.Errorf("scorecard exceeds %d bytes", maximum)
+		}
+	}
+	file, err := root.Open(clean)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	pathInfo, err := root.Lstat(clean)
+	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, opened) || !os.SameFile(before, pathInfo) {
+		return nil, errors.New("scorecard changed while reading")
+	}
 	body, err := io.ReadAll(io.LimitReader(file, maximum+1))
 	if err != nil {
 		return nil, err
@@ -70,12 +127,10 @@ func readRegularBounded(path string, maximum int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	finalPath, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !after.Mode().IsRegular() || finalPath.Mode()&os.ModeSymlink != 0 || !finalPath.Mode().IsRegular() ||
-		!os.SameFile(before, after) || !os.SameFile(before, finalPath) || after.Size() != int64(len(body)) || finalPath.Size() != int64(len(body)) {
+	finalPath, err := root.Lstat(clean)
+	if err != nil || !after.Mode().IsRegular() || !finalPath.Mode().IsRegular() ||
+		!os.SameFile(opened, after) || !os.SameFile(after, finalPath) ||
+		after.Size() != int64(len(body)) || finalPath.Size() != int64(len(body)) {
 		return nil, errors.New("scorecard changed while reading")
 	}
 	return bytes.Clone(body), nil

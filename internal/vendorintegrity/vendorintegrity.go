@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
 )
 
@@ -67,6 +68,9 @@ var expectedPackages = []string{
 func Verify(snapshotRoot string) error {
 	if strings.TrimSpace(snapshotRoot) == "" {
 		return errors.New("snapshot root is empty")
+	}
+	if err := fileinput.RejectSymlinkedParents(snapshotRoot); err != nil {
+		return fmt.Errorf("inspect snapshot root path: %w", err)
 	}
 	rootInfo, err := os.Lstat(snapshotRoot)
 	if err != nil {

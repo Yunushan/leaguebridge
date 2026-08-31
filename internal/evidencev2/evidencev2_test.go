@@ -19,7 +19,7 @@ import (
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-var v2TestNow = time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+var v2TestNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
 
 type v2Fixture struct {
 	envelope         []byte
@@ -61,6 +61,27 @@ func TestVerifySetAtAuthenticatesCompleteBoundSet(t *testing.T) {
 	}
 	if (VerifiedSet{}).Valid() {
 		t.Fatal("zero VerifiedSet is valid")
+	}
+}
+
+func TestVerifySetAtAuthenticatesMacOSArm64HostRoute(t *testing.T) {
+	fixture := newV2MacOSFixture(t)
+	verified, err := VerifySetAt(fixture.envelope, fixture.host, fixture.client, fixture.session, fixture.expected, fixture.verifications, fixture.policy, v2TestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.Valid() || verified.RouteID() != RoutePhysicalMacOSRemote || verified.ClientPlatform() != "linux" || verified.ClientArchitecture() != "amd64" {
+		t.Fatalf("unexpected macOS verified set: valid=%v route=%q client=%s/%s", verified.Valid(), verified.RouteID(), verified.ClientPlatform(), verified.ClientArchitecture())
+	}
+	prepared, err := PreparePayloadAt(PrepareRequest{
+		HostData: fixture.host, ClientData: fixture.client, SessionData: fixture.session,
+		Expected: fixture.expected, Verifications: fixture.verifications, PolicyID: fixture.policy.ID(),
+	}, v2TestNow)
+	if err != nil {
+		t.Fatalf("prepare macOS payload: %v", err)
+	}
+	if parsed, err := parsePayload(prepared); err != nil || parsed.RouteID != RoutePhysicalMacOSRemote || parsed.HostPlatform != "macos" || parsed.HostArchitecture != "arm64" {
+		t.Fatalf("prepared macOS payload=%+v err=%v", parsed, err)
 	}
 }
 
@@ -139,6 +160,55 @@ func TestProductionTrustPolicyIsValidButUnprovisioned(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "records and artifacts are valid") {
 		t.Fatalf("unprovisioned production policy err = %v", err)
 	}
+}
+
+func TestPreparePayloadAtEmitsExactVerifierCompatibleBytes(t *testing.T) {
+	fixture := newV2Fixture(t)
+	prepared, err := PreparePayloadAt(PrepareRequest{
+		HostData:      fixture.host,
+		ClientData:    fixture.client,
+		SessionData:   fixture.session,
+		Expected:      fixture.expected,
+		Verifications: fixture.verifications,
+		SetID:         "set-fedcba9876543210fedcba9876543210",
+		PolicyID:      fixture.policy.ID(),
+	}, v2TestNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(prepared, []byte("\n")) {
+		t.Fatal("prepared payload is missing its stable trailing newline")
+	}
+	parsed, err := parsePayload(prepared)
+	if err != nil {
+		t.Fatalf("prepared payload did not parse: %v", err)
+	}
+	if parsed.SetID != "set-fedcba9876543210fedcba9876543210" || parsed.PolicyID != fixture.policy.ID() {
+		t.Fatalf("unexpected prepared identity: set=%q policy=%q", parsed.SetID, parsed.PolicyID)
+	}
+	envelope := makeSignedEnvelope(t, prepared, fixture.privateKeys, v2TestNow.Add(-time.Minute))
+	verified, err := VerifySetAt(envelope, fixture.host, fixture.client, fixture.session, fixture.expected, fixture.verifications, fixture.policy, v2TestNow)
+	if err != nil {
+		t.Fatalf("prepared bytes were not accepted by the verifier: %v", err)
+	}
+	if verified.PayloadSHA256() != sha256Hex(prepared) {
+		t.Fatalf("payload digest = %s; want %s", verified.PayloadSHA256(), sha256Hex(prepared))
+	}
+}
+
+func TestPreparePayloadAtRejectsFractionalSessionInstants(t *testing.T) {
+	fixture := rewriteV2FixtureRecords(t, newV2Fixture(t), func(_, _ *evidence.Record, session *evidence.Record) {
+		session.CreatedAt = formatRFC3339Variant(v2TestNow.Add(-time.Hour).Add(500*time.Millisecond), 0, true)
+	})
+	_, err := PreparePayloadAt(PrepareRequest{
+		HostData:      fixture.host,
+		ClientData:    fixture.client,
+		SessionData:   fixture.session,
+		Expected:      fixture.expected,
+		Verifications: fixture.verifications,
+		PolicyID:      fixture.policy.ID(),
+	}, v2TestNow)
+	assertErrorContains(t, err, "whole-second precision")
 }
 
 func TestV2FixturesConformToPublicSchemas(t *testing.T) {
@@ -242,11 +312,11 @@ func TestVerifySetAtRejectsCryptographicAndBindingAttacks(t *testing.T) {
 		if err := json.Unmarshal(fixture.payload, &changed); err != nil {
 			t.Fatal(err)
 		}
-		changed.RouteID = "physical-macos-remote"
+		changed.RouteID = "unsupported-route"
 		envelope := decodeEnvelope(t, fixture.envelope)
 		envelope.Payload = base64.RawURLEncoding.EncodeToString(mustJSON(t, changed))
 		err := verify(mustJSON(t, envelope), fixture.host, fixture.client, fixture.session, fixture.expected, fixture.verifications, fixture.policy, v2TestNow)
-		assertErrorContains(t, err, "only \"physical-windows-remote\" is implemented")
+		assertErrorContains(t, err, "unsupported validation-evidence v2 route_id")
 	})
 
 	t.Run("payload record digest", func(t *testing.T) {
@@ -525,6 +595,78 @@ func newV2Fixture(t testing.TB) v2Fixture {
 		expected:    ExpectedCell{RouteID: RoutePhysicalWindowsRemote, ClientPlatform: "linux", ClientArchitecture: "amd64"},
 		privateKeys: privateKeys,
 	}
+}
+
+func newV2MacOSFixture(t testing.TB) v2Fixture {
+	t.Helper()
+	fixture := newV2Fixture(t)
+	var host, client, session evidence.Record
+	if err := json.Unmarshal(fixture.host, &host); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(fixture.client, &client); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(fixture.session, &session); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []*evidence.Record{&host, &client, &session} {
+		record.RouteID = evidence.RoutePhysicalMacOSRemote
+	}
+	host.Subject.Platform = "macos"
+	host.Subject.Architecture = "arm64"
+	if err := evidence.Validate(host); err != nil {
+		t.Fatalf("validate macOS host fixture: %v", err)
+	}
+	if err := evidence.Validate(client); err != nil {
+		t.Fatalf("validate macOS client fixture: %v", err)
+	}
+	if err := evidence.Validate(session); err != nil {
+		t.Fatalf("validate macOS session fixture: %v", err)
+	}
+	hostData := mustJSON(t, host)
+	clientData := mustJSON(t, client)
+	session.Bindings.HostRecordSHA256 = sha256Hex(hostData)
+	session.Bindings.ClientRecordSHA256 = sha256Hex(clientData)
+	sessionData := mustJSON(t, session)
+	hostVerification, err := evidence.VerifyArtifactBundle(host, fixture.hostArtifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientVerification, err := evidence.VerifyArtifactBundle(client, fixture.clientArtifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionVerification, err := evidence.VerifyArtifactBundle(session, fixture.sessionArtifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawPolicy := cloneTrustPolicy(fixture.policy.policy)
+	for index := range rawPolicy.Keys {
+		rawPolicy.Keys[index].RouteIDs = []string{RoutePhysicalMacOSRemote}
+	}
+	policy, err := newTrustPolicy(rawPolicy)
+	if err != nil {
+		t.Fatalf("macOS fixture policy: %v", err)
+	}
+	var payloadValue payload
+	if err := json.Unmarshal(fixture.payload, &payloadValue); err != nil {
+		t.Fatal(err)
+	}
+	payloadValue.RouteID = RoutePhysicalMacOSRemote
+	payloadValue.HostPlatform = "macos"
+	payloadValue.HostArchitecture = "arm64"
+	payloadValue.HostRecordSHA256 = sha256Hex(hostData)
+	payloadValue.ClientRecordSHA256 = sha256Hex(clientData)
+	payloadValue.SessionRecordSHA256 = sha256Hex(sessionData)
+	payloadValue.PolicyID = policy.ID()
+	payloadData := mustJSON(t, payloadValue)
+	fixture.host, fixture.client, fixture.session, fixture.payload = hostData, clientData, sessionData, payloadData
+	fixture.envelope = makeSignedEnvelope(t, payloadData, fixture.privateKeys, v2TestNow.Add(-time.Minute))
+	fixture.verifications = evidence.ArtifactVerificationSet{Host: hostVerification, Client: clientVerification, Session: sessionVerification}
+	fixture.policy = policy
+	fixture.expected = ExpectedCell{RouteID: RoutePhysicalMacOSRemote, ClientPlatform: "linux", ClientArchitecture: "amd64"}
+	return fixture
 }
 
 func rewriteV2FixtureRecords(t testing.TB, fixture v2Fixture, mutate func(host, client, session *evidence.Record)) v2Fixture {

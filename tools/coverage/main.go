@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -28,7 +30,11 @@ func main() {
 	}
 	defer os.Remove(path)
 
-	cmd := exec.Command("go", "test", "-covermode=atomic", "-coverprofile="+path, "./internal/...")
+	goExecutable, err := runningGoExecutable()
+	if err != nil {
+		fatalf("locate running Go toolchain: %v", err)
+	}
+	cmd := exec.Command(goExecutable, coverageTestArguments(path)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -52,6 +58,30 @@ func main() {
 	if percentage+1e-9 < *minimum {
 		os.Exit(1)
 	}
+}
+
+func coverageTestArguments(profilePath string) []string {
+	return []string{"test", "-covermode=atomic", "-coverprofile", profilePath, "./internal/..."}
+}
+
+func runningGoExecutable() (string, error) {
+	root := runtime.GOROOT()
+	if root == "" {
+		return "", fmt.Errorf("runtime GOROOT is empty")
+	}
+	name := "go"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(root, "bin", name)
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("Go executable is not a regular file")
+	}
+	return path, nil
 }
 
 func parseProfile(f *os.File) (covered, total int64, err error) {

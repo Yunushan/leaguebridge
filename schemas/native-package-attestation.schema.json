@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/native-package-attestation.schema.json",
+  "title": "LeagueBridge native package attestation subject",
+  "description": "A score-free, content-addressed subject for a separately governed native package builder. It does not claim Riot support, gameplay, physical hardware, or package publication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "attestation_type", "kind", "generated_at", "source", "execution", "subjects"],
+  "properties": {
+    "$schema": { "const": "https://github.com/Yunushan/leaguebridge/schemas/native-package-attestation.schema.json" },
+    "schema_version": { "const": 1 },
+    "attestation_type": { "const": "leaguebridge.native-package-attestation.v1" },
+    "kind": { "const": "native-package" },
+    "generated_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "source": { "$ref": "#/$defs/source" },
+    "execution": { "$ref": "#/$defs/execution" },
+    "subjects": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/subject" },
+      "allOf": [
+        { "contains": { "properties": { "role": { "const": "package" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "role": { "const": "staging-manifest" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "role": { "const": "staging-payload" } }, "required": ["role"] }, "minContains": 5, "maxContains": 5 },
+        { "contains": { "properties": { "role": { "const": "package-install-evidence" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "linux" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "job": { "const": "native-package-linux" }, "runner_os": { "const": "Linux" }, "runner_architecture": { "const": "X64" }, "host_class": { "const": "hosted" } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "enum": ["freebsd", "openbsd", "netbsd", "dragonfly"] } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "job": { "const": "native-package-bsd" }, "runner_os": { "const": "Linux" }, "runner_architecture": { "const": "X64" }, "host_class": { "const": "virtualized" } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "debian" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } }, "package": { "properties": { "format": { "const": "deb" } } } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "rpm" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } }, "package": { "properties": { "format": { "const": "rpm" } } } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "enum": ["freebsd-pkg", "openbsd-pkg", "pkgsrc", "dports"] } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "package": { "properties": { "format": { "const": "pkg" } } } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "freebsd-pkg" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" } } } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "openbsd-pkg" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" } } } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "pkgsrc" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" } } } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "dports" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" } } } } } } }
+    }
+  ],
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "ref", "workflow", "workflow_ref", "workflow_sha", "run_id", "run_attempt"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "maxLength": 255 },
+        "commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "tree": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "ref": { "type": "string", "pattern": "^refs/[A-Za-z0-9._/@-]{1,250}$" },
+        "workflow": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "workflow_ref": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "workflow_sha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "run_id": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+        "run_attempt": { "type": "string", "pattern": "^[1-9][0-9]{0,7}$" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goos", "goarch"],
+      "properties": {
+        "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"] },
+        "goarch": { "const": "amd64" }
+      },
+      "oneOf": [
+        { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
+        { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" } } },
+        { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" } } },
+        { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" } } },
+        { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" } } }
+      ]
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "format", "version", "filename", "staging_manifest_path", "install_evidence_path"],
+      "properties": {
+        "family": { "enum": ["debian", "rpm", "freebsd-pkg", "openbsd-pkg", "pkgsrc", "dports"] },
+        "format": { "enum": ["deb", "rpm", "pkg"] },
+        "version": { "type": "string", "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" },
+        "filename": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.+_-]{0,240}\\.(?:deb|rpm|pkg|txz|tgz)$" },
+        "staging_manifest_path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" },
+        "install_evidence_path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job", "runner_os", "runner_architecture", "host_class", "go_version", "command", "target", "package"],
+      "properties": {
+        "job": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$", "maxLength": 128 },
+        "runner_os": { "const": "Linux" },
+        "runner_architecture": { "const": "X64" },
+        "host_class": { "enum": ["hosted", "virtualized"] },
+        "go_version": { "type": "string", "pattern": "^go1\\.[0-9]+\\.[0-9]+$" },
+        "command": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "target": { "$ref": "#/$defs/target" },
+        "package": { "$ref": "#/$defs/package" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role", "size_bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" },
+        "role": { "enum": ["package", "staging-manifest", "staging-payload", "package-install-evidence"] },
+        "size_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

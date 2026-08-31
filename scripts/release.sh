@@ -24,15 +24,37 @@ export GOVCS='*:off'
 export GOPRIVATE=
 export CGO_ENABLED=0
 export GOAMD64=v1
-export GOARM64=v8.0
 unset GODEBUG
 umask 022
 
 work_root="$(mktemp -d)"
+release_staging_dir=""
+release_backup_parent=""
 cleanup() {
-  rm -rf -- "$work_root"
+
+  # If publication was interrupted after moving an existing dist directory
+  # aside, restore it before removing the private backup. Never recursively
+  # remove a path that has become a symlink while the builder was running.
+  if [[ -n "${release_backup_parent:-}" && -n "${release_output_dir:-}" &&
+    -e "$release_backup_parent/dist" && ! -e "$release_output_dir" &&
+    ! -L "$release_output_dir" ]]; then
+    mv -- "$release_backup_parent/dist" "$release_output_dir" || :
+  fi
+  if [[ -n "${release_staging_dir:-}" && -e "$release_staging_dir" &&
+    ! -L "$release_staging_dir" ]]; then
+    rm -rf -- "$release_staging_dir"
+  fi
+  if [[ -n "${release_backup_parent:-}" && -e "$release_backup_parent" &&
+    ! -L "$release_backup_parent" ]]; then
+    rm -rf -- "$release_backup_parent"
+  fi
+  if [[ -n "${work_root:-}" && -e "$work_root" && ! -L "$work_root" ]]; then
+    rm -rf -- "$work_root"
+  fi
 }
 trap cleanup EXIT
+export GOTMPDIR="$work_root/go-tmp"
+mkdir -p "$GOTMPDIR"
 
 # Git has attribute and configuration layers outside the committed tree. Keep
 # those layers empty, force replacement objects off for every command, and
@@ -69,7 +91,7 @@ fi
 export GOPATH="$work_root/gopath"
 export GOMODCACHE="$GOPATH/pkg/mod"
 export GOCACHE="$work_root/gocache"
-mkdir -p "$GOMODCACHE" "$GOCACHE"
+mkdir -p "$GOMODCACHE" "$GOCACHE" "$GOTMPDIR"
 
 if [[ -z "${SOURCE_DATE_EPOCH:-}" || ! "$SOURCE_DATE_EPOCH" =~ ^[1-9][0-9]*$ ]]; then
   echo "SOURCE_DATE_EPOCH must be provided as positive canonical decimal seconds without leading zeros" >&2
@@ -173,8 +195,10 @@ if [[ -L "$release_output_dir" ]] || [[ -e "$release_output_dir" && ! -d "$relea
   echo "dist must be absent or a non-symlink directory" >&2
   exit 2
 fi
-rm -rf -- "$release_output_dir"
-mkdir -p "$release_output_dir"
+# Keep the build on the repository filesystem so the final publication can be
+# a directory move. Existing dist/ stays untouched until every archive,
+# checksum, release check, and native-package staging check has passed.
+release_staging_dir="$(mktemp -d "$repository_root/.dist-staging.XXXXXX")"
 
 targets=(
   linux/amd64
@@ -182,9 +206,6 @@ targets=(
   openbsd/amd64
   netbsd/amd64
   dragonfly/amd64
-  windows/amd64
-  darwin/amd64
-  darwin/arm64
 )
 
 for target in "${targets[@]}"; do
@@ -194,15 +215,9 @@ for target in "${targets[@]}"; do
   pack_stage="$work_root/package-$goos-$goarch"
   mkdir -p "$pack_stage"
   binary_name=leaguebridge
-  if [[ "$goos" == windows ]]; then
-    binary_name=leaguebridge.exe
-  fi
   binary="$pack_stage/$binary_name"
 
   target_tuning=goamd64=v1
-  if [[ "$goarch" == arm64 ]]; then
-    target_tuning=goarm64=v8.0
-  fi
   release_identity="leaguebridge-release:$VERSION:$goos:$goarch"
   release_contract="leaguebridge-release-contract-v4|$VERSION|$goos|$goarch|$SOURCE_DATE_EPOCH|$commit|$tree|$builder_go_version|$target_tuning|filippo.io/edwards25519@v1.2.0#h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo="
   contract_hash="$(printf '%s' "$release_contract" | sha256sum)"
@@ -219,10 +234,8 @@ for target in "${targets[@]}"; do
   chmod 0755 "$binary"
   chmod 0644 "$pack_stage/SBOM.spdx.json" "$pack_stage/LICENSE" "$pack_stage/README.md"
 
-  if [[ "$goos" != windows ]]; then
-    cp "$snapshot_root/scripts/install.sh" "$snapshot_root/scripts/uninstall.sh" "$pack_stage/"
-    chmod 0755 "$pack_stage/install.sh" "$pack_stage/uninstall.sh"
-  fi
+  cp "$snapshot_root/scripts/install.sh" "$snapshot_root/scripts/uninstall.sh" "$pack_stage/"
+  chmod 0755 "$pack_stage/install.sh" "$pack_stage/uninstall.sh"
 
   (
     cd "$snapshot_root"
@@ -239,14 +252,59 @@ for target in "${targets[@]}"; do
   )
   chmod 0644 "$pack_stage/PACKAGE-MANIFEST.json"
 
-  if [[ "$goos" == windows ]]; then
-    (cd "$snapshot_root" && go run -mod=vendor ./tools/canonicalzip -root "$pack_stage" -output "$release_output_dir/$name.zip" -source-date-epoch "$SOURCE_DATE_EPOCH")
-  else
-    (cd "$snapshot_root" && go run -mod=vendor ./tools/canonicaltar -root "$pack_stage" -output "$release_output_dir/$name.tar.gz" -source-date-epoch "$SOURCE_DATE_EPOCH")
-  fi
+  (cd "$snapshot_root" && go run -mod=vendor ./tools/canonicaltar -root "$pack_stage" -output "$release_staging_dir/$name.tar.gz" -source-date-epoch "$SOURCE_DATE_EPOCH")
 done
 
-(cd "$release_output_dir" && sha256sum --binary ./*.tar.gz ./*.zip > checksums.txt)
-(cd "$snapshot_root" && go run -mod=vendor ./tools/releasecheck -dir "$release_output_dir" -version "$VERSION" -source-date-epoch "$SOURCE_DATE_EPOCH" -commit "$commit" -tree "$tree" -builder-go-version "$builder_go_version")
+(cd "$release_staging_dir" && sha256sum --binary ./*.tar.gz > checksums.txt)
+(cd "$snapshot_root" && go run -mod=vendor ./tools/releasecheck -dir "$release_staging_dir" -version "$VERSION" -source-date-epoch "$SOURCE_DATE_EPOCH" -commit "$commit" -tree "$tree" -builder-go-version "$builder_go_version")
 
-printf '%s\n' "created and verified eight release archives for $VERSION from commit $commit tree $tree"
+# Exercise every optional native-package staging mapping against the exact
+# release archives. These roots stay in the private work directory; this
+# builder does not create, sign, or publish native package bytes.
+native_stage_root="$work_root/native-package-stages"
+mkdir -p "$native_stage_root"
+native_stage_families=(
+  debian
+  rpm
+  freebsd-pkg
+  openbsd-pkg
+  pkgsrc
+  dports
+)
+native_stage_archives=(
+  "leaguebridge_${VERSION#v}_linux_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_linux_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_freebsd_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_openbsd_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_netbsd_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_dragonfly_amd64.tar.gz"
+)
+for index in "${!native_stage_families[@]}"; do
+  native_family="${native_stage_families[$index]}"
+  native_archive="${native_stage_archives[$index]}"
+  native_output="$native_stage_root/${native_family}-${index}"
+  (cd "$snapshot_root" && go run -mod=vendor ./tools/nativepackagestage \
+    -archive "$release_staging_dir/$native_archive" \
+    -family "$native_family" \
+    -output "$native_output")
+  (cd "$snapshot_root" && go run -mod=vendor ./tools/nativepackagecheck -staging "$native_output")
+done
+
+# Publish only after the complete release set and every staging mapping have
+# passed. Move an existing dist/ into a private sibling backup first so a
+# failed publication can restore the previously valid output.
+if [[ -e "$release_output_dir" || -L "$release_output_dir" ]]; then
+  release_backup_parent="$(mktemp -d "$repository_root/.dist-backup.XXXXXX")"
+  mv -- "$release_output_dir" "$release_backup_parent/dist"
+fi
+if ! mv -- "$release_staging_dir" "$release_output_dir"; then
+  echo "could not publish completed release output to $release_output_dir" >&2
+  exit 2
+fi
+release_staging_dir=""
+if [[ -n "$release_backup_parent" && -e "$release_backup_parent" && ! -L "$release_backup_parent" ]]; then
+  rm -rf -- "$release_backup_parent"
+  release_backup_parent=""
+fi
+
+printf '%s\n' "created and verified five Linux/BSD release archives for $VERSION from commit $commit tree $tree"

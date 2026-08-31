@@ -25,7 +25,7 @@
           "maxLength": 128
         },
         "client": {
-          "enum": ["auto", "moonlight", "moonlight-qt", "flatpak"]
+          "enum": ["auto", "moonlight", "moonlight-embedded", "moonlight-qt", "flatpak"]
         },
         "physical_host_confirmed": {
           "type": "boolean"

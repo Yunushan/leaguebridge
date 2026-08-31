@@ -234,6 +234,20 @@ func TestVerifyRejectsSymlinkedSnapshotRoot(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsSymlinkedSnapshotRootParent(t *testing.T) {
+	root := copyLockedSnapshot(t)
+	parent := t.TempDir()
+	link := filepath.Join(parent, "snapshot-parent-link")
+	if err := os.Symlink(filepath.Dir(root), link); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+	redirected := filepath.Join(link, filepath.Base(root))
+	err := Verify(redirected)
+	if err == nil || !strings.Contains(err.Error(), "path") {
+		t.Fatalf("Verify accepted symlinked snapshot root parent: %v", err)
+	}
+}
+
 func copyLockedSnapshot(t *testing.T) string {
 	t.Helper()
 	source := repositoryRoot(t)

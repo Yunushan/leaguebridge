@@ -199,8 +199,8 @@ func TestDocumentRejectsInvalidReleaseIdentity(t *testing.T) {
 		want       string
 	}{
 		{name: "unsafe version", version: "v1/2", goos: "linux", goarch: "amd64", binaryName: "leaguebridge", hash: validHash, want: "unsafe"},
-		{name: "wrong unix binary", version: "v1.2.3", goos: "linux", goarch: "amd64", binaryName: "leaguebridge.exe", hash: validHash, want: "binary name"},
-		{name: "wrong windows binary", version: "v1.2.3", goos: "windows", goarch: "amd64", binaryName: "leaguebridge", hash: validHash, want: "binary name"},
+		{name: "wrong unix binary", version: "v1.2.3", goos: "linux", goarch: "amd64", binaryName: "leaguebridge.bin", hash: validHash, want: "binary name"},
+		{name: "unsupported release operating system", version: "v1.2.3", goos: "solaris", goarch: "amd64", binaryName: "leaguebridge", hash: validHash, want: "unsupported release operating system"},
 		{name: "invalid hash", version: "v1.2.3", goos: "linux", goarch: "amd64", binaryName: "leaguebridge", hash: strings.Repeat("A", 64), want: "SHA-256"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -234,7 +234,7 @@ func TestRunRejectsBadArgumentsAndNonGoBinary(t *testing.T) {
 	if err := os.WriteFile(plain, []byte("not a Go binary"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := run([]string{"-binary", plain, "-version", "v1.2.3", "-os", runtime.GOOS, "-arch", runtime.GOARCH, "-output", plain + ".json"}); err == nil || !strings.Contains(err.Error(), "Go build information") {
+	if err := run([]string{"-binary", plain, "-version", "v1.2.3", "-os", "linux", "-arch", "amd64", "-output", plain + ".json"}); err == nil || !strings.Contains(err.Error(), "Go build information") {
 		t.Fatalf("run(non-Go binary) error = %v", err)
 	}
 }
@@ -259,8 +259,8 @@ func TestRunReadsEmbeddedReplacementAndIsReproducible(t *testing.T) {
 		if err := run([]string{
 			"-binary", binary,
 			"-version", "v1.2.3",
-			"-os", runtime.GOOS,
-			"-arch", runtime.GOARCH,
+			"-os", "linux",
+			"-arch", "amd64",
 			"-output", output,
 		}); err != nil {
 			t.Fatal(err)
@@ -269,17 +269,17 @@ func TestRunReadsEmbeddedReplacementAndIsReproducible(t *testing.T) {
 	if err := run([]string{
 		"-binary", binary,
 		"-version", "v1.2.3",
-		"-os", runtime.GOOS,
-		"-arch", differentArch(runtime.GOARCH),
+		"-os", "freebsd",
+		"-arch", "amd64",
 		"-output", filepath.Join(t.TempDir(), "mismatch.spdx.json"),
-	}); err == nil || !strings.Contains(err.Error(), "GOARCH") {
+	}); err == nil || !strings.Contains(err.Error(), "GOOS") {
 		t.Fatalf("run(target mismatch) error = %v", err)
 	}
 	if err := run([]string{
 		"-binary", binary,
 		"-version", "v1.2.3",
-		"-os", runtime.GOOS,
-		"-arch", runtime.GOARCH,
+		"-os", "linux",
+		"-arch", "amd64",
 		"-output", filepath.Join(t.TempDir(), "missing", "output.spdx.json"),
 	}); err == nil || !strings.Contains(err.Error(), "write SPDX") {
 		t.Fatalf("run(unwritable output) error = %v", err)
@@ -365,6 +365,23 @@ func TestHashFileRejectsSymlink(t *testing.T) {
 	}
 	if _, err := hashFile(link); err == nil || !strings.Contains(err.Error(), "symbolic link") {
 		t.Fatalf("hashFile(symlink) error = %v", err)
+	}
+}
+
+func TestWriteExclusiveDoesNotOverwrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "SBOM.spdx.json")
+	if err := writeExclusive(path, []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeExclusive(path, []byte("second")); err == nil {
+		t.Fatal("writeExclusive() overwrote an existing SBOM")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "first" {
+		t.Fatalf("SBOM content = %q", data)
 	}
 }
 
@@ -474,9 +491,6 @@ go 1.24
 func Value() string { return "replacement" }
 `)
 	binaryName := "leaguebridge"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
 	binary := filepath.Join(root, binaryName)
 	goBinary := filepath.Join(runtime.GOROOT(), "bin", "go")
 	if runtime.GOOS == "windows" {
@@ -486,8 +500,9 @@ func Value() string { return "replacement" }
 	command.Dir = root
 	command.Env = append(os.Environ(),
 		"CGO_ENABLED=0",
-		"GOOS="+runtime.GOOS,
-		"GOARCH="+runtime.GOARCH,
+		"GOOS=linux",
+		"GOARCH=amd64",
+		"GOAMD64=v1",
 		"GOWORK=off",
 		"GOPROXY=off",
 		"GOSUMDB=off",
@@ -496,13 +511,6 @@ func Value() string { return "replacement" }
 		t.Fatalf("build replacement fixture: %v\n%s", err, output)
 	}
 	return binary
-}
-
-func differentArch(arch string) string {
-	if arch == "amd64" {
-		return "arm64"
-	}
-	return "amd64"
 }
 
 func writeTestFile(t *testing.T, path, contents string) {

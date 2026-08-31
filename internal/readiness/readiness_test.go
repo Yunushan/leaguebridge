@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var readinessTestNow = time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+var readinessTestNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
 
 func validTestScorecard(t *testing.T) Scorecard {
 	t.Helper()
@@ -252,9 +252,9 @@ func TestValidityAndParserBoundsFailClosed(t *testing.T) {
 			document["assessed_at"] = readinessTestNow.Add(MaximumFutureSkew + time.Second).Format(time.RFC3339)
 			document["expires_at"] = readinessTestNow.Add(24 * time.Hour).Format(time.RFC3339)
 		}), now: readinessTestNow},
-		{name: "expired", data: embedded, now: time.Date(2026, time.September, 25, 0, 0, 1, 0, time.UTC)},
+		{name: "expired", data: embedded, now: time.Date(2026, time.September, 29, 0, 0, 1, 0, time.UTC)},
 		{name: "validity over maximum", data: mutateEmbeddedDocument(t, func(document map[string]any) {
-			document["expires_at"] = time.Date(2026, time.September, 25, 0, 0, 1, 0, time.UTC).Format(time.RFC3339Nano)
+			document["expires_at"] = time.Date(2026, time.September, 29, 0, 0, 1, 0, time.UTC).Format(time.RFC3339Nano)
 		}), now: readinessTestNow},
 		{name: "zero validity", data: mutateEmbeddedDocument(t, func(document map[string]any) {
 			document["expires_at"] = document["assessed_at"]
@@ -426,6 +426,17 @@ func TestRepositoryEvidenceIsContentAddressedRegularAndNonSymlink(t *testing.T) 
 		}
 		if err := verifyEvidenceFile(link, reference); err == nil {
 			t.Fatal("symlink repository root accepted")
+		}
+	})
+	t.Run("symlink repository root parent", func(t *testing.T) {
+		parent := t.TempDir()
+		link := filepath.Join(parent, "root-parent-link")
+		if err := os.Symlink(filepath.Dir(root), link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		redirected := filepath.Join(link, filepath.Base(root))
+		if err := verifyEvidenceFile(redirected, reference); err == nil || !strings.Contains(err.Error(), "path") {
+			t.Fatalf("symlinked root parent accepted: %v", err)
 		}
 	})
 }

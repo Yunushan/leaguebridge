@@ -29,11 +29,20 @@ are bounded and validated before use.
 Real PATH discovery normalizes the selected client to an absolute path and
 requires its final target to be a regular executable before planning can use it;
 package-manager symlinks are allowed only when they resolve to that kind of file.
+The real-environment binding also snapshots the resolved file identity and
+the discovered client selection, and the planner snapshots the exact generated
+argument vector. It rejects a plan when the selected client or argv changes
+before execution, or when the path no longer names the discovered file. This is
+a bounded replacement check, not a claim that an untrusted same-account host
+process can be made race-free by a path-based launcher.
+Passive `Environment` implementations can be used to compose or inspect a
+dry-run plan, but `Execute` refuses to cross the process boundary unless the
+real environment has supplied that executable identity.
 Only a plan returned by `BuildDiscoveredPlan` carries the private
-execution-validation and passive-discovery markers plus an exact snapshot of
-the selected client fields; decoded, hand-built, or mutated plans are rejected
-at the execution boundary, so JSON output is inspectable but cannot be replayed
-or redirected as launch authority.
+execution-validation and passive-discovery markers plus exact snapshots of the
+selected client fields and generated argv; decoded, hand-built, or mutated
+plans are rejected at the execution boundary, so JSON output is inspectable
+but cannot be replayed or redirected as launch authority.
 
 ## Components
 
@@ -86,12 +95,12 @@ files. Even a complete independently reviewed set is an input to a human
 readiness decision; it cannot promote an embedded backend or invoke Moonlight.
 
 Schema v2 adds cryptographic reviewer authentication around one exact,
-artifact-verified Windows schema-v1 set. The verifier derives linkage and
-completion from the records rather than trusting signed score or pass fields.
-The official policy is unprovisioned and readiness schema v3 is still hard-zero,
-so the new verifier cannot yet promote any route. Reviewer-key provisioning and
-readiness schema v4 require separate review; macOS needs a distinct record
-profile rather than reusing Windows evidence.
+artifact-verified route-bound Windows or macOS schema-v1 set. The verifier
+derives linkage and completion from the records rather than trusting signed
+score or pass fields. The official policy is unprovisioned and readiness schema
+v3 is still hard-zero, so the new verifier cannot yet promote any route.
+Reviewer-key provisioning and readiness schema v4 require separate review;
+macOS records are bound to the Mac route and cannot reuse Windows host evidence.
 
 ## Remote physical-host handoff
 
@@ -110,11 +119,28 @@ Linux/BSD. Authentication remains inside Riot Client. Config schema v2 binds a
 single exact manifest `route_id` to one `remote_host`; the loader accepts the
 old Windows-only schema v1 only to normalize it in memory.
 
+Before a live stream process is started, the controller runs a bounded
+Moonlight application-list operation with the same discovered client and
+requires the exact final launch application to be advertised by the host. A
+missing entry stops the stream; `--dry-run` remains a local argument-vector
+check and does not contact the host.
+
 The `macos-host` doctor profile is host-side, read-only, and non-certifying. It
-supports Darwin amd64/arm64 in code but never executes commands and always
-retains unresolved manual gates. The release contract defines Darwin amd64 and
-arm64 archives and hosted native lifecycle jobs; neither an unpublished archive
-definition nor a hosted runner establishes physical-Mac or gameplay support.
+exists only for the optional external-host handoff and never establishes a
+LeagueBridge macOS product target. There is no macOS LeagueBridge package,
+release archive, or native lifecycle job; any separately reviewed host-side
+build remains an inspection aid and retains unresolved manual gates.
+
+The `compatibility` doctor profile is a separate, read-only audit of local
+Wine-compatible frontends (including CrossOver, Bottles, and PlayOnLinux),
+Proton and Proton-capable launchers (including Steam, Heroic, protontricks, and
+UMU),
+Lutris, container/VM launchers (including Dockur-style, libvirt,
+VirtualBox, VMware, WinBoat, and bhyve paths), and other layers such as Darling
+and Waydroid. It exists to make attempted alternatives explicit, not to create
+another execution backend: discovery checks PATH and known system/user Flatpak
+app directories, never starts a launcher, and the profile always retains the
+native Vanguard block. Its serialized report is schema v2.
 
 ## Future authorized runtime
 

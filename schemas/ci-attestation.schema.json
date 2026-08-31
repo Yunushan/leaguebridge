@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/ci-attestation.schema.json",
+  "title": "LeagueBridge commit-bound CI attestation subject",
+  "description": "A score-free, content-addressed statement emitted by a GitHub-hosted CI job. The JSON document is the subject of an external GitHub artifact attestation; this schema does not authenticate the run by itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "attestation_type",
+    "kind",
+    "generated_at",
+    "source",
+    "execution",
+    "subjects"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://github.com/Yunushan/leaguebridge/schemas/ci-attestation.schema.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "attestation_type": {
+      "const": "leaguebridge.ci-attestation.v1"
+    },
+    "kind": {
+      "enum": ["race-vet", "cross-build"]
+    },
+    "generated_at": {
+      "$ref": "#/$defs/canonicalTimestamp"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "subjects": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/subject"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "race-vet" }
+        }
+      },
+      "then": {
+        "properties": {
+          "subjects": { "maxItems": 0 },
+          "execution": {
+            "properties": {
+              "target": {
+                "properties": {
+                  "goos": { "const": "linux" },
+                  "goarch": { "const": "amd64" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "cross-build" }
+        }
+      },
+      "then": {
+        "properties": {
+          "subjects": {
+            "minItems": 1,
+            "maxItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "cross-build" },
+          "execution": { "properties": { "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } } } }
+        }
+      },
+      "then": { "properties": { "subjects": { "items": { "properties": { "path": { "const": "ci-build/leaguebridge-linux-amd64" } } } } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "cross-build" },
+          "execution": { "properties": { "target": { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" } } } } }
+        }
+      },
+      "then": { "properties": { "subjects": { "items": { "properties": { "path": { "const": "ci-build/leaguebridge-freebsd-amd64" } } } } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "cross-build" },
+          "execution": { "properties": { "target": { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" } } } } }
+        }
+      },
+      "then": { "properties": { "subjects": { "items": { "properties": { "path": { "const": "ci-build/leaguebridge-openbsd-amd64" } } } } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "cross-build" },
+          "execution": { "properties": { "target": { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" } } } } }
+        }
+      },
+      "then": { "properties": { "subjects": { "items": { "properties": { "path": { "const": "ci-build/leaguebridge-netbsd-amd64" } } } } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "cross-build" },
+          "execution": { "properties": { "target": { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" } } } } }
+        }
+      },
+      "then": { "properties": { "subjects": { "items": { "properties": { "path": { "const": "ci-build/leaguebridge-dragonfly-amd64" } } } } } }
+    }
+  ],
+  "$defs": {
+    "boundedText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\x00-\\x1f\\x7f\\r\\n]+$"
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+    },
+    "objectID": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "canonicalTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "commit",
+        "tree",
+        "ref",
+        "workflow",
+        "workflow_ref",
+        "workflow_sha",
+        "run_id",
+        "run_attempt"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "commit": { "$ref": "#/$defs/objectID" },
+        "tree": { "$ref": "#/$defs/objectID" },
+        "ref": {
+          "type": "string",
+          "pattern": "^refs/[A-Za-z0-9._/@-]{1,250}$"
+        },
+        "workflow": { "$ref": "#/$defs/boundedText" },
+        "workflow_ref": { "$ref": "#/$defs/boundedText" },
+        "workflow_sha": { "$ref": "#/$defs/objectID" },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,31}$"
+        },
+        "run_attempt": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,7}$"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job",
+        "runner_os",
+        "runner_architecture",
+        "go_version",
+        "command",
+        "target"
+      ],
+      "properties": {
+        "job": { "$ref": "#/$defs/slug" },
+        "runner_os": {
+          "const": "Linux"
+        },
+        "runner_architecture": {
+          "const": "X64"
+        },
+        "go_version": {
+          "type": "string",
+          "pattern": "^go1\\.[0-9]+\\.[0-9]+$"
+        },
+        "command": { "$ref": "#/$defs/boundedText" },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goos", "goarch"],
+      "oneOf": [
+        {
+          "properties": {
+            "goos": {
+              "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"]
+            },
+            "goarch": { "const": "amd64" }
+          }
+        }
+      ],
+      "properties": {
+        "goos": {
+          "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"]
+        },
+        "goarch": {
+          "const": "amd64"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "role", "size_bytes", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^ci-build/leaguebridge-(?:linux|freebsd|openbsd|netbsd|dragonfly)-amd64$"
+        },
+        "role": {
+          "const": "cross-build-binary"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

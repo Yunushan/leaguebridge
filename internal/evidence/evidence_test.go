@@ -14,7 +14,7 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/compat"
 )
 
-var testNow = time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+var testNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
 
 func TestNewTemplate(t *testing.T) {
 	tests := []struct {
@@ -78,6 +78,16 @@ func TestNewTemplate(t *testing.T) {
 			}
 		})
 	}
+	macHost, err := NewTemplateWithRoute(RecordHost, "darwin", "aarch64", "v1.2.3", RoutePhysicalMacOSRemote, testNow)
+	if err != nil {
+		t.Fatalf("macOS host template: %v", err)
+	}
+	if macHost.RouteID != RoutePhysicalMacOSRemote || macHost.Subject.Platform != "macos" || macHost.Subject.Architecture != "arm64" {
+		t.Fatalf("macOS host template = %+v", macHost)
+	}
+	if err := Validate(macHost); err != nil {
+		t.Fatalf("macOS host template did not validate: %v", err)
+	}
 	const runID = "run-0123456789abcdef0123456789abcdef"
 	shared, err := NewTemplateWithRunID(RecordClient, "linux", "amd64", "test", runID, testNow)
 	if err != nil || shared.ValidationRunID != runID {
@@ -97,7 +107,7 @@ func TestNewTemplateRejectsInvalidInputs(t *testing.T) {
 		{"unknown type", "other", "linux", "amd64", testNow},
 		{"zero time", RecordClient, "linux", "amd64", time.Time{}},
 		{"host platform", RecordHost, "linux", "amd64", testNow},
-		{"macOS host is not the implemented route", RecordHost, "darwin", "arm64", testNow},
+		{"macOS host on Windows route", RecordHost, "darwin", "arm64", testNow},
 		{"Windows architecture", RecordHost, "windows", "arm64", testNow},
 		{"client platform", RecordClient, "windows", "amd64", testNow},
 		{"client architecture", RecordClient, "linux", "arm64", testNow},
@@ -245,7 +255,7 @@ func TestValidateRejectsCriticalMutations(t *testing.T) {
 		{"record id type", func(r *Record) { r.RecordID = "host-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "record_id"},
 		{"type", func(r *Record) { r.RecordType = "other" }, "record_id"},
 		{"validation run id", func(r *Record) { r.ValidationRunID = "machine-identity" }, "validation_run_id"},
-		{"route", func(r *Record) { r.RouteID = "physical-macos-remote" }, "route_id"},
+		{"route", func(r *Record) { r.RouteID = "unsupported-route" }, "route_id"},
 		{"created timestamp", func(r *Record) { r.CreatedAt = "yesterday" }, "created_at"},
 		{"expiration order", func(r *Record) { r.ExpiresAt = r.CreatedAt }, "expires_at"},
 		{"expiration bound", func(r *Record) { r.ExpiresAt = testNow.Add(31 * 24 * time.Hour).Format(time.RFC3339) }, "expires_at"},

@@ -14,7 +14,7 @@ import (
 
 func (a *App) runBundle(ctx context.Context, args []string) int {
 	set := a.flagSet("bundle")
-	profileName := set.String("profile", defaultProfileName(a.GOOS), "client, windows-host, or macos-host")
+	profileName := set.String("profile", defaultProfileName(a.GOOS), "client, windows-host, macos-host, or compatibility")
 	preview := set.Bool("preview", false, "print sanitized report without writing")
 	output := set.String("output", "", "write support bundle zip")
 	if err := parseFlags(set, args); err != nil {

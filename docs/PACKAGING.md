@@ -1,15 +1,14 @@
 # Release packaging contract
 
-LeagueBridge publishes exactly eight target-native executable archives: Linux,
-FreeBSD, OpenBSD, NetBSD, DragonFly BSD, and Windows on amd64, plus Darwin on
-amd64 and arm64. The Linux, BSD, and Darwin archives are portable tarballs with
-an unprivileged staging interface; they are not represented as
-distribution-owned Debian, RPM, FreeBSD ports, OpenBSD ports, pkgsrc, dports,
-or macOS installer packages.
+LeagueBridge publishes exactly five target-native executable archives: Linux,
+FreeBSD, OpenBSD, NetBSD, and DragonFly BSD, all on amd64. Each release is a
+portable tarball with an unprivileged staging interface; releases are not
+represented as distribution-owned Debian, RPM, FreeBSD ports, OpenBSD ports,
+pkgsrc, or dports packages.
 
 ## Canonical package manifest
 
-Every archive contains a schema-version 2 `PACKAGE-MANIFEST.json`, conforming to
+Every archive contains a schema-version 3 `PACKAGE-MANIFEST.json`, conforming to
 `schemas/package-manifest.schema.json`. It binds the archive to:
 
 - the exact release version, target operating system, architecture, required
@@ -28,9 +27,94 @@ to its containing archive, avoiding a self-hash cycle.
 archive bytes and rejects any mismatch. It also rejects missing, additional,
 duplicate, reordered, oversized, symlink, special-file, mode, owner, timestamp,
 target, SBOM, provenance, build-ID, and checksum deviations. Executable
-container identity is target-bound: exact ELF class/data/type/machine/OSABI,
-PE machine/PE32+/executable/subsystem, and thin Mach-O magic/CPU/type fields are
-checked independently of Go build information.
+container identity is target-bound: exact ELF class/data/type/machine/OSABI
+fields are checked independently of Go build information.
+
+## Optional native package staging
+
+The repository now provides a deterministic staging boundary for native package
+builders without changing the five-archive release contract. The command
+`tools/nativepackagestage` accepts one Unix release tarball after its embedded
+package manifest and payload have been checked, then creates a new directory
+containing:
+
+- `root/`, with only the executable, documentation, SBOM, and package manifest;
+- `NATIVE-PACKAGE-MANIFEST.json`, a content-addressed staging inventory; and
+- no portable installer or uninstaller scripts.
+
+The supported family-to-target mapping is deliberately explicit:
+
+| Family | Target | Package root |
+| --- | --- | --- |
+| `debian` | Linux amd64 | `/` (`/usr/local` is rewritten to `/usr`) |
+| `rpm` | Linux amd64 | `/` (`/usr/local` is rewritten to `/usr`) |
+| `freebsd-pkg` | FreeBSD amd64 | `/usr/local` |
+| `openbsd-pkg` | OpenBSD amd64 | `/usr/local` |
+| `pkgsrc` | NetBSD amd64 | `/usr/local` |
+| `dports` | DragonFly BSD amd64 | `/usr/local` |
+
+For example:
+
+```sh
+go run -mod=vendor ./tools/nativepackagestage \
+  -archive ./leaguebridge_1.2.3_linux_amd64.tar.gz \
+  -family debian \
+  -output ./native-stage-debian
+```
+
+The staging command rejects non-regular archive inputs, symlinked parent
+directories, unsafe tar members, duplicate or unexpected files, non-canonical
+modes and timestamps, manifest payload mismatches, and cross-target package
+families. It never invokes a package manager, installs files, signs output,
+fetches dependencies, or claims
+that a native package exists. The repository includes CI-only reference smoke
+builders in `scripts/native-package-linux-smoke.sh` and
+`scripts/native-package-bsd-smoke.sh`. They turn the staged tree into
+temporary unsigned package-manager artifacts, install and uninstall them on
+the target runner or guest, and retain the logs; they do not publish those
+artifacts or provide package-manager signatures. Before writing, each script
+rejects symlinked output/evidence directories and pre-existing package or
+evidence paths, preventing a smoke run from redirecting artifacts outside its
+workspace. Each script validates its version with the repository's
+`tools/versioncheck` before constructing package output paths. On BSD guests, CI
+cross-builds that validator for the guest
+kernel and passes it as `VERSION_CHECKER`, so the package smoke does not
+silently depend on an unprovisioned Go toolchain in the VM image. A production
+builder must
+still turn the staging root into authorized `.deb`, `.rpm`, BSD package/port,
+or `.pkg` bytes and retain the builder's exact package attestation. The
+staging manifest is therefore `staging-integrity-only` evidence and cannot
+promote the native-package or native-runtime readiness rows.
+
+`tools/nativepackagecheck` reopens an existing staging directory and verifies
+the manifest with exact field names, duplicate-key rejection, canonical JSON,
+the expected `root/` layout, regular non-symlink files, payload sizes, modes
+where the host filesystem exposes POSIX modes, and SHA-256 digests. The release
+builder and the CI reference package jobs run this check after each staging
+mapping. This protects the handoff between LeagueBridge and a native package
+builder; it does not
+replace that builder's package signature, installation test, or runtime
+attestation.
+
+The CI reference jobs and an external production builder can use
+`tools/nativepackageattestation` after producing package bytes and a native
+install-test log. The generated, score-free subject hashes the package, every
+file in the verified staging tree, and the install log, and binds all of them
+to the exact CI source and run. Its verifier requires the complete Debian/RPM
+and BSD-family package set. It accepts hosted Linux and
+virtualized BSD builder claims only; it rejects physical claims because a
+hosted GitHub attestation cannot prove physical hardware. Package-manager
+signatures, publication authorization, target-kernel installation, and
+Riot/League runtime behavior remain independently governed evidence. The
+install log is capped at 1 MiB and must include exactly one package-family,
+version, package-filename, target, install-pass, and uninstall-pass marker,
+matching the subject; this semantic check does not turn a self-authored log
+into a package-manager signature.
+
+The hermetic release builder exercises all six target/family combinations in
+its private work directory after `tools/releasecheck` succeeds. This catches
+mapping drift during release smoke tests while leaving `dist/` limited to the
+five executable archives and `checksums.txt`.
 
 ## Reproducible production builder
 
@@ -40,8 +124,8 @@ version is checked in three places:
 
 1. `scripts/release.sh` refuses another toolchain before changing `dist`.
 2. The structured Go build-ID v4 contract binds the exact builder version,
-   commit, tree, target, epoch, architecture tuning (`GOAMD64=v1` or
-   `GOARM64=v8.0`), and approved compiled dependency identity.
+   commit, tree, target, epoch, amd64 tuning (`GOAMD64=v1`), and approved
+   compiled dependency identity.
 3. `tools/releasecheck` checks Go build information and the package manifest.
 
 The release process disables persistent Go configuration with `GOENV=off`,
@@ -53,6 +137,9 @@ disabled with `GOPROXY=off`, `GOSUMDB=off`, and `GOVCS=*:off`. Every release
 vendor tree. Before any other snapshot-local Go command, `tools/vendorcheck`
 validates the exact `go.mod`, `go.sum`, `vendor/modules.txt`, directory set, and
 path/size/SHA-256 inventory beneath `vendor/`; any drift fails the release.
+Both release scripts also pin `GOPATH`, `GOMODCACHE`, `GOCACHE`, and `GOTMPDIR`
+inside their private scratch workspace before the first Go invocation, keeping
+managed-host cache and temporary-directory policy from affecting the build.
 The release executable has exactly one approved compiled external
 module: `filippo.io/edwards25519` v1.2.0, without a replacement. The v4 build
 identity binds its exact module checksum token from `go.sum` as well as the
@@ -70,8 +157,12 @@ accepted only because the complete vendor lock verifies its path and bytes.
 The process then exports the exact commit with `git archive` into a private
 temporary snapshot. Builds use that snapshot with `-buildvcs=false`; compiled binaries
 must contain no VCS settings, unexpected build settings, dependency other than
-the exact approved module, or module replacement. Only completed archives and
-`checksums.txt` are written to the original absolute `dist` directory.
+the exact approved module, or module replacement. Archives and `checksums.txt`
+are created in a private same-filesystem staging directory. Only after the
+complete archive, checksum, release, and native-package staging checks pass is
+that directory moved into the original absolute `dist` path; an existing
+`dist` is kept in a private sibling backup until publication succeeds and can
+be restored if the final move is interrupted.
 
 Every release Git command disables replacement objects both through
 `GIT_NO_REPLACE_OBJECTS` and Git's `--no-replace-objects` option. System and
@@ -99,13 +190,11 @@ publisher signature or substitute for the outer GitHub artifact attestation.
 strictly verifies both builds, exercises the Linux installation lifecycle, and
 requires byte-identical archive checksums.
 
-The Windows ZIP is emitted by `tools/canonicalzip` with exact Deflate, DOS-time,
-mode, version, flag, and header rules. Linux, BSD, and Darwin tarballs are
-emitted by `tools/canonicaltar` with exact USTAR metadata and a canonical gzip
-header. Release generation therefore does not depend on host-specific archive
-utilities or their changing defaults. `tools/releasecheck` reconstructs the
-canonical ZIP and tar.gz bytes and rejects alternate compression streams,
-headers, or metadata.
+Linux and BSD tarballs are emitted by `tools/canonicaltar` with exact USTAR
+metadata and a canonical gzip header. Release generation therefore does not
+depend on host-specific archive utilities or their changing defaults.
+`tools/releasecheck` reconstructs the canonical tar.gz bytes and rejects
+alternate compression streams, headers, or metadata.
 
 `SBOM.spdx.json` is a canonical SPDX 2.3 build inventory derived from the exact
 binary's embedded Go build information. It inventories the executable, exact
@@ -116,7 +205,7 @@ analysis.
 
 ## Unix lifecycle and native-kernel scope
 
-The Linux, BSD, and Darwin tarballs install under `/usr/local` by default,
+The Linux and BSD tarballs install under `/usr/local` by default,
 support `PREFIX` and `DESTDIR`, and own only these paths:
 
 - `bin/leaguebridge`
@@ -127,8 +216,7 @@ The lifecycle smoke test verifies exact-file installation, deterministic
 upgrade/repair, modes, manifest preservation, command execution, symlink
 refusal, unrelated-file preservation, and exact-file uninstall. CI runs that
 same shipped-archive lifecycle on Linux and, in separate VM jobs, on actual
-FreeBSD, OpenBSD, NetBSD, and DragonFly BSD kernels. Hosted macOS runners execute
-the matching Darwin archive and lifecycle for their native architecture. The
+FreeBSD, OpenBSD, NetBSD, and DragonFly BSD kernels. The
 runtime kernel and machine architecture must both match the archive target.
 
 The installed uninstaller has no implicit target. Both `PREFIX` and `DESTDIR`
@@ -142,8 +230,12 @@ job completes and retains its evidence artifact.
 
 Release consumers must verify the repository's documented release attestation
 identity, workflow, source ref, and hosted-runner policy before extraction, then
-validate `checksums.txt` against the downloaded archives. Package manifests and
-SBOMs supplement that outer attestation; they do not replace it.
+validate `checksums.txt` against the downloaded archives. The release workflow
+checks the exact archive set and checksums, then runs
+`tools/ciattestation -verify -kind release` after signing and before its final
+protected-tag recheck and publication. That verifier performs the same
+per-subject attestation verification with bounded retries. Package manifests
+and SBOMs supplement that outer attestation; they do not replace it.
 
 `checksums.txt` uses the canonical binary-mode `sha256sum` form
 `<64 lowercase hex> *./<archive>`. The `*` is required so verification never

@@ -53,11 +53,12 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 	want := map[string]string{
 		"riot-system-requirements":     "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
 		"riot-macos-embedded-vanguard": "https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/",
-		"riot-vm-policy":               "https://support-leagueoflegends.riotgames.com/hc/en-us/articles/26932165816851-Vanguard-Error-Codes-and-Solutions-LoL",
+		"riot-vm-policy":               "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes",
 		"valve-proton":                 "https://partner.steamgames.com/doc/steamhardware/proton",
 		"dockur-environment":           "https://github.com/dockur/windows/blob/master/docs/environment.md",
 		"sunshine-docs":                "https://docs.lizardbyte.dev/projects/sunshine/latest/",
 		"moonlight-qt":                 "https://github.com/moonlight-stream/moonlight-qt",
+		"moonlight-embedded":           "https://github.com/moonlight-stream/moonlight-embedded",
 		"microsoft-bcdboot":            "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11",
 	}
 	got := make(map[string]string, len(manifest.Sources))
@@ -75,6 +76,15 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 	}
 	if !slices.Contains(macOSRoute.SourceIDs, "riot-macos-embedded-vanguard") {
 		t.Fatal("physical macOS route is not bound to Riot's Embedded Vanguard source")
+	}
+	for _, backendID := range []BackendID{BackendPhysicalWindowsRemote, BackendPhysicalMacOSRemote} {
+		backend, ok := findBackend(manifest, backendID)
+		if !ok {
+			t.Fatalf("remote backend %q is missing", backendID)
+		}
+		if !slices.Contains(backend.SourceIDs, "moonlight-qt") || !slices.Contains(backend.SourceIDs, "moonlight-embedded") {
+			t.Fatalf("remote backend %q is not bound to both Moonlight client sources: %v", backendID, backend.SourceIDs)
+		}
 	}
 }
 
@@ -141,7 +151,7 @@ func TestCanonicalSHA256IgnoresLineEndings(t *testing.T) {
 	if lfDigest != crlfDigest {
 		t.Fatalf("line endings changed canonical digest: LF=%s CRLF=%s", lfDigest, crlfDigest)
 	}
-	const want = "211cb4440f7529bb9498dc5439ee9728f8cb88440ef096a9620f5a0e399eebf1"
+	const want = "6e73736ea84cc6f84f89d34ba1f1b32ce35f5cef2c0011c69291b9986c81700c"
 	if lfDigest != want {
 		t.Fatalf("canonical digest = %s, want %s", lfDigest, want)
 	}
@@ -194,7 +204,7 @@ func TestParseRejectsMalformedOrUnsafeManifests(t *testing.T) {
 		"unsafe default allow":  strings.Replace(valid, `"defaultVerdict": "deny"`, `"defaultVerdict": "allow"`, 1),
 		"unknown schema":        strings.Replace(valid, `"../../../schemas/compatibility-manifest.schema.json"`, `"https://attacker.invalid/schema.json"`, 1),
 		"invalid source URL":    strings.Replace(valid, `"https://www.winehq.org/about/"`, `"http://www.winehq.org/about/"`, 1),
-		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-08-26"`, `"checkedAt": "2026-08-27"`, 1),
+		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-08-26"`, `"checkedAt": "2026-08-31"`, 1),
 		"unknown source ref":    strings.Replace(valid, `"winehq-about"]`, `"missing-source"]`, 1),
 		"identity mismatch": strings.Replace(valid, `"id": "proton",
       "displayName": "Proton",
