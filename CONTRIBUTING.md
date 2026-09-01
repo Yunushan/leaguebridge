@@ -3,8 +3,8 @@
 Contributions must preserve the fail-closed policy and the boundaries in
 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
-LeagueBridge's native product targets are Linux, FreeBSD, OpenBSD, NetBSD, and
-DragonFly BSD on amd64. Do not add Windows or macOS build, installation, or
+LeagueBridge's native product targets are Linux, FreeBSD, OpenBSD, and NetBSD
+on amd64 or arm64, plus DragonFly BSD on amd64. Do not add Windows or macOS build, installation, or
 gameplay targets: those operating systems are vendor-managed League hosts and
 may appear here only for the explicitly external physical-host handoff safety
 contract described in [`docs/PLATFORM_SCOPE.md`](docs/PLATFORM_SCOPE.md).

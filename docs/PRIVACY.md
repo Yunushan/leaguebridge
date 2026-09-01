@@ -7,8 +7,13 @@ therefore does not promise zero operating-system network I/O. Remote Moonlight
 handoffs intentionally use the network.
 
 The project never asks for or stores Riot credentials, session cookies, MFA
-codes, Moonlight pairing keys, or Sunshine passwords. Pairing and authentication
-remain inside those applications.
+codes, Moonlight pairing keys, or Sunshine passwords. A Moonlight pairing PIN
+may be passed to one live `remote pair` invocation when explicitly supplied,
+but it is never persisted or emitted in dry-run JSON. Pairing and
+authentication remain inside those applications. A bounded `remote
+stream --qt-platform` value may
+set `QT_QPA_PLATFORM` for the child Moonlight process only; it is not persisted
+and does not modify the parent shell environment.
 
 Validation-evidence records are user-authored local files. LeagueBridge reads
 them only when explicitly named, requires regular non-symlink bounded files,

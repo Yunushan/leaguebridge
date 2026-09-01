@@ -60,6 +60,10 @@ func fixtureModes(mode fs.FileMode, paths ...string) map[string]fs.FileMode {
 	return result
 }
 
+func fixtureDeviceModes(paths ...string) map[string]fs.FileMode {
+	return fixtureModes(fs.ModeDevice|fs.ModeCharDevice, paths...)
+}
+
 type fixtureEnv map[string]string
 
 func (f fixtureEnv) LookupEnv(key string) (string, bool) {
@@ -200,7 +204,8 @@ func TestClientPlatformEligibility(t *testing.T) {
 		{"openbsd", "amd64", StatusPass},
 		{"netbsd", "amd64", StatusPass},
 		{"dragonfly", "amd64", StatusPass},
-		{"linux", "arm64", StatusFail},
+		{"linux", "arm64", StatusPass},
+		{"dragonfly", "arm64", StatusFail},
 		{"windows", "amd64", StatusFail},
 		{"plan9", "amd64", StatusFail},
 	}
@@ -222,16 +227,23 @@ func TestGraphicalSessionChecks(t *testing.T) {
 		name  string
 		goos  string
 		files map[string]bool
+		modes map[string]fs.FileMode
 		env   fixtureEnv
 		want  Status
 	}{
-		{name: "wayland", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, want: StatusPass},
-		{name: "x11", env: fixtureEnv{"DISPLAY": ":0"}, want: StatusPass},
-		{name: "sdl-kmsdrm", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
-		{name: "qt-eglfs", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"QT_QPA_PLATFORM": "eglfs"}, want: StatusPass},
-		{name: "qt-linuxfb", files: fixturePaths(filepath.FromSlash("/dev/fb0")), env: fixtureEnv{"QT_QPA_PLATFORM": "linuxfb"}, want: StatusPass},
-		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
-		{name: "netbsd-sdl-kmsdrm-unsupported-even-with-x11", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"DISPLAY": ":0", "SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
+		{name: "wayland", modes: fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/run/user/1000", "wayland-0")), env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: StatusPass},
+		{name: "wayland-without-runtime-root", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, want: StatusPass},
+		{name: "wayland-runtime-socket-missing", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: StatusWarn},
+		{name: "x11", modes: fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/tmp/.X11-unix/X0")), env: fixtureEnv{"DISPLAY": ":0"}, want: StatusPass},
+		{name: "x11-abstract-or-remote", env: fixtureEnv{"DISPLAY": "localhost:10.0"}, want: StatusPass},
+		{name: "malformed-wayland", env: fixtureEnv{"WAYLAND_DISPLAY": "../wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: StatusWarn},
+		{name: "malformed-x11", env: fixtureEnv{"DISPLAY": ":not-a-display"}, want: StatusWarn},
+		{name: "sdl-kmsdrm", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
+		{name: "qt-eglfs", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"QT_QPA_PLATFORM": "eglfs"}, want: StatusPass},
+		{name: "qt-linuxfb", files: fixturePaths(filepath.FromSlash("/dev/fb0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/fb0")), env: fixtureEnv{"QT_QPA_PLATFORM": "linuxfb"}, want: StatusPass},
+		{name: "regular-placeholder-is-not-a-device", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
+		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
+		{name: "netbsd-sdl-kmsdrm-unsupported-even-with-x11", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"DISPLAY": ":0", "SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
 		{name: "direct-backend-without-device", env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
 		{name: "type-only", env: fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, want: StatusWarn},
 		{name: "headless", want: StatusFail},
@@ -242,9 +254,221 @@ func TestGraphicalSessionChecks(t *testing.T) {
 			if goos == "" {
 				goos = "linux"
 			}
-			got := checkStatus(t, fixtureProber(goos, "amd64", tt.files, tt.env, nil).Client(context.Background()), "client.graphical-session")
+			got := checkStatus(t, fixtureProber(goos, "amd64", tt.files, tt.env, nil, tt.modes).Client(context.Background()), "client.graphical-session")
 			if got != tt.want {
 				t.Fatalf("session status = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStreamPlatformPreflightUsesSelectedEndpoint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		goos        string
+		platform    string
+		files       map[string]bool
+		modes       map[string]fs.FileMode
+		env         fixtureEnv
+		wantDisplay Status
+		wantInput   Status
+	}{
+		{
+			name:        "x11 rejects wayland-only session",
+			platform:    "x11",
+			env:         fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"},
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+		{
+			name:        "x11 accepts its explicit endpoint",
+			platform:    "x11",
+			env:         fixtureEnv{"DISPLAY": ":0"},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "x11 vaapi accepts its explicit endpoint",
+			platform:    "x11_vaapi",
+			env:         fixtureEnv{"DISPLAY": ":0"},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "sdl kmsdrm requires a device",
+			platform:    "sdl",
+			env:         fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+		{
+			name:        "sdl kmsdrm accepts direct linux endpoints",
+			platform:    "sdl",
+			files:       fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			modes:       fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			env:         fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "sdl kmsdrm rejects netbsd",
+			goos:        "netbsd",
+			platform:    "sdl",
+			files:       fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			modes:       fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			env:         fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			goos := tt.goos
+			if goos == "" {
+				goos = "linux"
+			}
+			report := fixtureProber(goos, "amd64", tt.files, tt.env, nil, tt.modes).ClientForStream(context.Background(), "", tt.platform)
+			if got := checkStatus(t, report, "client.graphical-session"); got != tt.wantDisplay {
+				t.Fatalf("graphical-session status = %q, want %q", got, tt.wantDisplay)
+			}
+			if got := checkStatus(t, report, "client.input"); got != tt.wantInput {
+				t.Fatalf("input status = %q, want %q", got, tt.wantInput)
+			}
+		})
+	}
+}
+
+func TestQtPlatformPreflightUsesSelectedEndpoint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		qtPlatform  string
+		files       map[string]bool
+		modes       map[string]fs.FileMode
+		env         fixtureEnv
+		wantDisplay Status
+		wantInput   Status
+	}{
+		{
+			name:        "xcb ignores stale Wayland endpoint",
+			qtPlatform:  "xcb",
+			modes:       fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/tmp/.X11-unix/X0")),
+			env:         fixtureEnv{"DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "wayland requires its selected socket",
+			qtPlatform:  "wayland",
+			env:         fixtureEnv{"DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"},
+			wantDisplay: StatusWarn,
+			wantInput:   StatusWarn,
+		},
+		{
+			name:        "eglfs accepts DRM and evdev",
+			qtPlatform:  "eglfs",
+			files:       fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			modes:       fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "linuxfb accepts framebuffer and evdev",
+			qtPlatform:  "linuxfb",
+			files:       fixturePaths(filepath.FromSlash("/dev/fb0"), filepath.FromSlash("/dev/input/event0")),
+			modes:       fixtureDeviceModes(filepath.FromSlash("/dev/fb0"), filepath.FromSlash("/dev/input/event0")),
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "eglfs fails without a display device",
+			qtPlatform:  "eglfs",
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			report := fixtureProber("linux", "amd64", tt.files, tt.env, nil, tt.modes).ClientForStreamWithQtPlatform(context.Background(), "", "", tt.qtPlatform)
+			if got := checkStatus(t, report, "client.graphical-session"); got != tt.wantDisplay {
+				t.Fatalf("graphical-session status = %q, want %q", got, tt.wantDisplay)
+			}
+			if got := checkStatus(t, report, "client.input"); got != tt.wantInput {
+				t.Fatalf("input status = %q, want %q", got, tt.wantInput)
+			}
+		})
+	}
+}
+
+func TestAmbientQtPlatformPreflightUsesSelectedClient(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		preferred   string
+		qtPlatform  string
+		files       map[string]bool
+		modes       map[string]fs.FileMode
+		env         fixtureEnv
+		commands    map[string]bool
+		wantDisplay Status
+		wantInput   Status
+	}{
+		{
+			name:        "Qt rejects a headless ambient backend despite X11",
+			preferred:   "moonlight-qt",
+			env:         fixtureEnv{"DISPLAY": ":0", "QT_QPA_PLATFORM": "offscreen"},
+			commands:    map[string]bool{"moonlight-qt": true},
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+		{
+			name:        "Qt ambient xcb ignores stale Wayland",
+			preferred:   "moonlight-qt",
+			env:         fixtureEnv{"DISPLAY": ":0", "WAYLAND_DISPLAY": "../wayland-0", "QT_QPA_PLATFORM": "xcb"},
+			commands:    map[string]bool{"moonlight-qt": true},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "auto follows the discovered Qt launcher",
+			preferred:   "auto",
+			env:         fixtureEnv{"DISPLAY": ":0", "QT_QPA_PLATFORM": "offscreen"},
+			commands:    map[string]bool{"moonlight-qt": true},
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+		{
+			name:        "auto follows the installed Flatpak launcher",
+			preferred:   "auto",
+			files:       fixturePaths(filepath.Join(string(filepath.Separator), "var", "lib", "flatpak", "app", "com.moonlight_stream.Moonlight")),
+			modes:       fixtureModes(fs.ModeDir|0o755, filepath.Join(string(filepath.Separator), "var", "lib", "flatpak", "app", "com.moonlight_stream.Moonlight")),
+			env:         fixtureEnv{"DISPLAY": ":0", "QT_QPA_PLATFORM": "offscreen"},
+			commands:    map[string]bool{"flatpak": true},
+			wantDisplay: StatusFail,
+			wantInput:   StatusFail,
+		},
+		{
+			name:        "Embedded ignores Qt ambient backend",
+			preferred:   "moonlight-embedded",
+			env:         fixtureEnv{"DISPLAY": ":0", "QT_QPA_PLATFORM": "offscreen"},
+			commands:    map[string]bool{"moonlight-embedded": true},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			commands := &fixtureCommands{paths: tt.commands}
+			report := fixtureProber("linux", "amd64", tt.files, tt.env, commands, tt.modes).ClientForStreamWithQtPlatform(context.Background(), tt.preferred, "", tt.qtPlatform)
+			if got := checkStatus(t, report, "client.graphical-session"); got != tt.wantDisplay {
+				t.Fatalf("graphical-session status = %q, want %q", got, tt.wantDisplay)
+			}
+			if got := checkStatus(t, report, "client.input"); got != tt.wantInput {
+				t.Fatalf("input status = %q, want %q", got, tt.wantInput)
 			}
 		})
 	}
@@ -256,17 +480,22 @@ func TestInputPathChecks(t *testing.T) {
 		name  string
 		goos  string
 		files map[string]bool
+		modes map[string]fs.FileMode
 		env   fixtureEnv
 		want  Status
 	}{
-		{name: "wayland", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, want: StatusPass},
-		{name: "x11", env: fixtureEnv{"DISPLAY": ":0"}, want: StatusPass},
-		{name: "sdl-kmsdrm-with-evdev", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
-		{name: "freebsd-sdl-kmsdrm-wscons-only", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
-		{name: "openbsd-sdl-kmsdrm-with-wscons", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
-		{name: "openbsd-sdl-kmsdrm-without-wscons-mouse", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
-		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
-		{name: "sdl-kmsdrm-without-evdev", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "wayland", modes: fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/run/user/1000", "wayland-0")), env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: StatusPass},
+		{name: "wayland-without-runtime-root", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0"}, want: StatusPass},
+		{name: "wayland-runtime-socket-missing", env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: StatusWarn},
+		{name: "x11", modes: fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/tmp/.X11-unix/X0")), env: fixtureEnv{"DISPLAY": ":0"}, want: StatusPass},
+		{name: "malformed-wayland", env: fixtureEnv{"WAYLAND_DISPLAY": "../wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: StatusWarn},
+		{name: "malformed-x11", env: fixtureEnv{"DISPLAY": ":not-a-display"}, want: StatusWarn},
+		{name: "sdl-kmsdrm-with-evdev", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
+		{name: "freebsd-sdl-kmsdrm-wscons-only", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "openbsd-sdl-kmsdrm-with-wscons", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
+		{name: "openbsd-sdl-kmsdrm-without-wscons-mouse", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
+		{name: "sdl-kmsdrm-without-evdev", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusWarn},
 		{name: "type-only", env: fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, want: StatusWarn},
 		{name: "headless", want: StatusWarn},
 	} {
@@ -276,7 +505,7 @@ func TestInputPathChecks(t *testing.T) {
 			if goos == "" {
 				goos = "linux"
 			}
-			got := checkStatus(t, fixtureProber(goos, "amd64", tt.files, tt.env, nil).Client(context.Background()), "client.input")
+			got := checkStatus(t, fixtureProber(goos, "amd64", tt.files, tt.env, nil, tt.modes).Client(context.Background()), "client.input")
 			if got != tt.want {
 				t.Fatalf("input status = %q, want %q", got, tt.want)
 			}
@@ -290,6 +519,7 @@ func TestInputPathReportsBackendSpecificEndpoint(t *testing.T) {
 		name   string
 		goos   string
 		files  map[string]bool
+		modes  map[string]fs.FileMode
 		env    fixtureEnv
 		want   string
 		absent string
@@ -298,6 +528,7 @@ func TestInputPathReportsBackendSpecificEndpoint(t *testing.T) {
 			name:   "linux evdev",
 			goos:   "linux",
 			files:  fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
+			modes:  fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")),
 			env:    fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
 			want:   "has an evdev input endpoint",
 			absent: "WSCONS",
@@ -306,6 +537,7 @@ func TestInputPathReportsBackendSpecificEndpoint(t *testing.T) {
 			name:   "openbsd wscons",
 			goos:   "openbsd",
 			files:  fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")),
+			modes:  fixtureDeviceModes(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")),
 			env:    fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"},
 			want:   "has a WSCONS input endpoint",
 			absent: "evdev",
@@ -314,7 +546,7 @@ func TestInputPathReportsBackendSpecificEndpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := checkSummary(t, fixtureProber(tt.goos, "amd64", tt.files, tt.env, nil).Client(context.Background()), "client.input")
+			got := checkSummary(t, fixtureProber(tt.goos, "amd64", tt.files, tt.env, nil, tt.modes).Client(context.Background()), "client.input")
 			if !strings.Contains(got, tt.want) {
 				t.Fatalf("input summary = %q, want substring %q", got, tt.want)
 			}
@@ -331,15 +563,17 @@ func TestClientReadinessRequiresReachableGraphicalSession(t *testing.T) {
 		name  string
 		goos  string
 		files map[string]bool
+		modes map[string]fs.FileMode
 		env   fixtureEnv
 		want  bool
 	}{
-		{name: "display endpoint", env: fixtureEnv{"DISPLAY": ":0"}, want: true},
-		{name: "direct SDL endpoint", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
-		{name: "FreeBSD evdev endpoint", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
-		{name: "FreeBSD WSCONS-only endpoint", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: false},
-		{name: "OpenBSD WSCONS endpoint", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
-		{name: "NetBSD unsupported SDL endpoint", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: false},
+		{name: "display endpoint", modes: fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/tmp/.X11-unix/X0")), env: fixtureEnv{"DISPLAY": ":0"}, want: true},
+		{name: "wayland endpoint", modes: fixtureModes(fs.ModeSocket, targetPathJoin("linux", "/run/user/1000", "wayland-0")), env: fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"}, want: true},
+		{name: "direct SDL endpoint", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
+		{name: "FreeBSD evdev endpoint", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
+		{name: "FreeBSD WSCONS-only endpoint", goos: "freebsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: false},
+		{name: "OpenBSD WSCONS endpoint", goos: "openbsd", files: fixturePaths(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/drm0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: true},
+		{name: "NetBSD unsupported SDL endpoint", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/wskbd0"), filepath.FromSlash("/dev/wsmouse")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: false},
 		{name: "session type without endpoint", env: fixtureEnv{"XDG_SESSION_TYPE": "wayland"}, want: false},
 		{name: "headless", env: nil, want: false},
 	} {
@@ -350,7 +584,7 @@ func TestClientReadinessRequiresReachableGraphicalSession(t *testing.T) {
 			if goos == "" {
 				goos = "linux"
 			}
-			report := fixtureProber(goos, "amd64", tt.files, tt.env, commands).Client(context.Background())
+			report := fixtureProber(goos, "amd64", tt.files, tt.env, commands, tt.modes).Client(context.Background())
 			if got := report.Ready(); got != tt.want {
 				t.Fatalf("client readiness = %v, want %v; report = %+v", got, tt.want, report)
 			}
@@ -402,7 +636,7 @@ func TestClientControlReadinessAllowsHeadlessControlOperations(t *testing.T) {
 		t.Fatalf("wrong-platform report was accepted for control readiness: %+v", wrongPlatform)
 	}
 	wrongArchitecture := report
-	wrongArchitecture.Architecture = "arm64"
+	wrongArchitecture.Architecture = "386"
 	if wrongArchitecture.ReadyForControl() {
 		t.Fatalf("wrong-architecture report was accepted for control readiness: %+v", wrongArchitecture)
 	}
@@ -462,11 +696,25 @@ func TestClientControlReadinessAllowsHeadlessControlOperations(t *testing.T) {
 	}
 }
 
+func TestMalformedDisplayOnlyBlocksLiveStreaming(t *testing.T) {
+	t.Parallel()
+	commands := &fixtureCommands{paths: map[string]bool{"moonlight": true}}
+	report := fixtureProber("linux", "amd64", nil, fixtureEnv{"DISPLAY": ":not-a-display"}, commands).Client(context.Background())
+	if !report.ReadyForControl() {
+		t.Fatalf("malformed display blocked control readiness: %+v", report)
+	}
+	if report.Ready() {
+		t.Fatalf("malformed display was accepted for live streaming: %+v", report)
+	}
+}
+
 func TestMoonlightDiscoveryDoesNotExecuteIt(t *testing.T) {
 	t.Parallel()
 	flatpakSystem := filepath.Join(string(filepath.Separator), "var", "lib", filepath.FromSlash("flatpak/app/com.moonlight_stream.Moonlight"))
 	flatpakUser := filepath.Join(filepath.FromSlash("/home/fixture-user"), ".local", "share", filepath.FromSlash("flatpak/app/com.moonlight_stream.Moonlight"))
 	flatpakXDG := filepath.Join(filepath.FromSlash("/opt/fixture/share"), "flatpak", filepath.FromSlash("app/com.moonlight_stream.Moonlight"))
+	flatpakCustomUser := targetPathJoin("linux", "/opt/fixture/flatpak-user", "app/com.moonlight_stream.Moonlight")
+	flatpakCustomSystem := targetPathJoin("linux", "/opt/fixture/flatpak-system", "app/com.moonlight_stream.Moonlight")
 	knownExecutable := filepath.Join(filepath.FromSlash("/usr/local/bin"), "moonlight-qt")
 	for _, tt := range []struct {
 		name    string
@@ -483,6 +731,8 @@ func TestMoonlightDiscoveryDoesNotExecuteIt(t *testing.T) {
 		{"system-flatpak", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakSystem), nil, StatusPass, "PATH-resolvable Flatpak"},
 		{"user-flatpak", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakUser), fixtureEnv{"HOME": "/home/fixture-user"}, StatusPass, "PATH-resolvable Flatpak"},
 		{"xdg-data-dirs-flatpak", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakXDG), fixtureEnv{"XDG_DATA_DIRS": "/opt/fixture/share:/usr/share"}, StatusPass, "PATH-resolvable Flatpak"},
+		{"custom-user-flatpak-root", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakCustomUser), fixtureEnv{"FLATPAK_USER_DIR": "/opt/fixture/flatpak-user"}, StatusPass, "PATH-resolvable Flatpak"},
+		{"custom-system-flatpak-root", map[string]bool{"flatpak": true}, nil, fixtureModes(fs.ModeDir|0o755, flatpakCustomSystem), fixtureEnv{"FLATPAK_SYSTEM_DIR": "/opt/fixture/flatpak-system:/usr/lib/flatpak"}, StatusPass, "PATH-resolvable Flatpak"},
 		{"flatpak-app-without-launcher", nil, nil, fixtureModes(fs.ModeDir|0o755, flatpakSystem), nil, StatusWarn, "cannot resolve flatpak"},
 		{"missing", nil, nil, nil, nil, StatusFail, "not detected"},
 	} {
@@ -530,6 +780,155 @@ func TestMoonlightDiagnosticSelectionMatchesUnixPackageConvention(t *testing.T) 
 			check := fixtureProber(tt.goos, "amd64", nil, nil, &fixtureCommands{paths: tt.commands}).moonlightCheck()
 			if check.Status != StatusPass || check.Summary != tt.want {
 				t.Fatalf("Moonlight check = %+v, want pass/%q", check, tt.want)
+			}
+		})
+	}
+}
+
+func TestMoonlightDiagnosticSelectionHonorsRequestedClient(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		goos       string
+		preferred  string
+		commands   map[string]bool
+		wantStatus Status
+		wantText   string
+	}{
+		{
+			name:       "explicit Qt accepts Linux generic executable",
+			goos:       "linux",
+			preferred:  "moonlight-qt",
+			commands:   map[string]bool{"moonlight": true},
+			wantStatus: StatusPass,
+			wantText:   "selected client setting",
+		},
+		{
+			name:       "explicit Qt rejects FreeBSD generic Embedded executable",
+			goos:       "freebsd",
+			preferred:  "moonlight-qt",
+			commands:   map[string]bool{"moonlight": true},
+			wantStatus: StatusFail,
+			wantText:   "not detected",
+		},
+		{
+			name:       "explicit Embedded rejects only Qt executable",
+			goos:       "linux",
+			preferred:  "moonlight-embedded",
+			commands:   map[string]bool{"moonlight-qt": true},
+			wantStatus: StatusFail,
+			wantText:   "not detected",
+		},
+		{
+			name:       "explicit Embedded rejects Linux generic Qt executable",
+			goos:       "linux",
+			preferred:  "moonlight-embedded",
+			commands:   map[string]bool{"moonlight": true},
+			wantStatus: StatusFail,
+			wantText:   "not detected",
+		},
+		{
+			name:       "explicit Embedded accepts FreeBSD generic executable",
+			goos:       "freebsd",
+			preferred:  "moonlight-embedded",
+			commands:   map[string]bool{"moonlight": true},
+			wantStatus: StatusPass,
+			wantText:   "selected client setting",
+		},
+		{
+			name:       "explicit Embedded accepts flavor executable",
+			goos:       "linux",
+			preferred:  "moonlight-embedded",
+			commands:   map[string]bool{"moonlight-embedded": true},
+			wantStatus: StatusPass,
+			wantText:   "selected client setting",
+		},
+		{
+			name:       "explicit generic reports its Embedded execution flavor",
+			goos:       "linux",
+			preferred:  "moonlight",
+			commands:   map[string]bool{"moonlight": true},
+			wantStatus: StatusPass,
+			wantText:   "Moonlight Embedded",
+		},
+		{
+			name:       "invalid selection",
+			goos:       "linux",
+			preferred:  "unsupported",
+			wantStatus: StatusFail,
+			wantText:   "not recognized",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			check := fixtureProber(tt.goos, "amd64", nil, nil, &fixtureCommands{paths: tt.commands}).moonlightCheck(tt.preferred)
+			if check.Status != tt.wantStatus || !strings.Contains(check.Summary, tt.wantText) {
+				t.Fatalf("Moonlight check = %+v, want %q/%q", check, tt.wantStatus, tt.wantText)
+			}
+		})
+	}
+}
+
+func TestMoonlightDiagnosticSelectionRequiresInstalledFlatpakApp(t *testing.T) {
+	t.Parallel()
+	flatpakApp := targetPathJoin("linux", "/var/lib/flatpak/app/com.moonlight_stream.Moonlight")
+	tests := []struct {
+		name       string
+		files      map[string]bool
+		modes      map[string]fs.FileMode
+		wantStatus Status
+		wantText   string
+	}{
+		{
+			name:       "launcher and app",
+			modes:      fixtureModes(fs.ModeDir|0o755, flatpakApp),
+			wantStatus: StatusPass,
+			wantText:   "PATH-resolvable Flatpak",
+		},
+		{
+			name:       "launcher without app",
+			wantStatus: StatusFail,
+			wantText:   "app is not installed",
+		},
+		{
+			name:       "app without launcher",
+			modes:      fixtureModes(fs.ModeDir|0o755, flatpakApp),
+			wantStatus: StatusWarn,
+			wantText:   "cannot be resolved through PATH",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			commands := &fixtureCommands{}
+			if tt.name != "app without launcher" {
+				commands.paths = map[string]bool{"flatpak": true}
+			}
+			check := fixtureProber("linux", "amd64", tt.files, nil, commands, tt.modes).moonlightCheck("flatpak")
+			if check.Status != tt.wantStatus || !strings.Contains(check.Summary, tt.wantText) {
+				t.Fatalf("Moonlight check = %+v, want %q/%q", check, tt.wantStatus, tt.wantText)
+			}
+			if calls := commands.recordedCalls(); len(calls) != 0 {
+				t.Fatalf("Flatpak selection executed commands: %+v", calls)
+			}
+		})
+	}
+}
+
+func TestMoonlightDiagnosticRejectsFlatpakOnBSD(t *testing.T) {
+	t.Parallel()
+	flatpakApp := filepath.Join(string(filepath.Separator), "var", "lib", filepath.FromSlash("flatpak/app/com.moonlight_stream.Moonlight"))
+	for _, goos := range []string{"freebsd", "openbsd", "netbsd", "dragonfly"} {
+		t.Run(goos, func(t *testing.T) {
+			t.Parallel()
+			commands := &fixtureCommands{paths: map[string]bool{"flatpak": true}}
+			check := fixtureProber(goos, "amd64", nil, nil, commands, fixtureModes(fs.ModeDir|0o755, flatpakApp)).moonlightCheck()
+			if check.Status != StatusFail || !strings.Contains(check.Summary, "Linux-only runtime") {
+				t.Fatalf("BSD Flatpak check = %+v; want Linux-only failure", check)
+			}
+			if calls := commands.recordedCalls(); len(calls) != 0 {
+				t.Fatalf("BSD Flatpak selection executed commands: %+v", calls)
 			}
 		})
 	}
@@ -915,7 +1314,7 @@ func TestSystemCommandAllowlist(t *testing.T) {
 		}
 	}
 	for _, discoverable := range []string{
-		"bhyve", "bottles", "crossover", "cxoffice", "darling", "docker", "heroic", "libvirt", "libvirtd", "lutris", "moonlight-embedded", "playonlinux", "podman", "proton", "protontricks", "qemu-system-x86_64", "steam", "umu", "umu-run", "vboxmanage", "vmrun", "vmware", "virt-install", "virt-manager", "virsh", "waydroid", "wine", "wine64", "winboat", "wsl",
+		"bhyve", "bottles", "cloud-hypervisor", "colima", "containerd", "crossover", "cxoffice", "darling", "docker", "firecracker", "heroic", "incus", "incusd", "kvm", "libvirt", "libvirtd", "lima", "lkvm", "lxc", "lxc-start", "lutris", "moonlight-embedded", "multipass", "nerdctl", "playonlinux", "podman", "proton", "protontricks", "qemu", "qemu-system-i386", "qemu-system-x86_64", "steam", "systemd-nspawn", "umu", "umu-run", "vboxmanage", "vmd", "vmctl", "vmrun", "vmware", "virt-install", "virt-manager", "virtctl", "virsh", "waydroid", "wine", "wine64", "winboat", "wsl", "xen", "xenstored", "xl",
 	} {
 		if _, ok := discoverableCommands[discoverable]; !ok {
 			t.Errorf("alternative executable %q is not allowlisted for passive discovery", discoverable)

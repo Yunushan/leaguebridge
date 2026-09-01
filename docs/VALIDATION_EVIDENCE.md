@@ -39,8 +39,8 @@ required ID may be missing, duplicated, or replaced.
 | Type | Allowed subject | Required checks |
 | --- | --- | --- |
 | `host` | Physical Windows `amd64` on `physical-windows-remote`, or native macOS `amd64`/`arm64` on `physical-macos-remote` | `host.physical-machine`, `host.supported-os`, `host.hardware-requirements`, `host.security-requirements`, `host.riot-installation`, `host.local-practice-tool`, `host.streaming-server` |
-| `client` | Linux, FreeBSD, OpenBSD, NetBSD, or DragonFly BSD on `amd64` | `client.platform`, `client.moonlight`, `client.display`, `client.audio`, `client.decoder` |
-| `session` | Linux, FreeBSD, OpenBSD, NetBSD, or DragonFly BSD on `amd64` | `session.pair`, `session.app-list`, `session.video`, `session.keyboard-mouse`, `session.audio`, `session.latency`, `session.practice-tool`, `session.vanguard-errors`, `session.patch-current` |
+| `client` | Linux, FreeBSD, OpenBSD, or NetBSD on `amd64`/`arm64`, or DragonFly BSD on `amd64` | `client.platform`, `client.moonlight`, `client.display`, `client.audio`, `client.decoder` |
+| `session` | Linux, FreeBSD, OpenBSD, or NetBSD on `amd64`/`arm64`, or DragonFly BSD on `amd64` | `session.pair`, `session.app-list`, `session.video`, `session.keyboard-mouse`, `session.audio`, `session.latency`, `session.practice-tool`, `session.vanguard-errors`, `session.patch-current` |
 
 Only session records contain `bindings`. Both
 `host_record_sha256` and `client_record_sha256` remain empty in a template and

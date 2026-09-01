@@ -47,8 +47,14 @@ func TestAuthenticatedEvidenceSchemasAcceptOnlyBoundedScoreFreeContracts(t *test
 		}
 		candidate = validEvidenceV2Payload()
 		candidate["client_architecture"] = "arm64"
+		if err := payloadSchema.Validate(candidate); err != nil {
+			t.Fatalf("v2 payload schema rejected a supported Linux arm64 client: %v", err)
+		}
+		candidate = validEvidenceV2Payload()
+		candidate["client_platform"] = "dragonflybsd"
+		candidate["client_architecture"] = "arm64"
 		if err := payloadSchema.Validate(candidate); err == nil {
-			t.Fatal("v2 payload schema accepted a different client architecture")
+			t.Fatal("v2 payload schema accepted an unsupported DragonFly arm64 client")
 		}
 	})
 

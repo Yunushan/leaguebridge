@@ -482,9 +482,11 @@ func validateSetShape(kind string, values []loadedDocument) error {
 	case "linux-runtime":
 		want["linux/amd64"] = struct{}{}
 	case "bsd-runtime":
-		for _, goos := range []string{"freebsd", "openbsd", "netbsd", "dragonfly"} {
+		for _, goos := range []string{"freebsd", "openbsd", "netbsd"} {
 			want[goos+"/amd64"] = struct{}{}
+			want[goos+"/arm64"] = struct{}{}
 		}
+		want["dragonfly/amd64"] = struct{}{}
 	default:
 		return fmt.Errorf("unsupported native runtime kind %q", kind)
 	}
@@ -932,8 +934,8 @@ func validateTarget(kind string, value target) error {
 			return errors.New("linux runtime target must be linux/amd64")
 		}
 	case "bsd-runtime":
-		if value.GOARCH != "amd64" || (value.GOOS != "freebsd" && value.GOOS != "openbsd" && value.GOOS != "netbsd" && value.GOOS != "dragonfly") {
-			return errors.New("BSD runtime target must be a supported amd64 BSD")
+		if (value.GOARCH != "amd64" && value.GOARCH != "arm64") || (value.GOOS != "freebsd" && value.GOOS != "openbsd" && value.GOOS != "netbsd" && value.GOOS != "dragonfly") || (value.GOOS == "dragonfly" && value.GOARCH != "amd64") {
+			return errors.New("BSD runtime target must be FreeBSD, OpenBSD, or NetBSD amd64/arm64, or DragonFly amd64")
 		}
 	default:
 		return fmt.Errorf("unsupported native runtime kind %q", kind)

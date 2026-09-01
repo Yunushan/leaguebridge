@@ -41,6 +41,20 @@ func TestBuildBindsEveryUnixPayloadAndTarget(t *testing.T) {
 	}
 }
 
+func TestBuildBindsArm64BuildEnvironment(t *testing.T) {
+	manifest, err := Build("v1.2.3", "linux", "arm64", 1787702400, testCommit, testTree, "go1.27.0", unixBodies())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Target.RequiredKernel != "Linux" || manifest.Artifact.Filename != "leaguebridge_1.2.3_linux_arm64.tar.gz" {
+		t.Fatalf("manifest is not target-bound: %+v", manifest)
+	}
+	environment := manifest.Provenance.BuildEnvironment
+	if environment.GOARM64 != "v8.0" || environment.GOAMD64 != "" {
+		t.Fatalf("manifest does not bind the arm64 build environment: %+v", environment)
+	}
+}
+
 func TestBuildRejectsMissingUnexpectedAndUnsupportedPayload(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -53,7 +67,7 @@ func TestBuildRejectsMissingUnexpectedAndUnsupportedPayload(t *testing.T) {
 		{name: "unexpected", goos: "linux", goarch: "amd64", bodies: withExtra(unixBodies()), want: "want 6"},
 		{name: "replaced", goos: "linux", goarch: "amd64", bodies: withReplacement(unixBodies()), want: `missing "LICENSE"`},
 		{name: "operating system", goos: "solaris", goarch: "amd64", bodies: unixBodies(), want: "unsupported operating system"},
-		{name: "architecture", goos: "linux", goarch: "arm64", bodies: unixBodies(), want: "unsupported architecture"},
+		{name: "unsupported target", goos: "dragonfly", goarch: "arm64", bodies: unixBodies(), want: "unsupported target"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

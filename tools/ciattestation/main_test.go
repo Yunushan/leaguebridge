@@ -285,7 +285,10 @@ func TestVerifySetRequiresCompleteCrossBuildSet(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	targets := []struct{ goos, goarch string }{
-		{"linux", "amd64"}, {"freebsd", "amd64"}, {"openbsd", "amd64"}, {"netbsd", "amd64"},
+		{"linux", "amd64"}, {"linux", "arm64"},
+		{"freebsd", "amd64"}, {"freebsd", "arm64"},
+		{"openbsd", "amd64"}, {"openbsd", "arm64"},
+		{"netbsd", "amd64"}, {"netbsd", "arm64"},
 		{"dragonfly", "amd64"},
 	}
 	request := testRequest("cross-build")
@@ -361,7 +364,7 @@ func TestVerifySetRequiresCompleteCrossBuildSet(t *testing.T) {
 		ExpectedWorkflow: ".github/workflows/ci.yml", ExpectedCommit: request.Commit,
 		ExpectedTree: request.Tree, ExpectedRef: request.Ref, WorkflowSHA: request.WorkflowSHA,
 		RunID: request.RunID, RunAttempt: request.RunAttempt, GHPath: "gh",
-	}); err == nil || !strings.Contains(err.Error(), "exactly 5") {
+	}); err == nil || !strings.Contains(err.Error(), "exactly 9") {
 		t.Fatalf("incomplete cross-build set error = %v; want exact-set rejection", err)
 	}
 }
@@ -412,8 +415,8 @@ func TestVerifyReleaseSetChecksExactArtifactsAndAttestsEverySubject(t *testing.T
 	if err := verifyReleaseSet(input); err != nil {
 		t.Fatalf("valid release set rejected: %v", err)
 	}
-	if len(calls) != 6 {
-		t.Fatalf("GitHub verification calls = %d; want 6", len(calls))
+	if len(calls) != len(names)+1 {
+		t.Fatalf("GitHub verification calls = %d; want %d", len(calls), len(names)+1)
 	}
 	badRef := input
 	badRef.ExpectedRef = "refs/heads/main"

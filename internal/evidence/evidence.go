@@ -20,6 +20,7 @@ import (
 
 	"github.com/Yunushan/leaguebridge/internal/compat"
 	"github.com/Yunushan/leaguebridge/internal/fileinput"
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -615,13 +616,8 @@ func validateSubject(recordType RecordType, subject Subject, routeID string) err
 			return fmt.Errorf("unsupported evidence route_id %q", routeID)
 		}
 	case RecordClient, RecordSession:
-		switch subject.Platform {
-		case "linux", "freebsd", "openbsd", "netbsd", "dragonflybsd":
-		default:
+		if !target.IsSupportedEvidencePlatform(subject.Platform, subject.Architecture) {
 			return errors.New("client/session evidence platform must be linux or a supported BSD")
-		}
-		if subject.Architecture != "amd64" {
-			return errors.New("client/session evidence architecture must be amd64")
 		}
 	}
 	return nil

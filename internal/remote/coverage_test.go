@@ -90,9 +90,13 @@ func TestDiscoverExplicitSelectionsAndFailures(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Discover(ctx, tt.env, tt.preferred)
+			goos := runtime.GOOS
+			if strings.Contains(tt.name, "flatpak") {
+				goos = "linux"
+			}
+			got, err := discoverForPlatform(ctx, tt.env, tt.preferred, goos)
 			if err != nil {
-				t.Fatalf("Discover(): %v", err)
+				t.Fatalf("discoverForPlatform(%s): %v", goos, err)
 			}
 			tt.want.discoveryBinding = bindClient(tt.want)
 			if !reflect.DeepEqual(got, tt.want) {
@@ -103,13 +107,17 @@ func TestDiscoverExplicitSelectionsAndFailures(t *testing.T) {
 
 	for _, preferred := range []string{"auto", "moonlight", "moonlight-embedded", "moonlight-qt", "flatpak"} {
 		t.Run("missing "+preferred, func(t *testing.T) {
-			if _, err := Discover(ctx, passiveEnv{paths: map[string]string{}}, preferred); err == nil || !strings.Contains(err.Error(), "Moonlight was not found") || !strings.Contains(err.Error(), "moonlight-embedded") {
-				t.Fatalf("Discover() error = %v", err)
+			goos := runtime.GOOS
+			if preferred == "flatpak" {
+				goos = "linux"
+			}
+			if _, err := discoverForPlatform(ctx, passiveEnv{paths: map[string]string{}}, preferred, goos); err == nil || !strings.Contains(err.Error(), "Moonlight was not found") || !strings.Contains(err.Error(), "moonlight-embedded") {
+				t.Fatalf("discoverForPlatform(%s) error = %v", goos, err)
 			}
 		})
 	}
-	if _, err := Discover(ctx, passiveEnv{}, "unsafe-client"); err == nil || !strings.Contains(err.Error(), "unsupported") {
-		t.Fatalf("Discover() unsupported selection error = %v", err)
+	if _, err := discoverForPlatform(ctx, passiveEnv{}, "unsafe-client", runtime.GOOS); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("discoverForPlatform() unsupported selection error = %v", err)
 	}
 }
 
@@ -143,6 +151,18 @@ func TestBuildPlanPairAndListVariants(t *testing.T) {
 			want:      []string{"list", "pc.local"},
 		},
 		{
+			name:      "embedded quit",
+			client:    Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			operation: Quit,
+			want:      []string{"quit", "pc.local"},
+		},
+		{
+			name:      "embedded unpair",
+			client:    Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			operation: Unpair,
+			want:      []string{"unpair", "pc.local"},
+		},
+		{
 			name:      "flatpak prefix",
 			client:    Client{Flavor: FlavorFlatpak, Binary: "flatpak", Prefix: []string{"run", "com.moonlight_stream.Moonlight"}},
 			operation: Pair,
@@ -166,6 +186,13 @@ func TestBuildPlanPairAndListVariants(t *testing.T) {
 				t.Fatalf("warnings = %#v", plan.Warnings)
 			}
 		})
+	}
+	if _, err := BuildPlan(Client{Flavor: FlavorQt, Binary: "moonlight-qt"}, Request{
+		Operation:             Unpair,
+		Host:                  "pc.local",
+		PhysicalHostConfirmed: true,
+	}); err == nil || !strings.Contains(err.Error(), "only by Moonlight Embedded") {
+		t.Fatalf("Qt unpair error = %v; want Embedded-only rejection", err)
 	}
 }
 
@@ -454,9 +481,9 @@ func TestBuildDiscoveredPlanRejectsClientMutationBeforePlanning(t *testing.T) {
 		})
 	}
 
-	flatpak, err := Discover(context.Background(), passiveEnv{paths: map[string]string{"flatpak": "/opt/flatpak"}}, "flatpak")
+	flatpak, err := discoverForPlatform(context.Background(), passiveEnv{paths: map[string]string{"flatpak": "/opt/flatpak"}}, "flatpak", "linux")
 	if err != nil {
-		t.Fatalf("Discover() Flatpak client: %v", err)
+		t.Fatalf("discoverForPlatform() Flatpak client: %v", err)
 	}
 	flatpak.Prefix[1] = "com.example.Other"
 	if _, err := BuildDiscoveredPlan(flatpak, request); err == nil || !strings.Contains(err.Error(), "changed after discovery") {

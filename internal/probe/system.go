@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const maximumCommandOutput = 64 * 1024
@@ -18,6 +19,10 @@ const maximumCommandOutput = 64 * 1024
 type systemFileSystem struct{}
 
 func (systemFileSystem) Stat(name string) (fs.FileInfo, error) { return os.Lstat(name) }
+
+func (systemFileSystem) OpenRead(name string) (io.Closer, error) {
+	return os.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+}
 
 type systemEnvironment struct{}
 
@@ -31,23 +36,38 @@ type systemCommands struct{}
 var discoverableCommands = map[string]struct{}{
 	"bhyve":              {},
 	"bottles":            {},
+	"cloud-hypervisor":   {},
+	"colima":             {},
+	"containerd":         {},
 	"crossover":          {},
 	"cxoffice":           {},
 	"darling":            {},
 	"docker":             {},
+	"firecracker":        {},
 	"ffmpeg":             {},
 	"flatpak":            {},
 	"heroic":             {},
+	"incus":              {},
+	"incusd":             {},
+	"kvm":                {},
 	"libvirt":            {},
 	"libvirtd":           {},
+	"lima":               {},
+	"lkvm":               {},
+	"lxc":                {},
+	"lxc-start":          {},
 	"lutris":             {},
 	"moonlight":          {},
 	"moonlight-embedded": {},
 	"moonlight-qt":       {},
+	"multipass":          {},
+	"nerdctl":            {},
 	"podman":             {},
 	"playonlinux":        {},
 	"proton":             {},
 	"protontricks":       {},
+	"qemu":               {},
+	"qemu-system-i386":   {},
 	"qemu-system-x86_64": {},
 	"steam":              {},
 	"sunshine":           {},
@@ -57,16 +77,23 @@ var discoverableCommands = map[string]struct{}{
 	"vainfo":             {},
 	"vdpauinfo":          {},
 	"vboxmanage":         {},
+	"vmd":                {},
+	"vmctl":              {},
 	"wine":               {},
 	"wine64":             {},
 	"vmrun":              {},
 	"vmware":             {},
 	"virt-manager":       {},
 	"virt-install":       {},
+	"virtctl":            {},
 	"virsh":              {},
 	"waydroid":           {},
 	"winboat":            {},
 	"wsl":                {},
+	"xen":                {},
+	"xenstored":          {},
+	"xl":                 {},
+	"systemd-nspawn":     {},
 }
 
 func (systemCommands) LookPath(name string) (string, error) {

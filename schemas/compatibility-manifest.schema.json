@@ -78,8 +78,8 @@
     },
     "backends": {
       "type": "array",
-      "minItems": 9,
-      "maxItems": 9,
+      "minItems": 10,
+      "maxItems": 10,
       "allOf": [
         { "$ref": "#/$defs/has-native-linux" },
         { "$ref": "#/$defs/has-native-bsd" },
@@ -89,6 +89,7 @@
         { "$ref": "#/$defs/has-bhyve" },
         { "$ref": "#/$defs/has-physical-windows-remote" },
         { "$ref": "#/$defs/has-physical-macos-remote" },
+        { "$ref": "#/$defs/has-hardware-kvm-remote" },
         { "$ref": "#/$defs/has-dual-boot" }
       ],
       "items": {
@@ -174,6 +175,7 @@
             "bhyve",
             "physical-windows-remote",
             "physical-macos-remote",
+            "hardware-kvm-remote",
             "dual-boot"
           ]
         },
@@ -181,7 +183,7 @@
           "$ref": "#/$defs/nonEmptyText"
         },
         "kind": {
-          "enum": ["native", "translation", "virtual-machine", "remote-physical-windows", "remote-physical-macos", "dual-boot"]
+          "enum": ["native", "translation", "virtual-machine", "remote-physical-windows", "remote-physical-macos", "remote-hardware-kvm", "dual-boot"]
         },
         "launchMode": {
           "enum": ["local", "remote", "handoff"]
@@ -196,7 +198,7 @@
           }
         },
         "hostArchitectures": {
-          "const": ["amd64"]
+          "const": ["amd64", "arm64"]
         },
         "state": {
           "enum": ["blocked", "handoff-only", "supported"]
@@ -410,6 +412,23 @@
         "properties": {
           "id": { "const": "physical-macos-remote" },
           "kind": { "const": "remote-physical-macos" },
+          "launchMode": { "const": "remote" },
+          "hostPlatforms": { "$ref": "#/$defs/all-host-platforms" },
+          "state": { "const": "handoff-only" },
+          "launchVerdict": { "const": "deny" },
+          "authorization": { "const": "unverified" }
+        },
+        "required": ["id", "kind", "launchMode", "hostPlatforms", "state", "launchVerdict", "authorization"]
+      }
+    },
+    "has-hardware-kvm-remote": {
+      "type": "array",
+      "minContains": 1,
+      "maxContains": 1,
+      "contains": {
+        "properties": {
+          "id": { "const": "hardware-kvm-remote" },
+          "kind": { "const": "remote-hardware-kvm" },
           "launchMode": { "const": "remote" },
           "hostPlatforms": { "$ref": "#/$defs/all-host-platforms" },
           "state": { "const": "handoff-only" },

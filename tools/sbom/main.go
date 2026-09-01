@@ -26,6 +26,7 @@ import (
 
 	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -172,11 +173,11 @@ func newDocument(version, goos, goarch, binaryName, hash string, created time.Ti
 	default:
 		return document{}, fmt.Errorf("unsupported release operating system %q", goos)
 	}
-	if goarch != "amd64" {
-		return document{}, fmt.Errorf("unsupported release architecture %q", goarch)
+	if !target.IsSupported(goos, goarch) {
+		return document{}, fmt.Errorf("unsupported release target %s/%s", goos, goarch)
 	}
 	if binaryName != "leaguebridge" {
-		return document{}, fmt.Errorf("binary name is %q; want %q for Linux/BSD amd64 releases", binaryName, "leaguebridge")
+		return document{}, fmt.Errorf("binary name is %q; want %q for Linux/BSD releases", binaryName, "leaguebridge")
 	}
 	if !lowerHexSHA256.MatchString(hash) {
 		return document{}, errors.New("binary SHA-256 must be 64 lowercase hexadecimal characters")

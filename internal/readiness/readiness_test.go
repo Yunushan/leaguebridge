@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var readinessTestNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+var readinessTestNow = time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
 
 func validTestScorecard(t *testing.T) Scorecard {
 	t.Helper()
@@ -58,7 +58,7 @@ func TestEmbeddedV3ScoresAreDerived(t *testing.T) {
 		t.Fatalf("remote route evaluations = %+v", remoteHandoffs)
 	}
 	for _, remote := range remoteHandoffs {
-		if remote.Score != 0 || remote.State != "unvalidated" || len(remote.Platforms) != 5 {
+		if remote.Score != 0 || remote.State != "unvalidated" || len(remote.Platforms) != 9 {
 			t.Fatalf("remote evaluation = %+v", remote)
 		}
 		for _, platform := range remote.Platforms {
@@ -317,7 +317,8 @@ func TestRemoteEvaluationCannotBeReplacedByMalformedInputs(t *testing.T) {
 			t.Fatalf("remote route %d platform count = %d", routeIndex, len(route.Platforms))
 		}
 		for platformIndex, platform := range route.Platforms {
-			if platform.Platform != remotePlatformContract[platformIndex] || platform.Architecture != RemoteArchitecture || platform.Score != 0 || platform.State != "unvalidated" {
+			contractPlatform := remotePlatformContract[platformIndex]
+			if platform.Platform != contractPlatform.Platform || platform.Architecture != contractPlatform.Architecture || platform.Score != 0 || platform.State != "unvalidated" {
 				t.Fatalf("remote route %d platform %d escaped fixed contract: %+v", routeIndex, platformIndex, platform)
 			}
 		}

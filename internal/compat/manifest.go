@@ -25,7 +25,7 @@ const (
 	// SchemaID is the canonical public identifier for schema version 1.0.0.
 	SchemaID = "https://leaguebridge.dev/schemas/compatibility-manifest.schema.json"
 	// AuthoritativeAsOf is the evidence date of the compiled-in manifest.
-	AuthoritativeAsOf = "2026-08-30"
+	AuthoritativeAsOf = "2026-09-01"
 	// MaxManifestBytes limits untrusted external manifest input.
 	MaxManifestBytes = 1 << 20
 )
@@ -45,6 +45,7 @@ const (
 	BackendBhyve                 BackendID = "bhyve"
 	BackendPhysicalWindowsRemote BackendID = "physical-windows-remote"
 	BackendPhysicalMacOSRemote   BackendID = "physical-macos-remote"
+	BackendHardwareKVMRemote     BackendID = "hardware-kvm-remote"
 	BackendDualBoot              BackendID = "dual-boot"
 )
 
@@ -57,6 +58,7 @@ var knownBackendIDs = [...]BackendID{
 	BackendBhyve,
 	BackendPhysicalWindowsRemote,
 	BackendPhysicalMacOSRemote,
+	BackendHardwareKVMRemote,
 	BackendDualBoot,
 }
 
@@ -81,7 +83,10 @@ const (
 // Architecture identifies the LeagueBridge host CPU architecture.
 type Architecture string
 
-const ArchitectureAMD64 Architecture = "amd64"
+const (
+	ArchitectureAMD64 Architecture = "amd64"
+	ArchitectureARM64 Architecture = "arm64"
+)
 
 // BackendKind describes where or how Windows API execution would occur.
 type BackendKind string
@@ -92,6 +97,7 @@ const (
 	KindVirtualMachine        BackendKind = "virtual-machine"
 	KindRemotePhysicalWindows BackendKind = "remote-physical-windows"
 	KindRemotePhysicalMacOS   BackendKind = "remote-physical-macos"
+	KindRemoteHardwareKVM     BackendKind = "remote-hardware-kvm"
 	KindDualBoot              BackendKind = "dual-boot"
 )
 
@@ -390,7 +396,7 @@ func validateBackend(path string, b Backend, sourceIDs map[string]struct{}) erro
 	}
 	architectures := make(map[Architecture]struct{}, len(b.HostArchitectures))
 	for _, architecture := range b.HostArchitectures {
-		if architecture != ArchitectureAMD64 {
+		if !knownArchitecture(architecture) {
 			return fmt.Errorf("%s has unknown host architecture %q", path, architecture)
 		}
 		if _, duplicate := architectures[architecture]; duplicate {
@@ -488,6 +494,9 @@ func validateBackendIdentity(path string, b Backend) error {
 	case BackendPhysicalMacOSRemote:
 		wantKind, wantMode = KindRemotePhysicalMacOS, LaunchRemote
 		wantPlatforms = allHostPlatforms()
+	case BackendHardwareKVMRemote:
+		wantKind, wantMode = KindRemoteHardwareKVM, LaunchRemote
+		wantPlatforms = allHostPlatforms()
 	case BackendDualBoot:
 		wantKind, wantMode = KindDualBoot, LaunchHandoff
 		wantPlatforms = allHostPlatforms()
@@ -503,11 +512,14 @@ func validateBackendIdentity(path string, b Backend) error {
 	if !samePlatformSet(b.HostPlatforms, wantPlatforms) {
 		return fmt.Errorf("%s hostPlatforms do not match backend identity", path)
 	}
-	if len(b.HostArchitectures) != 1 || b.HostArchitectures[0] != ArchitectureAMD64 {
-		return fmt.Errorf("%s hostArchitectures must be exactly [amd64]", path)
+	if !sameArchitectureSet(b.HostArchitectures, allHostArchitectures()) {
+		return fmt.Errorf("%s hostArchitectures must be exactly [amd64, arm64]", path)
 	}
 	if b.ID == BackendPhysicalMacOSRemote && (b.State != StateHandoffOnly || b.LaunchVerdict != DecisionDeny || b.Authorization != AuthorizationUnverified) {
 		return fmt.Errorf("%s physical macOS remote route must remain handoff-only, deny, and unverified", path)
+	}
+	if b.ID == BackendHardwareKVMRemote && (b.State != StateHandoffOnly || b.LaunchVerdict != DecisionDeny || b.Authorization != AuthorizationUnverified) {
+		return fmt.Errorf("%s hardware KVM route must remain handoff-only, deny, and unverified", path)
 	}
 	return nil
 }
@@ -518,6 +530,10 @@ func allHostPlatforms() []Platform {
 
 func bsdPlatforms() []Platform {
 	return []Platform{PlatformFreeBSD, PlatformOpenBSD, PlatformNetBSD, PlatformDragonFlyBSD}
+}
+
+func allHostArchitectures() []Architecture {
+	return []Architecture{ArchitectureAMD64, ArchitectureARM64}
 }
 
 func samePlatformSet(got, want []Platform) bool {
@@ -534,6 +550,26 @@ func samePlatformSet(got, want []Platform) bool {
 		}
 	}
 	return true
+}
+
+func sameArchitectureSet(got, want []Architecture) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	set := make(map[Architecture]struct{}, len(got))
+	for _, value := range got {
+		set[value] = struct{}{}
+	}
+	for _, value := range want {
+		if _, ok := set[value]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func knownArchitecture(value Architecture) bool {
+	return value == ArchitectureAMD64 || value == ArchitectureARM64
 }
 
 func checkJSONStructure(data []byte) error {
@@ -739,7 +775,7 @@ func knownPlatform(value Platform) bool {
 
 func oneOfBackendKind(value BackendKind) bool {
 	switch value {
-	case KindNative, KindTranslation, KindVirtualMachine, KindRemotePhysicalWindows, KindRemotePhysicalMacOS, KindDualBoot:
+	case KindNative, KindTranslation, KindVirtualMachine, KindRemotePhysicalWindows, KindRemotePhysicalMacOS, KindRemoteHardwareKVM, KindDualBoot:
 		return true
 	default:
 		return false

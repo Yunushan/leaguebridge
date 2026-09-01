@@ -42,6 +42,7 @@ func TestCompatibilityAuditIsReadOnlyAndFailClosed(t *testing.T) {
 				"lutris":   true,
 				"docker":   true,
 				"darling":  true,
+				"parsec":   true,
 				"waydroid": true,
 			},
 			want: map[string]Status{
@@ -129,7 +130,8 @@ func TestCompatibilityAuditNamesExtendedAlternatives(t *testing.T) {
 	commands := &fixtureCommands{paths: map[string]bool{
 		"crossover": true,
 		"steam":     true,
-		"winboat":   true,
+		"vmd":       true,
+		"parsec":    true,
 		"waydroid":  true,
 	}}
 	report := fixtureProber("linux", "amd64", nil, nil, commands).Compatibility(context.Background())
@@ -142,15 +144,37 @@ func TestCompatibilityAuditNamesExtendedAlternatives(t *testing.T) {
 		t.Fatalf("Proton-capable launcher was not named: %+v", proton)
 	}
 	vm, _ := report.Check("compatibility.virtual-machine")
-	if !strings.Contains(vm.Summary, "winboat") {
-		t.Fatalf("VM launcher was not named: %+v", vm)
+	if !strings.Contains(vm.Summary, "vmd") {
+		t.Fatalf("OpenBSD VMM launcher was not named: %+v", vm)
 	}
 	other, _ := report.Check("compatibility.other-layers")
 	if !strings.Contains(other.Summary, "Waydroid") {
 		t.Fatalf("other compatibility layer was not named: %+v", other)
 	}
+	if !strings.Contains(other.Summary, "Parsec") {
+		t.Fatalf("Parsec was not named: %+v", other)
+	}
 	if calls := commands.recordedCalls(); len(calls) != 0 {
 		t.Fatalf("extended compatibility audit executed a command: %+v", calls)
+	}
+}
+
+func TestCompatibilityAuditDetectsContainerAndMicroVMLaunchers(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{"containerd", "nerdctl", "lxc", "incus", "firecracker", "cloud-hypervisor", "virtctl", "multipass"} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			commands := &fixtureCommands{paths: map[string]bool{command: true}}
+			report := fixtureProber("linux", "amd64", nil, nil, commands).Compatibility(context.Background())
+			check, ok := report.Check("compatibility.virtual-machine")
+			if !ok || check.Status != StatusWarn || !strings.Contains(check.Summary, command) {
+				t.Fatalf("launcher %q was not classified as a named warning: %+v", command, check)
+			}
+			if calls := commands.recordedCalls(); len(calls) != 0 {
+				t.Fatalf("container/VM audit executed a command: %+v", calls)
+			}
+		})
 	}
 }
 
@@ -194,6 +218,24 @@ func TestCompatibilityAuditDetectsStandardFlatpakAlternatives(t *testing.T) {
 	}
 }
 
+func TestCompatibilityAuditDetectsXDGDataDirsFlatpakAlternatives(t *testing.T) {
+	t.Parallel()
+	root := string(filepath.Separator)
+	appPath := filepath.Join(root, "opt", "share", "flatpak", "app", "com.usebottles.bottles")
+	commands := &fixtureCommands{}
+	prober := fixtureProber("linux", "amd64", nil, fixtureEnv{
+		"XDG_DATA_DIRS": filepath.Join(root, "opt", "share") + ":" + filepath.Join(root, "usr", "share"),
+	}, commands, fixtureModes(fs.ModeDir|0o755, appPath))
+	report := prober.Compatibility(context.Background())
+	wine, ok := report.Check("compatibility.wine")
+	if !ok || wine.Status != StatusWarn || !strings.Contains(wine.Summary, "Bottles") {
+		t.Fatalf("XDG_DATA_DIRS Flatpak app was not audited: %+v", wine)
+	}
+	if calls := commands.recordedCalls(); len(calls) != 0 {
+		t.Fatalf("XDG_DATA_DIRS Flatpak audit executed a command: %+v", calls)
+	}
+}
+
 func TestCompatibilityAuditRejectsUnsafeFlatpakEnvironmentRoots(t *testing.T) {
 	t.Parallel()
 	marker := "leaguebridge-flatpak-unsafe"
@@ -201,6 +243,7 @@ func TestCompatibilityAuditRejectsUnsafeFlatpakEnvironmentRoots(t *testing.T) {
 	prober := fixtureProber("linux", "amd64", nil, fixtureEnv{
 		"HOME":          "//" + marker + "/home",
 		"XDG_DATA_HOME": "\\\\" + marker + "\\data",
+		"XDG_DATA_DIRS": "//" + marker + "/dirs",
 	}, nil)
 	prober.fs = fs
 	if _, ok := prober.lookupFlatpakApp(map[string]string{"com.usebottles.bottles": "Bottles"}); ok {

@@ -52,7 +52,7 @@
     "host_platform": { "enum": ["windows", "macos"] },
     "host_architecture": { "enum": ["amd64", "arm64"] },
     "client_platform": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"] },
-    "client_architecture": { "const": "amd64" },
+    "client_architecture": { "enum": ["amd64", "arm64"] },
     "host_record_sha256": { "$ref": "#/$defs/sha256" },
     "client_record_sha256": { "$ref": "#/$defs/sha256" },
     "session_record_sha256": { "$ref": "#/$defs/sha256" },
@@ -160,6 +160,15 @@
           "host_platform": { "const": "macos" },
           "host_architecture": { "enum": ["amd64", "arm64"] }
         }
+      }
+    },
+    {
+      "if": {
+        "properties": { "client_platform": { "const": "dragonflybsd" } },
+        "required": ["client_platform"]
+      },
+      "then": {
+        "properties": { "client_architecture": { "const": "amd64" } }
       }
     }
   ]

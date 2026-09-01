@@ -145,6 +145,7 @@ func TestValidateCoversAllConfigConstraints(t *testing.T) {
 func TestValidateHostBoundaryCases(t *testing.T) {
 	valid := []string{
 		"localhost",
+		"host:1234",
 		strings.Repeat("a", 63) + ".local",
 		"fe80::1%eth0",
 	}
@@ -156,7 +157,6 @@ func TestValidateHostBoundaryCases(t *testing.T) {
 
 	invalid := []string{
 		strings.Repeat("a", 254),
-		"host:1234",
 		"bad..local",
 		strings.Repeat("a", 64) + ".local",
 		"-bad.local",

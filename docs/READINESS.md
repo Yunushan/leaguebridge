@@ -37,7 +37,8 @@ count. Schema v3 keeps those criteria at zero until an authenticated verifier
 for the required class is implemented and the corresponding evidence exists.
 
 The CI workflow includes a hosted Ubuntu Linux amd64 runtime/install smoke and
-native BSD guest lifecycle jobs. These jobs deliberately capture their
+native BSD guest lifecycle jobs for amd64 and arm64 where the guest supports
+it. These jobs deliberately capture their
 observations as artifacts and keep headless or unsupported client states
 blocked; a workflow definition or an unauthenticated artifact cannot promote a
 scorecard row. Non-PR CI emits score-free native-runtime v2 subjects that hash
@@ -53,7 +54,7 @@ assessment. Native package builders now have the same score-free boundary via
 package set, exact package/staging/install-log digests, and source/run identity,
 but it does not create package bytes or promote runtime support. The shared
 `tools/ciattestation` verifier also has a strict release mode that checks the
-exact five Linux/BSD archives, `checksums.txt`, and each publication attestation
+exact nine Linux/BSD archives, `checksums.txt`, and each publication attestation
 against the release workflow, tag, tested commit, workflow revision, run, and
 hosted-runner policy. That control is still not publication evidence until an
 actual tagged run produces and retains the external attestations.
@@ -74,21 +75,21 @@ subcriteria; no row receives partial credit:
 | `architecture-reason-codes-adrs` | Stable reason codes and ADRs | 3 | 3 | Exact five ADRs and manifest implementation |
 | `architecture-upstream-authorization` | Authorized upstream extension contract | 2 | 0 | Authenticated Riot authorization absent |
 | `implementation-cli-controller` | CLI/controller | 5 | 5 | Exact CLI and application controller files |
-| `implementation-strict-config-fixed-argv` | Strict config and fixed remote argv | 4 | 4 | Exact config and remote implementation files |
+| `implementation-strict-config-fixed-argv` | Strict config and fixed remote argv | 4 | 4 | Exact config, Moonlight, and hardware-KVM launcher implementation files |
 | `implementation-bounded-diagnostics-redaction` | Bounded diagnostics and redaction | 4 | 4 | Exact diagnostics and redaction implementation files |
 | `implementation-read-only-probes` | Read-only host/client probes | 4 | 4 | Exact Linux/BSD client and consent-gated external-host inspection files |
 | `implementation-native-validated-integration` | Native validated platform integration | 3 | 0 | Authenticated native-runtime evidence absent |
-| `tests-unit-negative` | Unit and negative tests | 5 | 5 | Exact core negative-test inventory, including authenticated-evidence and external-host coverage |
+| `tests-unit-negative` | Unit and negative tests | 5 | 5 | Exact core negative-test inventory, including authenticated-evidence, external-host, and KVM URL/launcher coverage |
 | `tests-coverage-80` | 80% aggregate core coverage gate | 4 | 4 | Exact versioned coverage gate and tests |
 | `tests-race-vet-linux` | Linux race and vet | 3 | 0 | Commit-bound CI attestation absent |
-| `tests-five-target-cross-build` | Five-target Linux/BSD cross-build | 3 | 0 | Commit-bound CI attestation absent |
+| `tests-nine-target-cross-build` | Nine-target Linux/BSD cross-build | 3 | 0 | Commit-bound CI attestation absent |
 | `tests-native-bsd-physical-smoke` | Native BSD and physical-hardware smoke tests | 5 | 0 | Authenticated native-runtime evidence absent |
 | `security-threat-model` | Threat model and scope | 4 | 4 | Exact threat-model and security-policy files |
-| `security-injection-bounds-redaction` | Injection, bounds, and redaction tests | 4 | 4 | Exact security negative-test inventory |
+| `security-injection-bounds-redaction` | Injection, bounds, and redaction tests | 4 | 4 | Exact security negative-test inventory, including KVM endpoint and fixed-argv checks |
 | `security-pinned-least-privilege-ci` | Pinned least-privilege CI | 3 | 3 | Exact reviewed workflow definitions; not an execution claim |
 | `security-sbom-checksum-provenance` | SBOM, checksum, and provenance tooling | 2 | 2 | Exact LF-normalization, lifecycle-script, deterministic archive, package-manifest, readiness-integrity, checksum, provenance, and SBOM tooling; not native-host or publication evidence |
 | `security-independent-audit-closed` | Closed independent audit findings | 2 | 0 | Authenticated independent-audit closure absent |
-| `packaging-five-release-archives` | Five published Linux/BSD release archives | 2 | 0 | Five release archives and release attestation absent |
+| `packaging-nine-release-archives` | Nine published Linux/BSD release archives | 2 | 0 | Nine release archives and release attestation absent |
 | `packaging-version-sbom-checksums` | Version metadata, SBOMs, and checksums tooling | 2 | 2 | Exact version/SBOM/release-check tooling |
 | `packaging-publication-attestation` | Release publication and attestation | 1 | 0 | Published release attestation absent |
 | `packaging-native-os-packages` | Native OS packages | 3 | 0 | Authenticated native-package evidence absent |
@@ -123,8 +124,9 @@ Schema version 3 fixes two independent, ordered handoff routes:
    gamepad hosting is unavailable, and capture, audio, keyboard/mouse, session
    quality, and gameplay remain unvalidated.
 
-For each route, Linux, FreeBSD, OpenBSD, NetBSD, and DragonFly BSD on `amd64`
-is only the Moonlight viewer/controller. Each of the ten route/client cells has
+For each route, Linux, FreeBSD, OpenBSD, and NetBSD on `amd64` or `arm64`, plus
+DragonFly BSD on `amd64`, is only the Moonlight viewer/controller. Each of the
+18 route/client cells has
 the same four derived 25-point gates. The route-specific physical-host gate is
 deliberately different:
 
@@ -142,7 +144,7 @@ host:
 | `session-quality` | Route-bound pairing, discovery, video/audio stability, and bounded versioned latency measurements |
 | `gameplay-interaction` | Route-bound keyboard/mouse interaction, streamed Practice Tool, current League patch, and no relevant Riot/anti-cheat error |
 
-Both routes and all five platforms per route currently score **0/100 —
+Both routes and all nine target combinations per route currently score **0/100 —
 unvalidated**. They are reported independently; there is no aggregate remote
 score and no zero or candidate state for one route implies anything about the
 other. “Experimental” describes Sunshine's macOS host implementation, not a

@@ -57,9 +57,18 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 		"valve-proton":                 "https://partner.steamgames.com/doc/steamhardware/proton",
 		"dockur-environment":           "https://github.com/dockur/windows/blob/master/docs/environment.md",
 		"sunshine-docs":                "https://docs.lizardbyte.dev/projects/sunshine/latest/",
+		"sunshine-raw-input":           "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2troubleshooting.html?lng=en-US",
+		"sunshine-getting-started":     "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2getting__started.html?lng=en-US",
+		"libvirtualhid-driver-release": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.829.2338.54",
+		"sunshine-raw-input-preview":   "https://github.com/LizardByte/Sunshine/releases/tag/v2026.831.233010",
 		"moonlight-qt":                 "https://github.com/moonlight-stream/moonlight-qt",
 		"moonlight-embedded":           "https://github.com/moonlight-stream/moonlight-embedded",
 		"microsoft-bcdboot":            "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11",
+		"riot-vanguard-faq":             "https://www.riotgames.com/en/DevRel/vanguard-faq",
+		"pikvm-api":                     "https://docs.pikvm.org/api/",
+		"pikvm-usb":                     "https://docs.pikvm.org/usb/",
+		"pikvm-auth":                    "https://docs.pikvm.org/auth/",
+		"pikvm-audio":                   "https://docs.pikvm.org/audio/",
 	}
 	got := make(map[string]string, len(manifest.Sources))
 	for _, source := range manifest.Sources {
@@ -77,6 +86,15 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 	if !slices.Contains(macOSRoute.SourceIDs, "riot-macos-embedded-vanguard") {
 		t.Fatal("physical macOS route is not bound to Riot's Embedded Vanguard source")
 	}
+	windowsRoute, ok := findBackend(manifest, BackendPhysicalWindowsRemote)
+	if !ok {
+		t.Fatal("physical Windows route is missing")
+	}
+	for _, sourceID := range []string{"sunshine-raw-input", "sunshine-getting-started", "libvirtualhid-driver-release", "sunshine-raw-input-preview"} {
+		if !slices.Contains(windowsRoute.SourceIDs, sourceID) {
+			t.Fatalf("physical Windows route is not bound to Sunshine Raw Input source %q", sourceID)
+		}
+	}
 	for _, backendID := range []BackendID{BackendPhysicalWindowsRemote, BackendPhysicalMacOSRemote} {
 		backend, ok := findBackend(manifest, backendID)
 		if !ok {
@@ -84,6 +102,18 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 		}
 		if !slices.Contains(backend.SourceIDs, "moonlight-qt") || !slices.Contains(backend.SourceIDs, "moonlight-embedded") {
 			t.Fatalf("remote backend %q is not bound to both Moonlight client sources: %v", backendID, backend.SourceIDs)
+		}
+	}
+	kvmRoute, ok := findBackend(manifest, BackendHardwareKVMRemote)
+	if !ok {
+		t.Fatal("hardware KVM route is missing")
+	}
+	if kvmRoute.Kind != KindRemoteHardwareKVM || kvmRoute.LaunchMode != LaunchRemote || kvmRoute.State != StateHandoffOnly || kvmRoute.LaunchVerdict != DecisionDeny || kvmRoute.Authorization != AuthorizationUnverified {
+		t.Fatalf("hardware KVM route = %+v", kvmRoute)
+	}
+	for _, sourceID := range []string{"riot-vanguard-faq", "pikvm-api", "pikvm-usb", "pikvm-auth", "pikvm-audio"} {
+		if !slices.Contains(kvmRoute.SourceIDs, sourceID) {
+			t.Fatalf("hardware KVM route is not bound to source %q", sourceID)
 		}
 	}
 }
@@ -151,7 +181,7 @@ func TestCanonicalSHA256IgnoresLineEndings(t *testing.T) {
 	if lfDigest != crlfDigest {
 		t.Fatalf("line endings changed canonical digest: LF=%s CRLF=%s", lfDigest, crlfDigest)
 	}
-	const want = "6e73736ea84cc6f84f89d34ba1f1b32ce35f5cef2c0011c69291b9986c81700c"
+	const want = "0683fb8e6f92070ff3ae9d5434cfa1ed239983d115acc5010bce88e4079006a7"
 	if lfDigest != want {
 		t.Fatalf("canonical digest = %s, want %s", lfDigest, want)
 	}
@@ -204,7 +234,7 @@ func TestParseRejectsMalformedOrUnsafeManifests(t *testing.T) {
 		"unsafe default allow":  strings.Replace(valid, `"defaultVerdict": "deny"`, `"defaultVerdict": "allow"`, 1),
 		"unknown schema":        strings.Replace(valid, `"../../../schemas/compatibility-manifest.schema.json"`, `"https://attacker.invalid/schema.json"`, 1),
 		"invalid source URL":    strings.Replace(valid, `"https://www.winehq.org/about/"`, `"http://www.winehq.org/about/"`, 1),
-		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-08-26"`, `"checkedAt": "2026-08-31"`, 1),
+		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-08-26"`, `"checkedAt": "2026-09-02"`, 1),
 		"unknown source ref":    strings.Replace(valid, `"winehq-about"]`, `"missing-source"]`, 1),
 		"identity mismatch": strings.Replace(valid, `"id": "proton",
       "displayName": "Proton",
@@ -301,6 +331,28 @@ func TestPhysicalMacOSRemoteCannotBePromotedWithoutANewContract(t *testing.T) {
 		return
 	}
 	t.Fatal("physical macOS remote route is missing")
+}
+
+func TestHardwareKVMRemoteCannotBePromotedWithoutANewContract(t *testing.T) {
+	t.Parallel()
+	manifest := mustEmbedded(t)
+	for i := range manifest.Backends {
+		backend := &manifest.Backends[i]
+		if backend.ID != BackendHardwareKVMRemote {
+			continue
+		}
+		if backend.Kind != KindRemoteHardwareKVM || backend.LaunchMode != LaunchRemote || backend.State != StateHandoffOnly || backend.LaunchVerdict != DecisionDeny || backend.Authorization != AuthorizationUnverified {
+			t.Fatalf("embedded hardware KVM route = %+v", *backend)
+		}
+		backend.State = StateSupported
+		backend.LaunchVerdict = DecisionAllow
+		backend.Authorization = AuthorizationOfficial
+		if err := Validate(manifest); err == nil || !strings.Contains(err.Error(), "hardware KVM route must remain handoff-only") {
+			t.Fatalf("promotion error = %v", err)
+		}
+		return
+	}
+	t.Fatal("hardware KVM route is missing")
 }
 
 func FuzzParseNeverPanics(f *testing.F) {

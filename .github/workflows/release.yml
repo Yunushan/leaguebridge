@@ -114,9 +114,13 @@ jobs:
           echo "release_version=$release_version" >>"$GITHUB_OUTPUT"
           archives=(
             "leaguebridge_${release_version}_linux_amd64.tar.gz"
+            "leaguebridge_${release_version}_linux_arm64.tar.gz"
             "leaguebridge_${release_version}_freebsd_amd64.tar.gz"
+            "leaguebridge_${release_version}_freebsd_arm64.tar.gz"
             "leaguebridge_${release_version}_openbsd_amd64.tar.gz"
+            "leaguebridge_${release_version}_openbsd_arm64.tar.gz"
             "leaguebridge_${release_version}_netbsd_amd64.tar.gz"
+            "leaguebridge_${release_version}_netbsd_arm64.tar.gz"
             "leaguebridge_${release_version}_dragonfly_amd64.tar.gz"
           )
           expected=("${archives[@]}" checksums.txt)
@@ -170,9 +174,13 @@ jobs:
           subject-path: |
             dist/checksums.txt
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_linux_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_linux_arm64.tar.gz
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_freebsd_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_freebsd_arm64.tar.gz
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_openbsd_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_openbsd_arm64.tar.gz
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_netbsd_amd64.tar.gz
+            dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_netbsd_arm64.tar.gz
             dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_dragonfly_amd64.tar.gz
       - name: Verify release attestations before publication
         env:
@@ -236,9 +244,13 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             dist/checksums.txt \
             "dist/leaguebridge_${release_version}_linux_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_linux_arm64.tar.gz" \
             "dist/leaguebridge_${release_version}_freebsd_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_freebsd_arm64.tar.gz" \
             "dist/leaguebridge_${release_version}_openbsd_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_openbsd_arm64.tar.gz" \
             "dist/leaguebridge_${release_version}_netbsd_amd64.tar.gz" \
+            "dist/leaguebridge_${release_version}_netbsd_arm64.tar.gz" \
             "dist/leaguebridge_${release_version}_dragonfly_amd64.tar.gz" \
             --verify-tag \
             --generate-notes \

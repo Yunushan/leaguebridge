@@ -169,6 +169,35 @@ func TestValidateSetShapeRequiresCompleteNativeRuntimeSet(t *testing.T) {
 	}
 }
 
+func TestValidateSetShapeRequiresAllSupportedBSDArchitectures(t *testing.T) {
+	targets := []target{
+		{GOOS: "freebsd", GOARCH: "amd64"},
+		{GOOS: "freebsd", GOARCH: "arm64"},
+		{GOOS: "openbsd", GOARCH: "amd64"},
+		{GOOS: "openbsd", GOARCH: "arm64"},
+		{GOOS: "netbsd", GOARCH: "amd64"},
+		{GOOS: "netbsd", GOARCH: "arm64"},
+		{GOOS: "dragonfly", GOARCH: "amd64"},
+	}
+	values := make([]loadedDocument, 0, len(targets))
+	for _, target := range targets {
+		value := makeDocumentForSet("bsd-runtime", target.GOOS, target.GOARCH, "virtualized", "Linux", "X64")
+		values = append(values, loadedDocument{Path: "bsd-evidence/" + target.GOOS + "/" + target.GOARCH + "/native-runtime.json", Value: value})
+	}
+	if err := validateSetShape("bsd-runtime", values); err != nil {
+		t.Fatalf("complete BSD set rejected: %v", err)
+	}
+	if err := validateSetShape("bsd-runtime", values[:len(values)-1]); err == nil {
+		t.Fatal("incomplete BSD set accepted")
+	}
+	if err := validateTarget("bsd-runtime", target{GOOS: "dragonfly", GOARCH: "arm64"}); err == nil {
+		t.Fatal("DragonFly arm64 target accepted")
+	}
+	if err := validateDocument(makeDocumentForSet("bsd-runtime", "freebsd", "arm64", "virtualized", "Linux", "X64")); err != nil {
+		t.Fatalf("FreeBSD arm64 document rejected: %v", err)
+	}
+}
+
 func TestVerifySetRejectsUnprovenPhysicalClaim(t *testing.T) {
 	input := verifyRequest{
 		Kind: "linux-runtime", SubjectPaths: []string{"linux-evidence/native-runtime.json"},

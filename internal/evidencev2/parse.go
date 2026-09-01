@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Yunushan/leaguebridge/internal/evidence"
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const maxJSONDepth = 32
@@ -198,11 +199,8 @@ func parsePayload(data []byte) (payload, error) {
 			return payload{}, errors.New("physical-macos-remote host must be macos/amd64 or macos/arm64")
 		}
 	}
-	if !supportedClientPlatforms[parsed.ClientPlatform] {
-		return payload{}, fmt.Errorf("unsupported client_platform %q", parsed.ClientPlatform)
-	}
-	if parsed.ClientArchitecture != "amd64" {
-		return payload{}, errors.New("client_architecture must be amd64")
+	if !supportedClientPlatforms[parsed.ClientPlatform] || !target.IsSupportedEvidencePlatform(parsed.ClientPlatform, parsed.ClientArchitecture) {
+		return payload{}, fmt.Errorf("unsupported client target %s/%s", parsed.ClientPlatform, parsed.ClientArchitecture)
 	}
 	for _, digest := range []struct {
 		name  string

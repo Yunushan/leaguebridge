@@ -55,7 +55,7 @@
       "$ref": "#/$defs/date"
     },
     "manifest_sha256": {
-      "const": "6e73736ea84cc6f84f89d34ba1f1b32ce35f5cef2c0011c69291b9986c81700c"
+      "const": "0683fb8e6f92070ff3ae9d5434cfa1ed239983d115acc5010bce88e4079006a7"
     },
     "tool_version": {
       "$ref": "#/$defs/toolVersion"
@@ -264,7 +264,16 @@
           "properties": {
             "role": { "const": "client" },
             "platform": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"] },
-            "architecture": { "const": "amd64" }
+            "architecture": { "enum": ["amd64", "arm64"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "platform": { "const": "dragonflybsd" } },
+            "required": ["platform"]
+          },
+          "then": {
+            "properties": { "architecture": { "const": "amd64" } }
           }
         }
       ]
@@ -276,7 +285,16 @@
           "properties": {
             "role": { "const": "session" },
             "platform": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"] },
-            "architecture": { "const": "amd64" }
+            "architecture": { "enum": ["amd64", "arm64"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "platform": { "const": "dragonflybsd" } },
+            "required": ["platform"]
+          },
+          "then": {
+            "properties": { "architecture": { "const": "amd64" } }
           }
         }
       ]

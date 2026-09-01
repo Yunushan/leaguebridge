@@ -25,6 +25,23 @@ func TestLoadValidAndDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultForRouteUsesLeagueApplication(t *testing.T) {
+	for _, route := range []Route{RouteWindows, RouteMacOS} {
+		t.Run(string(route), func(t *testing.T) {
+			cfg, err := DefaultForRoute(route)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.RemoteHost.App != DefaultRemoteApplication {
+				t.Fatalf("default application = %q, want %q", cfg.RemoteHost.App, DefaultRemoteApplication)
+			}
+			if cfg.RemoteHost.App != "League of Legends" {
+				t.Fatalf("default application = %q, want the exact League application name", cfg.RemoteHost.App)
+			}
+		})
+	}
+}
+
 func TestSchemaV2MacOSRoundTripAndLegacyV1Normalization(t *testing.T) {
 	dir := t.TempDir()
 	macPath := filepath.Join(dir, "macos.json")
@@ -71,6 +88,37 @@ func TestSchemaV2MacOSRoundTripAndLegacyV1Normalization(t *testing.T) {
 	}
 	if normalized.SchemaVersion != SchemaVersion || normalized.RouteID != RouteWindows || normalized.RemoteHost.Host != "pc.local" {
 		t.Fatalf("legacy normalization = %+v", normalized)
+	}
+}
+
+func TestKVMConfigRoundTripAndClone(t *testing.T) {
+	cfg, err := DefaultForRoute(RouteWindows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.RemoteHost.Host = "gaming-pc.local"
+	cfg.RemoteHost.PhysicalHostConfirmed = true
+	cfg.KVM = &KVMConfig{Endpoint: "https://kvm.lan/"}
+
+	clone := cfg.Clone()
+	if clone.KVM == nil || clone.KVM == cfg.KVM {
+		t.Fatal("Clone() did not copy KVM settings independently")
+	}
+	clone.KVM.Endpoint = "https://other-kvm.lan/"
+	if cfg.KVM.Endpoint != "https://kvm.lan/" {
+		t.Fatalf("Clone() mutation changed original KVM endpoint to %q", cfg.KVM.Endpoint)
+	}
+
+	path := filepath.Join(t.TempDir(), "kvm.json")
+	if err := WriteNew(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.KVM == nil || loaded.KVM.Endpoint != cfg.KVM.Endpoint {
+		t.Fatalf("loaded KVM config = %+v, want %+v", loaded.KVM, cfg.KVM)
 	}
 }
 
@@ -148,20 +196,47 @@ func TestLoadNotFound(t *testing.T) {
 }
 
 func TestValidateHost(t *testing.T) {
-	valid := []string{"gaming-pc.local", "192.168.1.8", "2001:db8::1", "pc_name"}
+	valid := []string{"gaming-pc.local", "gaming-pc.local:47989", "192.168.1.8", "192.168.1.8:47989", "2001:db8::1", "[2001:db8::1]", "[2001:db8::1]:47989", "[fe80::1%25em0]:47989", "pc_name"}
 	for _, host := range valid {
 		if err := ValidateHost(host); err != nil {
 			t.Errorf("ValidateHost(%q): %v", host, err)
 		}
 	}
 	invalid := []string{
-		"", " host", "-option", "https://pc", "pc;shutdown", "pc/name", "bad..name", "[::1]",
+		"", " host", "-option", "https://pc", "pc;shutdown", "pc/name", "bad..name", "[::1]:0", "[::1]:65536", "[::1]:47989x", "[pc]", "[::1]suffix", "pc:0", "pc:65536", "pc:47989x", ":47989",
 		string([]byte{'p', 'c', 0xff}), "fe80::1%bad\x1bzone", "pc\u0085name",
 	}
 	for _, host := range invalid {
 		if err := ValidateHost(host); err == nil {
 			t.Errorf("ValidateHost(%q) unexpectedly passed", host)
 		}
+	}
+}
+
+func TestParseHostEndpointNormalizesBracketedIPv6(t *testing.T) {
+	tests := []struct {
+		host    string
+		address string
+		port    int
+	}{
+		{host: "2001:db8::1", address: "2001:db8::1"},
+		{host: "[2001:db8::1]", address: "2001:db8::1"},
+		{host: "[2001:db8::1]:47989", address: "2001:db8::1", port: 47989},
+		{host: "[fe80::1%eth0]:47989", address: "fe80::1%eth0", port: 47989},
+		{host: "[fe80::1%25em0]:47989", address: "fe80::1%em0", port: 47989},
+		{host: "gaming-pc.local:47989", address: "gaming-pc.local", port: 47989},
+		{host: "192.168.1.8:47989", address: "192.168.1.8", port: 47989},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			endpoint, err := ParseHostEndpoint(tt.host)
+			if err != nil {
+				t.Fatalf("ParseHostEndpoint(%q): %v", tt.host, err)
+			}
+			if endpoint.Address != tt.address || endpoint.Port != tt.port {
+				t.Fatalf("ParseHostEndpoint(%q) = %+v, want address %q port %d", tt.host, endpoint, tt.address, tt.port)
+			}
+		})
 	}
 }
 
@@ -177,6 +252,9 @@ func TestValidateConfig(t *testing.T) {
 		func(c *Config) { c.RouteID = "wine" },
 		func(c *Config) { c.RemoteHost.App = "" },
 		func(c *Config) { c.RemoteHost.Client = "sh -c" },
+		func(c *Config) { c.KVM = &KVMConfig{Endpoint: "https://user:secret@kvm.lan/"} },
+		func(c *Config) { c.KVM = &KVMConfig{Endpoint: "http://kvm.lan/"} },
+		func(c *Config) { c.KVM = &KVMConfig{Endpoint: "https://kvm.lan/?token=secret"} },
 	}
 	for i, mutate := range mutations {
 		bad := cfg

@@ -7,29 +7,72 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Yunushan/leaguebridge/internal/compat"
 	"github.com/Yunushan/leaguebridge/internal/config"
+	"github.com/Yunushan/leaguebridge/internal/kvm"
 	"github.com/Yunushan/leaguebridge/internal/probe"
 	"github.com/Yunushan/leaguebridge/internal/remote"
+	"github.com/Yunushan/leaguebridge/internal/target"
+	"github.com/Yunushan/leaguebridge/internal/wol"
 )
 
-// Pairing and app-listing are finite control-plane operations. Bound them so
-// an unreachable physical host cannot leave a Linux/BSD terminal blocked
-// forever. Interactive streaming intentionally keeps the caller's lifetime.
-const remoteControlTimeout = 60 * time.Second
+// Pairing, app-listing, and remote-session termination are finite control-plane
+// operations. Bound them so an unreachable physical host cannot leave a
+// Linux/BSD terminal blocked forever. Interactive streaming intentionally
+// keeps the caller's lifetime.
+const (
+	remoteControlTimeout        = 60 * time.Second
+	remoteMaxReconnectAttempts  = 5
+	remoteMaxReconnectDelay     = 60
+	remoteDefaultWakeWait       = 15
+	remoteMaxWakeWait           = 300
+	remoteDefaultWakeRetries    = 3
+	remoteMaxWakeRetries        = 5
+	remoteDefaultWakeRetryDelay = 5
+	remoteMaxWakeRetryDelay     = 60
+)
 
 // Moonlight application listings are small in normal use. Keep the
 // verification capture bounded so a hostile or malfunctioning host cannot
 // consume unbounded client memory; output still streams to the caller.
 const remoteApplicationListingCaptureLimit = 1 << 20
 
+// SDL gamecontroller database files are small text files. Bound the local
+// preflight so a mistaken path cannot make a remote invocation inspect an
+// unexpectedly large file; Moonlight still owns parsing the file.
+const remoteInputMappingFileLimit = 8 << 20
+
 type remoteListingCapture struct {
 	buffer    bytes.Buffer
 	remaining int
+}
+
+type remoteWakeRetryPlan struct {
+	AdditionalAttempts int `json:"additional_attempts"`
+	DelaySeconds       int `json:"delay_seconds"`
+}
+
+// repeatedStringFlag preserves every occurrence of an option such as
+// Embedded's repeatable --input-device instead of silently keeping only the
+// last value, which is the default behavior of flag.String.
+type repeatedStringFlag []string
+
+func (f *repeatedStringFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, ",")
+}
+
+func (f *repeatedStringFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
 }
 
 func newRemoteListingCapture() *remoteListingCapture {
@@ -56,14 +99,27 @@ func (c *remoteListingCapture) String() string {
 
 func (a *App) runRemote(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		return a.commandError("remote", false, ExitUsage, "expected pair, list, or stream")
+		return a.commandError("remote", false, ExitUsage, "expected map, kvm, wake, pair, unpair, list, stream, or quit")
+	}
+	if args[0] == "map" {
+		return a.runRemoteMap(ctx, args[1:])
+	}
+	if args[0] == "kvm" {
+		return a.runRemoteKVM(ctx, args[1:])
+	}
+	if args[0] == "wake" {
+		return a.runRemoteWake(ctx, args[1:])
 	}
 	var operation remote.Operation
 	switch args[0] {
 	case "pair":
 		operation = remote.Pair
+	case "unpair":
+		operation = remote.Unpair
 	case "list":
 		operation = remote.List
+	case "quit":
+		operation = remote.Quit
 	case "stream":
 		operation = remote.Stream
 	default:
@@ -73,8 +129,9 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	set := a.flagSet("remote " + args[0])
 	configPath := set.String("config", "", "configuration file")
 	routeName := set.String("route", "", "physical-host route: windows or macos (default: configuration, then windows)")
-	host := set.String("host", "", "physical host DNS name or IP")
+	host := set.String("host", "", "physical host DNS name or IP; use HOST:PORT or [IPv6]:PORT for an explicit Moonlight port")
 	application := set.String("app", "", "Sunshine application name")
+	pairingPIN := set.String("pin", "", "Moonlight Qt or Embedded pairing PIN (exactly four ASCII digits; live pair only)")
 	requiredApplication := set.String("require-app", "", "require this application in a live Moonlight list (streams always check their launch app)")
 	requireConfiguredApplication := set.Bool("require-configured-app", false, "require the configured application in a live Moonlight list (streams always check it)")
 	clientSelection := set.String("client", "", "auto, moonlight, moonlight-embedded, moonlight-qt, or flatpak")
@@ -84,15 +141,45 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	packetSize := set.Int("packet-size", 0, "stream network packet size in bytes (1024-9000, multiple of 16); zero keeps the client default")
 	codec := set.String("codec", "", "stream video codec: auto, h264, hevc, or av1; empty keeps the client default")
 	audioConfig := set.String("audio-config", "", "stream audio channels: stereo, 5.1-surround, or 7.1-surround")
+	audioOnHost := set.Bool("audio-on-host", false, "play stream audio on the physical host")
+	audioDevice := set.String("audio-device", "", "Moonlight Embedded audio output device (for example sysdefault or hw:0,0)")
 	preserveHostSettings := set.Bool("preserve-host-settings", false, "ask Moonlight not to apply game or host graphics optimizations")
+	disableGamepadMouseEmulation := set.Bool("disable-gamepad-mouse-emulation", false, "disable Moonlight Embedded gamepad-to-mouse emulation")
+	var inputDevices repeatedStringFlag
+	set.Var(&inputDevices, "input-device", "Moonlight Embedded evdev input device (repeat for multiple /dev/input/eventN devices)")
+	inputMapping := set.String("input-mapping", "", "Moonlight Embedded SDL controller mapping file (absolute Linux/BSD path)")
 	networkMode := set.String("network-mode", "", "Moonlight Embedded network mode: auto, lan, or wan")
-	platform := set.String("platform", "", "Moonlight Embedded output/input platform: auto, x11, x11_vdpau, or sdl")
+	qtPlatform := set.String("qt-platform", "", "Moonlight Qt display backend: auto, xcb, wayland, eglfs, or linuxfb (live stream only)")
+	framePacing := set.String("frame-pacing", "", "Moonlight Qt frame pacing: auto, on, or off")
+	vsync := set.String("vsync", "", "Moonlight Qt VSync: auto, on, or off")
+	keepAwake := set.Bool("keep-awake", false, "ask Moonlight Qt to prevent display sleep while streaming")
+	quitAfter := set.Bool("quit-after", false, "ask Moonlight to stop the host application when the stream ends")
+	captureSystemKeys := set.String("capture-system-keys", "", "Moonlight Qt system-key capture: auto, never, fullscreen, or always")
+	reconnectAttempts := set.Int("reconnect-attempts", 0, "additional stream attempts after a failed Moonlight session (0-5)")
+	reconnectDelay := set.Int("reconnect-delay", 2, "seconds to wait between reconnect attempts (0-60)")
+	platform := set.String("platform", "", "Moonlight Embedded output/input platform: auto, x11, x11_vdpau, x11_vaapi, or sdl")
 	decoder := set.String("decoder", "", "stream video decoder: auto, software, or hardware; Qt/Flatpak only")
 	displayMode := set.String("display-mode", "", "stream display mode: fullscreen, windowed, or borderless; Embedded supports windowed, Qt/Flatpak support all three")
 	absoluteMouse := set.Bool("absolute-mouse", false, "use Moonlight Qt's remote-desktop optimized absolute mouse mode")
 	noAbsoluteMouse := set.Bool("no-absolute-mouse", false, "disable Moonlight Qt's absolute mouse mode")
+	multiController := set.Bool("multi-controller", false, "enable multiple controller input in Moonlight Qt")
+	mouseButtonsSwap := set.Bool("mouse-buttons-swap", false, "swap left and right mouse buttons in Moonlight Qt")
+	touchscreenTrackpad := set.Bool("touchscreen-trackpad", false, "use touchscreen input as a trackpad in Moonlight Qt")
+	muteOnFocusLoss := set.Bool("mute-on-focus-loss", false, "mute stream audio when the Moonlight Qt window loses focus")
+	backgroundGamepad := set.Bool("background-gamepad", false, "accept gamepad input when the Moonlight Qt window is not focused")
+	reverseScrollDirection := set.Bool("reverse-scroll-direction", false, "reverse scroll direction in Moonlight Qt")
+	swapGamepadButtons := set.Bool("swap-gamepad-buttons", false, "swap A/B and X/Y gamepad buttons in Moonlight Qt")
+	performanceOverlay := set.Bool("performance-overlay", false, "show Moonlight Qt's performance overlay")
+	hdr := set.Bool("hdr", false, "request HDR streaming in Moonlight Qt or Embedded")
+	yuv444 := set.Bool("yuv444", false, "request YUV 4:4:4 streaming in Moonlight Qt")
 	confirmed := set.Bool("confirm-physical-host", false, "confirm that the host is not a VM")
-	acknowledged := set.Bool("acknowledge-unverified-handoff", false, "acknowledge that streaming is not local Linux/BSD support")
+	acknowledged := set.Bool("acknowledge-unverified-handoff", false, "acknowledge that the physical-host handoff is not local Linux/BSD support")
+	wakeMAC := set.String("wake-mac", "", "Wake-on-LAN MAC address to wake the physical host before pairing, listing, or streaming")
+	wakeDestination := set.String("wake-broadcast", wol.DefaultDestination, "Wake-on-LAN IPv4 broadcast or unicast destination")
+	wakePort := set.Int("wake-port", wol.DefaultPort, "Wake-on-LAN UDP destination port")
+	wakeWait := set.Int("wake-wait", remoteDefaultWakeWait, "seconds to wait after Wake-on-LAN before host application preflight (0-300)")
+	wakeRetries := set.Int("wake-retries", remoteDefaultWakeRetries, "additional application-list attempts after Wake-on-LAN (0-5; list/stream only)")
+	wakeRetryDelay := set.Int("wake-retry-delay", remoteDefaultWakeRetryDelay, "seconds between Wake-on-LAN application-list retries (0-60)")
 	dryRun := set.Bool("dry-run", false, "validate and print the argument vector without executing")
 	asJSON := set.Bool("json", false, "emit JSON (dry-run only)")
 	if err := parseFlags(set, args[1:]); err != nil {
@@ -103,25 +190,41 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	}
 	confirmationOverridden := false
 	streamOptionsOverridden := false
+	qtPlatformOverridden := false
 	mouseModeOverridden := false
 	hostOverridden := false
 	applicationOverridden := false
+	pairingPINOverridden := false
 	clientOverridden := false
 	requiredApplicationOverridden := false
 	requireConfiguredApplicationOverridden := false
 	acknowledgementOverridden := false
+	reconnectDelayOverridden := false
+	wakeMACOverridden := false
+	wakeDestinationOverridden := false
+	wakePortOverridden := false
+	wakeWaitOverridden := false
+	wakeRetriesOverridden := false
+	wakeRetryDelayOverridden := false
 	set.Visit(func(option *flag.Flag) {
 		switch option.Name {
 		case "confirm-physical-host":
 			confirmationOverridden = true
 		case "host":
 			hostOverridden = true
-		case "resolution", "fps", "bitrate", "packet-size", "codec", "audio-config", "preserve-host-settings", "network-mode", "platform", "decoder", "display-mode":
+		case "resolution", "fps", "bitrate", "packet-size", "codec", "audio-config", "audio-on-host", "audio-device", "preserve-host-settings", "disable-gamepad-mouse-emulation", "input-device", "input-mapping", "network-mode", "frame-pacing", "vsync", "keep-awake", "quit-after", "capture-system-keys", "reconnect-attempts", "reconnect-delay", "platform", "decoder", "display-mode", "multi-controller", "mouse-buttons-swap", "touchscreen-trackpad", "mute-on-focus-loss", "background-gamepad", "reverse-scroll-direction", "swap-gamepad-buttons", "performance-overlay", "hdr", "yuv444":
 			streamOptionsOverridden = true
+			if option.Name == "reconnect-delay" {
+				reconnectDelayOverridden = true
+			}
 		case "absolute-mouse", "no-absolute-mouse":
 			mouseModeOverridden = true
 		case "app":
 			applicationOverridden = true
+		case "pin":
+			pairingPINOverridden = true
+		case "qt-platform":
+			qtPlatformOverridden = true
 		case "require-app":
 			requiredApplicationOverridden = true
 		case "require-configured-app":
@@ -130,15 +233,47 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			clientOverridden = true
 		case "acknowledge-unverified-handoff":
 			acknowledgementOverridden = true
+		case "wake-mac":
+			wakeMACOverridden = true
+		case "wake-broadcast":
+			wakeDestinationOverridden = true
+		case "wake-port":
+			wakePortOverridden = true
+		case "wake-wait":
+			wakeWaitOverridden = true
+		case "wake-retries":
+			wakeRetriesOverridden = true
+		case "wake-retry-delay":
+			wakeRetryDelayOverridden = true
 		}
 	})
 	if *absoluteMouse && *noAbsoluteMouse {
 		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "cannot combine --absolute-mouse and --no-absolute-mouse")
 	}
+	if pairingPINOverridden {
+		if operation != remote.Pair {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--pin requires the pair operation")
+		}
+		if *dryRun {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--pin cannot be used with --dry-run because the pairing PIN would be included in the planned process arguments")
+		}
+		if err := remote.ValidatePairingPIN(*pairingPIN); err != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
+		}
+	}
+	if qtPlatformOverridden {
+		if operation != remote.Stream {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--qt-platform requires the stream operation")
+		}
+		if err := remote.ValidateQtPlatform(*qtPlatform); err != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
+		}
+	}
+	wakeRequested := strings.TrimSpace(*wakeMAC) != ""
 	if operation != remote.Stream {
 		var streamOnly []string
 		if streamOptionsOverridden {
-			streamOnly = append(streamOnly, "--resolution, --fps, --bitrate, --packet-size, --codec, --audio-config, --preserve-host-settings, --network-mode, --platform, --decoder, and --display-mode")
+			streamOnly = append(streamOnly, "--resolution, --fps, --bitrate, --packet-size, --codec, --audio-config, --audio-on-host, --audio-device, --preserve-host-settings, --disable-gamepad-mouse-emulation, --input-device, --input-mapping, --network-mode, --frame-pacing, --vsync, --keep-awake, --quit-after, --capture-system-keys, --reconnect-attempts, --reconnect-delay, --platform, --decoder, --display-mode, --multi-controller, --mouse-buttons-swap, --touchscreen-trackpad, --mute-on-focus-loss, --background-gamepad, --reverse-scroll-direction, --swap-gamepad-buttons, --performance-overlay, --hdr, and --yuv444")
 		}
 		if mouseModeOverridden {
 			streamOnly = append(streamOnly, "--absolute-mouse and --no-absolute-mouse")
@@ -146,12 +281,51 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		if applicationOverridden {
 			streamOnly = append(streamOnly, "--app")
 		}
-		if acknowledgementOverridden {
+		if acknowledgementOverridden && !((operation == remote.Pair || operation == remote.List) && wakeRequested) {
 			streamOnly = append(streamOnly, "--acknowledge-unverified-handoff")
 		}
+		if operation != remote.Pair && operation != remote.List && (wakeMACOverridden || wakeDestinationOverridden || wakePortOverridden || wakeWaitOverridden) {
+			streamOnly = append(streamOnly, "--wake-mac, --wake-broadcast, --wake-port, and --wake-wait")
+		}
+		if operation != remote.List && operation != remote.Stream && (wakeRetriesOverridden || wakeRetryDelayOverridden) {
+			streamOnly = append(streamOnly, "--wake-retries and --wake-retry-delay")
+		}
 		if len(streamOnly) > 0 {
+			if wakeRetriesOverridden || wakeRetryDelayOverridden {
+				return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%s require the list or stream operation", strings.Join(streamOnly, ", "))
+			}
 			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%s require the stream operation", strings.Join(streamOnly, ", "))
 		}
+	}
+	if wakeMACOverridden && !wakeRequested {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-mac must not be empty")
+	}
+	if (wakeDestinationOverridden || wakePortOverridden || wakeWaitOverridden) && !wakeRequested {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-broadcast, --wake-port, and --wake-wait require --wake-mac")
+	}
+	if (wakeRetriesOverridden || wakeRetryDelayOverridden) && !wakeRequested {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-retries and --wake-retry-delay require --wake-mac")
+	}
+	if wakeRequested && (*wakeWait < 0 || *wakeWait > remoteMaxWakeWait) {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-wait must be between 0 and %d seconds, got %d", remoteMaxWakeWait, *wakeWait)
+	}
+	if wakeRequested && (*wakeRetries < 0 || *wakeRetries > remoteMaxWakeRetries) {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-retries must be between 0 and %d, got %d", remoteMaxWakeRetries, *wakeRetries)
+	}
+	if wakeRequested && (*wakeRetryDelay < 0 || *wakeRetryDelay > remoteMaxWakeRetryDelay) {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-retry-delay must be between 0 and %d seconds, got %d", remoteMaxWakeRetryDelay, *wakeRetryDelay)
+	}
+	if wakeRetryDelayOverridden && *wakeRetries == 0 {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--wake-retry-delay requires --wake-retries greater than zero")
+	}
+	if *reconnectAttempts < 0 || *reconnectAttempts > remoteMaxReconnectAttempts {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--reconnect-attempts must be between 0 and %d, got %d", remoteMaxReconnectAttempts, *reconnectAttempts)
+	}
+	if *reconnectDelay < 0 || *reconnectDelay > remoteMaxReconnectDelay {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--reconnect-delay must be between 0 and %d seconds, got %d", remoteMaxReconnectDelay, *reconnectDelay)
+	}
+	if reconnectDelayOverridden && *reconnectAttempts == 0 {
+		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--reconnect-delay requires --reconnect-attempts greater than zero")
 	}
 	applicationCheckRequested := requiredApplicationOverridden || requireConfiguredApplicationOverridden
 	if applicationCheckRequested {
@@ -174,17 +348,37 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		}
 	}
 	streamOptions := remote.StreamOptions{
-		Resolution:           *resolution,
-		FPS:                  *fps,
-		BitrateKbps:          *bitrate,
-		PacketSizeBytes:      *packetSize,
-		Codec:                *codec,
-		AudioConfig:          *audioConfig,
-		PreserveHostSettings: *preserveHostSettings,
-		NetworkMode:          *networkMode,
-		Platform:             *platform,
-		Decoder:              *decoder,
-		DisplayMode:          *displayMode,
+		Resolution:                   *resolution,
+		FPS:                          *fps,
+		BitrateKbps:                  *bitrate,
+		PacketSizeBytes:              *packetSize,
+		Codec:                        *codec,
+		AudioConfig:                  *audioConfig,
+		AudioOnHost:                  *audioOnHost,
+		AudioDevice:                  *audioDevice,
+		PreserveHostSettings:         *preserveHostSettings,
+		DisableGamepadMouseEmulation: *disableGamepadMouseEmulation,
+		InputDevices:                 append([]string(nil), inputDevices...),
+		InputMapping:                 *inputMapping,
+		NetworkMode:                  *networkMode,
+		FramePacing:                  *framePacing,
+		VSync:                        *vsync,
+		KeepAwake:                    *keepAwake,
+		QuitAfter:                    *quitAfter,
+		CaptureSystemKeys:            *captureSystemKeys,
+		Platform:                     *platform,
+		Decoder:                      *decoder,
+		DisplayMode:                  *displayMode,
+		MultiController:              *multiController,
+		MouseButtonsSwap:             *mouseButtonsSwap,
+		TouchscreenTrackpad:          *touchscreenTrackpad,
+		MuteOnFocusLoss:              *muteOnFocusLoss,
+		BackgroundGamepad:            *backgroundGamepad,
+		ReverseScrollDirection:       *reverseScrollDirection,
+		SwapGamepadButtons:           *swapGamepadButtons,
+		PerformanceOverlay:           *performanceOverlay,
+		HDR:                          *hdr,
+		YUV444:                       *yuv444,
 	}
 	if *absoluteMouse {
 		streamOptions.MouseMode = "absolute"
@@ -195,11 +389,37 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		if err := streamOptions.Validate(); err != nil {
 			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
 		}
+		if *inputMapping != "" && !*dryRun {
+			if err := validateRemoteInputMappingFile(*inputMapping); err != nil {
+				return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
+			}
+		}
+		if len(inputDevices) > 0 && !*dryRun {
+			if err := validateRemoteInputDevices(inputDevices); err != nil {
+				return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
+			}
+		}
 	}
 	if !eligibleClientPlatform(a.GOOS, a.GOARCH) {
-		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "remote handoff clients target Linux and BSD on amd64; current host is %s/%s", a.GOOS, a.GOARCH)
+		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "remote handoff clients target Linux, FreeBSD, OpenBSD, or NetBSD on amd64/arm64, or DragonFly BSD on amd64; current host is %s/%s", a.GOOS, a.GOARCH)
 	}
-	cfg, usedPath, err := loadRemoteConfig(*configPath, *routeName)
+	var cfg config.Config
+	var usedPath string
+	var err error
+	if fullyExplicitRemoteInvocation(operation, *configPath, *routeName, hostOverridden, applicationOverridden, clientOverridden, confirmationOverridden, *confirmed) {
+		// A route, host, client, application (for streams), and positive physical
+		// confirmation supplied on the command line form a complete invocation.
+		// Use a route-shaped empty config as the mutable target container so an
+		// unrelated default config cannot block an explicitly selected physical
+		// host. A named --config remains authoritative and is never bypassed.
+		selectedRoute, parseErr := config.ParseRoute(*routeName)
+		if parseErr != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", parseErr)
+		}
+		cfg, err = config.DefaultForRoute(selectedRoute)
+	} else {
+		cfg, usedPath, err = loadRemoteConfig(*configPath, *routeName)
+	}
 	if err != nil {
 		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
 	}
@@ -209,18 +429,6 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	}
 	if err := a.verifyRemoteHandoffContract(route); err != nil {
 		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
-	}
-	preflight := a.prober().Run(ctx, probe.ProfileClient)
-	ready := preflight.Ready()
-	if operation != remote.Stream || *dryRun {
-		// A dry-run only composes and prints a fixed argv; it never opens a
-		// display, reads input, contacts the host, or starts Moonlight. Keep the
-		// graphical/input gates on the live stream path while allowing operators
-		// to inspect a plan from a headless SSH session.
-		ready = preflight.ReadyForControl()
-	}
-	if !ready {
-		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "client preflight failed; run `leaguebridge doctor --profile client` for details")
 	}
 	if hostOverridden {
 		target.Host = *host
@@ -238,10 +446,68 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		target.App = *application
 	}
 	if clientOverridden {
-		target.Client = *clientSelection
+		target.Client = strings.ToLower(strings.TrimSpace(*clientSelection))
 	}
 	if *confirmed {
 		target.PhysicalHostConfirmed = true
+	}
+	if operation == remote.Stream {
+		effectiveClient, err := effectiveRemoteStreamClientSelection(target.Client, *platform, *qtPlatform, streamOptions)
+		if err != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
+		}
+		// Backend selectors are invocation-scoped. When the configuration leaves
+		// the client on auto, bind discovery to the flavor whose command surface
+		// owns the selector; otherwise preflight and discovery can choose different
+		// Moonlight clients when both are installed.
+		target.Client = effectiveClient
+	}
+	prober := a.prober()
+	environment := a.RemoteEnv
+	if environment == nil {
+		environment = remote.RealEnvironment{}
+	}
+	preflight := remoteClientPreflight(ctx, prober, operation, target.Client, *platform, *qtPlatform)
+	ready := preflight.Ready()
+	if operation != remote.Stream || *dryRun {
+		// A dry-run only composes and prints a fixed argv; it never opens a
+		// display, reads input, contacts the host, or starts Moonlight. Keep the
+		// graphical/input gates on the live stream path while allowing operators
+		// to inspect a plan from a headless SSH session.
+		ready = preflight.ReadyForControl()
+	}
+	var client remote.Client
+	automaticFallbackSelection := ""
+	var discoveryCtx context.Context
+	var cancelDiscovery context.CancelFunc
+	if !ready && !*dryRun && operation == remote.Stream && target.Client == "auto" &&
+		strings.TrimSpace(*platform) == "" && strings.TrimSpace(*qtPlatform) == "" {
+		// Automatic selection normally stops at the first discovered client. A
+		// live stream has a stricter local display/input gate, so give the other
+		// installed native Moonlight clients a chance when that first choice is
+		// unusable. Each candidate is still preflighted and passively discovered;
+		// no candidate is started until one complete selection succeeds.
+		discoveryCtx, cancelDiscovery = context.WithTimeout(ctx, 3*time.Second)
+		defer cancelDiscovery()
+		for _, selection := range remote.AutomaticClientSelections(a.GOOS) {
+			candidatePreflight := remoteClientPreflight(ctx, prober, remote.Stream, selection, *platform, *qtPlatform)
+			if !candidatePreflight.Ready() {
+				continue
+			}
+			candidate, discoverErr := remote.DiscoverForPlatform(discoveryCtx, environment, selection, a.GOOS)
+			if discoverErr != nil {
+				continue
+			}
+			preflight = candidatePreflight
+			ready = true
+			target.Client = selection
+			client = candidate
+			automaticFallbackSelection = selection
+			break
+		}
+	}
+	if !ready {
+		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "client preflight failed; run `leaguebridge doctor --profile client` for details")
 	}
 	if err := cfg.Validate(); err != nil {
 		location := "flags/defaults"
@@ -268,21 +534,34 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		// the caller did not spell out one of the optional requirement flags.
 		applicationCheck = target.App
 	}
-	discoveryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	environment := a.RemoteEnv
-	if environment == nil {
-		environment = remote.RealEnvironment{}
+	if discoveryCtx == nil {
+		discoveryCtx, cancelDiscovery = context.WithTimeout(ctx, 3*time.Second)
+		defer cancelDiscovery()
 	}
-	client, err := remote.Discover(discoveryCtx, environment, target.Client)
-	if err != nil {
-		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
+	if client.Binary == "" {
+		client, err = remote.DiscoverForPlatform(discoveryCtx, environment, target.Client, a.GOOS)
+		if err != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
+		}
+	}
+	if operation == remote.Stream && streamOptions.MouseMode == "" {
+		// League's remote-input experiment needs relative pointer capture so a
+		// physical Windows host can expose mouse events through its documented
+		// Raw Input path. Make Moonlight Qt's documented relative default
+		// explicit in generated plans while preserving an explicit absolute
+		// override and Embedded's separate evdev input path.
+		switch client.Flavor {
+		case remote.FlavorQt, remote.FlavorFlatpak:
+			streamOptions.MouseMode = "relative"
+		}
 	}
 	plan, err := remote.BuildDiscoveredPlan(client, remote.Request{
 		Route:                   route,
 		Operation:               operation,
 		Host:                    target.Host,
 		App:                     target.App,
+		PairingPIN:              *pairingPIN,
+		QtPlatform:              *qtPlatform,
 		PhysicalHostConfirmed:   target.PhysicalHostConfirmed,
 		AcceptUnverifiedHandoff: *acknowledged,
 		Stream:                  streamOptions,
@@ -290,9 +569,401 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	if err != nil {
 		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
 	}
+	if automaticFallbackSelection != "" {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("automatic Moonlight selection used %s after the preferred automatic client failed the local stream preflight", automaticFallbackSelection))
+	}
+	var wakePlan *wol.Plan
+	if wakeRequested {
+		builtWakePlan, err := wol.BuildPlan(wol.Request{
+			MAC:                     *wakeMAC,
+			Destination:             *wakeDestination,
+			Port:                    *wakePort,
+			PhysicalHostConfirmed:   target.PhysicalHostConfirmed,
+			AcceptUnverifiedHandoff: *acknowledged,
+		})
+		if err != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
+		}
+		wakePlan = &builtWakePlan
+	}
+	if operation == remote.Stream && *reconnectAttempts > 0 {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("controller will make up to %d additional Moonlight stream attempt(s), waiting %d second(s) between attempts; cancellation never retries", *reconnectAttempts, *reconnectDelay))
+	}
+	var wakeRetryPlan *remoteWakeRetryPlan
+	if wakePlan != nil && (operation == remote.List || operation == remote.Stream) {
+		wakeRetryPlan = &remoteWakeRetryPlan{
+			AdditionalAttempts: *wakeRetries,
+			DelaySeconds:       *wakeRetryDelay,
+		}
+		if *wakeRetries > 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("controller will make up to %d additional application-list attempt(s) after Wake-on-LAN, waiting %d second(s) between attempts; a missing advertised application is not retried", *wakeRetries, *wakeRetryDelay))
+		}
+	}
 	if *dryRun {
 		if *asJSON {
+			if wakePlan != nil {
+				return a.writeJSON("remote "+args[0], struct {
+					remote.Plan
+					Wake      *wol.Plan            `json:"wake,omitempty"`
+					WakeRetry *remoteWakeRetryPlan `json:"wake_retry,omitempty"`
+				}{Plan: plan, Wake: wakePlan, WakeRetry: wakeRetryPlan})
+			}
 			return a.writeJSON("remote "+args[0], plan)
+		}
+		fmt.Fprintln(a.Stdout, "Validated argument vector (no process started):")
+		fmt.Fprintf(a.Stdout, "  executable: %s\n", strconv.Quote(plan.Client.Binary))
+		for i, argument := range plan.Arguments {
+			fmt.Fprintf(a.Stdout, "  argv[%d]: %s\n", i+1, strconv.Quote(argument))
+		}
+		if plan.QtPlatform != "" && plan.QtPlatform != "auto" {
+			fmt.Fprintf(a.Stdout, "  environment: QT_QPA_PLATFORM=%s\n", plan.QtPlatform)
+		}
+		for _, warning := range plan.Warnings {
+			fmt.Fprintf(a.Stdout, "  warning: %s\n", warning)
+		}
+		if wakePlan != nil {
+			fmt.Fprintf(a.Stdout, "  wake: %s:%d for %s; wait %d second(s) before host preflight\n", wakePlan.Destination, wakePlan.Port, wakePlan.MAC, *wakeWait)
+			if wakeRetryPlan != nil {
+				fmt.Fprintf(a.Stdout, "  wake retry: up to %d additional application-list attempt(s), %d second(s) apart\n", wakeRetryPlan.AdditionalAttempts, wakeRetryPlan.DelaySeconds)
+			}
+			for _, warning := range wakePlan.Warnings {
+				fmt.Fprintf(a.Stdout, "  wake warning: %s\n", warning)
+			}
+		}
+		return ExitOK
+	}
+	for _, warning := range plan.Warnings {
+		fmt.Fprintf(a.Stderr, "warning: %s\n", warning)
+	}
+	if wakePlan != nil {
+		for _, warning := range wakePlan.Warnings {
+			fmt.Fprintf(a.Stderr, "warning: %s\n", warning)
+		}
+		wakeCtx, cancelWake := context.WithTimeout(ctx, remoteControlTimeout)
+		err := wol.Execute(wakeCtx, *wakePlan)
+		wakeTimedOut := ctx.Err() == nil && errors.Is(wakeCtx.Err(), context.DeadlineExceeded)
+		cancelWake()
+		if err != nil {
+			if wakeTimedOut {
+				return a.commandError("remote "+args[0], false, ExitInternal, "Wake-on-LAN send timed out after %s; verify the local network and destination", remoteControlTimeout)
+			}
+			return a.commandError("remote "+args[0], false, ExitInternal, "%v", err)
+		}
+		fmt.Fprintf(a.Stdout, "Wake-on-LAN packet sent to %s:%d for %s.\n", wakePlan.Destination, wakePlan.Port, wakePlan.MAC)
+		if *wakeWait > 0 {
+			fmt.Fprintf(a.Stderr, "waiting %d second(s) for the physical host before application preflight\n", *wakeWait)
+			if err := waitForRemoteReconnect(ctx, time.Duration(*wakeWait)*time.Second); err != nil {
+				return a.commandError("remote "+args[0], false, ExitInternal, "Wake-on-LAN wait canceled: %v", err)
+			}
+		}
+	}
+	runner := a.RemoteRunner
+	if runner == nil {
+		runner = remote.ExecRunner{}
+	}
+	var checkStreamApplication func() (int, error)
+	if operation == remote.Stream && !*dryRun {
+		// Every live stream gets a host-application preflight. Use the same
+		// discovered client and bound executable identity, but build a separate
+		// list plan so no stream process starts when Sunshine has not advertised
+		// the exact application that will be launched. The explicit application
+		// requirement flags remain useful for `remote list` and for documenting
+		// intent, but a live stream is never allowed to skip this guard. Reconnect
+		// attempts call this closure again so a stale application listing cannot
+		// authorize a later launch after a dropped session.
+		listPlan, err := remote.BuildDiscoveredPlan(client, remote.Request{
+			Route:                 route,
+			Operation:             remote.List,
+			Host:                  target.Host,
+			PhysicalHostConfirmed: target.PhysicalHostConfirmed,
+		})
+		if err != nil {
+			return a.commandError("remote "+args[0], false, ExitBlocked, "cannot build the application-list preflight: %v", err)
+		}
+		checkStreamApplication = func() (int, error) {
+			fmt.Fprintln(a.Stderr, "preflight: checking that the physical host advertises the requested application before streaming")
+			preflightCtx, cancelPreflight := context.WithTimeout(ctx, remoteControlTimeout)
+			defer cancelPreflight()
+			observedListing := newRemoteListingCapture()
+			preflightStdout := io.MultiWriter(a.Stdout, observedListing)
+			preflightErr := remote.Execute(preflightCtx, runner, a.Stdin, preflightStdout, a.Stderr, listPlan)
+			preflightTimedOut := ctx.Err() == nil &&
+				(errors.Is(preflightCtx.Err(), context.DeadlineExceeded) || errors.Is(preflightErr, context.DeadlineExceeded))
+			if preflightErr != nil {
+				if preflightTimedOut {
+					return ExitInternal, fmt.Errorf("Moonlight application-list preflight timed out after %s; verify that the physical host is reachable and try again", remoteControlTimeout)
+				}
+				return ExitInternal, fmt.Errorf("Moonlight application-list preflight failed: %w", preflightErr)
+			}
+			if !remote.ApplicationListedForFlavor(observedListing.String(), applicationCheck, client.Flavor) {
+				return ExitBlocked, fmt.Errorf("Moonlight listed the host successfully, but required application %q was not advertised; no stream was started", applicationCheck)
+			}
+			return ExitOK, nil
+		}
+		for attempt := 0; ; attempt++ {
+			preflightCode, preflightErr := checkStreamApplication()
+			if preflightErr == nil {
+				break
+			}
+			if wakeRetryPlan == nil || attempt >= wakeRetryPlan.AdditionalAttempts || remoteReconnectStopped(ctx, preflightErr) || preflightCode != ExitInternal {
+				return a.commandError("remote "+args[0], false, preflightCode, "%v", preflightErr)
+			}
+			remaining := wakeRetryPlan.AdditionalAttempts - attempt
+			fmt.Fprintf(a.Stderr, "warning: initial Moonlight application-list attempt %d failed: %v; retrying in %d second(s) (%d Wake-on-LAN retry attempt(s) remaining)\n", attempt+1, preflightErr, wakeRetryPlan.DelaySeconds, remaining)
+			if err := waitForRemoteReconnect(ctx, time.Duration(wakeRetryPlan.DelaySeconds)*time.Second); err != nil {
+				return a.commandError("remote "+args[0], false, ExitInternal, "Wake-on-LAN application-list retry canceled: %v", err)
+			}
+		}
+	}
+	remoteStderr := io.Writer(a.Stderr)
+	if operation == remote.Stream {
+		for attempt := 0; ; attempt++ {
+			err := remote.Execute(ctx, runner, a.Stdin, a.Stdout, remoteStderr, plan)
+			if err == nil {
+				return ExitOK
+			}
+			if attempt >= *reconnectAttempts || remoteReconnectStopped(ctx, err) {
+				return a.commandError("remote "+args[0], false, ExitInternal, "%v", err)
+			}
+			remaining := *reconnectAttempts - attempt
+			fmt.Fprintf(a.Stderr, "warning: Moonlight stream attempt %d failed: %v; retrying in %d second(s) (%d reconnect attempt(s) remaining)\n", attempt+1, err, *reconnectDelay, remaining)
+			if err := waitForRemoteReconnect(ctx, time.Duration(*reconnectDelay)*time.Second); err != nil {
+				return a.commandError("remote "+args[0], false, ExitInternal, "stream reconnect canceled: %v", err)
+			}
+			if checkStreamApplication != nil {
+				preflightCode, preflightErr := checkStreamApplication()
+				if preflightErr != nil {
+					return a.commandError("remote "+args[0], false, preflightCode, "%v", preflightErr)
+				}
+			}
+		}
+	}
+	if operation == remote.List {
+		for attempt := 0; ; attempt++ {
+			observedListing := newRemoteListingCapture()
+			remoteStdout := io.Writer(a.Stdout)
+			if applicationCheckRequested {
+				// Preserve the normal interactive output while retaining a bounded
+				// copy for the optional application-presence check. Stderr is
+				// diagnostics and must never satisfy the requirement.
+				remoteStdout = io.MultiWriter(a.Stdout, observedListing)
+			}
+			executionCtx, cancelExecution := context.WithTimeout(ctx, remoteControlTimeout)
+			err := remote.Execute(executionCtx, runner, a.Stdin, remoteStdout, remoteStderr, plan)
+			timedOut := ctx.Err() == nil && (errors.Is(executionCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded))
+			cancelExecution()
+			if err == nil {
+				if applicationCheckRequested && !remote.ApplicationListedForFlavor(observedListing.String(), applicationCheck, client.Flavor) {
+					return a.commandError("remote "+args[0], false, ExitBlocked, "Moonlight listed the host successfully, but required application %q was not advertised; configure that application on the physical host", applicationCheck)
+				}
+				return ExitOK
+			}
+			if wakeRetryPlan == nil || attempt >= wakeRetryPlan.AdditionalAttempts || remoteReconnectStopped(ctx, err) {
+				if timedOut {
+					return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight %s timed out after %s; verify that the physical host is reachable and try again", args[0], remoteControlTimeout)
+				}
+				return a.commandError("remote "+args[0], false, ExitInternal, "%v", err)
+			}
+			remaining := wakeRetryPlan.AdditionalAttempts - attempt
+			fmt.Fprintf(a.Stderr, "warning: Moonlight application-list attempt %d failed: %v; retrying in %d second(s) (%d Wake-on-LAN retry attempt(s) remaining)\n", attempt+1, err, wakeRetryPlan.DelaySeconds, remaining)
+			if err := waitForRemoteReconnect(ctx, time.Duration(wakeRetryPlan.DelaySeconds)*time.Second); err != nil {
+				return a.commandError("remote "+args[0], false, ExitInternal, "Wake-on-LAN application-list retry canceled: %v", err)
+			}
+		}
+	}
+	executionCtx, cancelExecution := context.WithTimeout(ctx, remoteControlTimeout)
+	defer cancelExecution()
+	if err := remote.Execute(executionCtx, runner, a.Stdin, a.Stdout, remoteStderr, plan); err != nil {
+		if ctx.Err() == nil && (errors.Is(executionCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) {
+			return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight %s timed out after %s; verify that the physical host is reachable and try again", args[0], remoteControlTimeout)
+		}
+		return a.commandError("remote "+args[0], false, ExitInternal, "%v", err)
+	}
+	return ExitOK
+}
+
+// fullyExplicitRemoteInvocation reports whether the command line contains all
+// values that can otherwise come from a default remote configuration. It is
+// intentionally narrower than the KVM shortcut: a Moonlight operation must
+// bind its route, host, client, and physical-host confirmation explicitly, and
+// a stream must also bind its application. An explicit --config always remains
+// authoritative and therefore disables this shortcut.
+func fullyExplicitRemoteInvocation(operation remote.Operation, configPath, routeName string, hostOverridden, applicationOverridden, clientOverridden, confirmationOverridden, confirmed bool) bool {
+	if strings.TrimSpace(configPath) != "" || strings.TrimSpace(routeName) == "" || !hostOverridden || !clientOverridden || !confirmationOverridden || !confirmed {
+		return false
+	}
+	return operation != remote.Stream || applicationOverridden
+}
+
+// remoteClientPreflight keeps the remote command's diagnostic call aligned
+// with the launcher it will discover. The optional stream-aware interfaces are
+// used by the real prober and by richer callers; the base interface remains a
+// safe compatibility fallback for small embedders.
+func remoteClientPreflight(ctx context.Context, prober ProbeRunner, operation remote.Operation, preferred, outputPlatform, qtPlatform string) probe.Report {
+	if qtStreamAware, ok := prober.(interface {
+		ClientForStreamWithQtPlatform(context.Context, string, string, string) probe.Report
+	}); operation == remote.Stream && ok {
+		// A Qt platform override changes which local display and input endpoint
+		// the child process will use. Preflight the effective selection rather
+		// than allowing a stale ambient Wayland endpoint to block explicit X11.
+		return qtStreamAware.ClientForStreamWithQtPlatform(ctx, preferred, outputPlatform, qtPlatform)
+	}
+	if streamAware, ok := prober.(interface {
+		ClientForStream(context.Context, string, string) probe.Report
+	}); operation == remote.Stream && ok {
+		// A live stream must preflight the exact output backend selected by the
+		// invocation. The generic client report cannot distinguish an available
+		// X11 endpoint from an explicitly requested SDL or X11 backend.
+		return streamAware.ClientForStream(ctx, preferred, outputPlatform)
+	}
+	if selectionAware, ok := prober.(interface {
+		ClientFor(context.Context, string) probe.Report
+	}); ok {
+		// The generic client profile remains useful for `doctor`, but a remote
+		// invocation must gate on the exact launcher selected by its config or
+		// flags. Otherwise an unrelated installed client can make a later
+		// discovery failure look like a ready handoff.
+		return selectionAware.ClientFor(ctx, preferred)
+	}
+	return prober.Run(ctx, probe.ProfileClient)
+}
+
+// effectiveRemoteStreamClientSelection keeps the launcher's discovered flavor
+// aligned with a stream backend selector and with every flavor-specific stream
+// option. The doctor command applies the same backend policy for its targeted
+// client report; the remote command must apply it before both preflight and
+// discovery so an auto selection cannot drift between those stages.
+func effectiveRemoteStreamClientSelection(preferred, outputPlatform, qtPlatform string, options remote.StreamOptions) (string, error) {
+	preferred = strings.ToLower(strings.TrimSpace(preferred))
+	selectedOutputPlatform := strings.ToLower(strings.TrimSpace(outputPlatform))
+	selectedQtPlatform := strings.ToLower(strings.TrimSpace(qtPlatform))
+	if selectedOutputPlatform != "" && selectedQtPlatform != "" {
+		return preferred, errors.New("--platform and --qt-platform cannot be combined")
+	}
+	requiresEmbedded, requiresQt := streamOptionBackendRequirements(options)
+	if selectedOutputPlatform != "" {
+		requiresEmbedded = true
+	}
+	if selectedQtPlatform != "" {
+		requiresQt = true
+	}
+	if requiresEmbedded && requiresQt {
+		return preferred, errors.New("the selected stream options require both Embedded and Qt backends; choose one compatible client surface")
+	}
+	if requiresEmbedded {
+		if selectedQtPlatform != "" {
+			return preferred, errors.New("Embedded-only stream options cannot be combined with --qt-platform")
+		}
+		if preferred == "" || preferred == "auto" {
+			return "moonlight-embedded", nil
+		}
+		if preferred == "moonlight-qt" || preferred == "flatpak" {
+			return preferred, fmt.Errorf("the selected stream options require Moonlight Embedded; they cannot be combined with --client %s", preferred)
+		}
+	}
+	if requiresQt {
+		if selectedOutputPlatform != "" {
+			return preferred, errors.New("Qt-only stream options cannot be combined with --platform")
+		}
+		if preferred == "" || preferred == "auto" {
+			return "moonlight-qt", nil
+		}
+		if preferred != "moonlight-qt" && preferred != "flatpak" {
+			return preferred, fmt.Errorf("the selected stream options require Moonlight Qt; they cannot be combined with --client %s", preferred)
+		}
+	}
+	if selectedOutputPlatform != "" {
+		if preferred == "" || preferred == "auto" {
+			return "moonlight-embedded", nil
+		}
+		if preferred == "moonlight-qt" || preferred == "flatpak" {
+			return preferred, fmt.Errorf("--platform selects an Embedded backend; it cannot be combined with --client %s", preferred)
+		}
+	}
+	if selectedQtPlatform != "" {
+		if preferred == "" || preferred == "auto" {
+			return "moonlight-qt", nil
+		}
+		if preferred != "moonlight-qt" && preferred != "flatpak" {
+			return preferred, errors.New("--qt-platform selects a Qt backend; it requires --client moonlight-qt or flatpak")
+		}
+	}
+	return preferred, nil
+}
+
+func streamOptionBackendRequirements(options remote.StreamOptions) (requiresEmbedded, requiresQt bool) {
+	requiresEmbedded = options.AudioDevice != "" || options.DisableGamepadMouseEmulation ||
+		options.InputDevice != "" || len(options.InputDevices) > 0 || options.InputMapping != "" ||
+		options.NetworkMode != "" || options.Platform != ""
+	requiresQt = options.FramePacing != "" || options.VSync != "" || options.KeepAwake ||
+		options.CaptureSystemKeys != "" || options.Decoder != "" || options.MouseMode != "" ||
+		options.MultiController || options.MouseButtonsSwap || options.TouchscreenTrackpad ||
+		options.MuteOnFocusLoss || options.BackgroundGamepad || options.ReverseScrollDirection ||
+		options.SwapGamepadButtons || options.PerformanceOverlay || options.YUV444 ||
+		strings.EqualFold(strings.TrimSpace(options.DisplayMode), "borderless")
+	return requiresEmbedded, requiresQt
+}
+
+func (a *App) runRemoteMap(ctx context.Context, args []string) int {
+	set := a.flagSet("remote map")
+	clientSelection := set.String("client", "moonlight-embedded", "moonlight-embedded or moonlight (BSD alias)")
+	var inputDevices repeatedStringFlag
+	set.Var(&inputDevices, "input-device", "Moonlight Embedded evdev input device (exactly one /dev/input/eventN device)")
+	dryRun := set.Bool("dry-run", false, "validate and print the argument vector without executing")
+	asJSON := set.Bool("json", false, "emit JSON (dry-run only)")
+	if err := parseFlags(set, args); err != nil {
+		return a.commandError("remote map", *asJSON, ExitUsage, "%v", err)
+	}
+	if *asJSON && !*dryRun {
+		return a.commandError("remote map", true, ExitUsage, "--json requires --dry-run so interactive Moonlight output is not mixed with JSON")
+	}
+	if len(inputDevices) == 0 || strings.TrimSpace(inputDevices[0]) == "" {
+		return a.commandError("remote map", *asJSON, ExitUsage, "--input-device is required; provide one /dev/input/eventN device")
+	}
+	if len(inputDevices) != 1 {
+		return a.commandError("remote map", *asJSON, ExitUsage, "remote map accepts exactly one --input-device; repeat it only for remote stream")
+	}
+	inputDevice := inputDevices[0]
+	if !eligibleClientPlatform(a.GOOS, a.GOARCH) {
+		return a.commandError("remote map", *asJSON, ExitBlocked, "local controller mapping targets Linux, FreeBSD, OpenBSD, or NetBSD on amd64/arm64, or DragonFly BSD on amd64; current host is %s/%s", a.GOOS, a.GOARCH)
+	}
+	if !*dryRun {
+		if err := validateRemoteInputDevice(inputDevice); err != nil {
+			return a.commandError("remote map", *asJSON, ExitUsage, "%v", err)
+		}
+	}
+	prober := a.prober()
+	var preflight probe.Report
+	if selectionAware, ok := prober.(interface {
+		ClientFor(context.Context, string) probe.Report
+	}); ok {
+		preflight = selectionAware.ClientFor(ctx, *clientSelection)
+	} else {
+		preflight = prober.Run(ctx, probe.ProfileClient)
+	}
+	if !preflight.ReadyForControl() {
+		return a.commandError("remote map", *asJSON, ExitBlocked, "client preflight failed; install the selected Moonlight Embedded client and run `leaguebridge doctor --profile client` for details")
+	}
+	discoveryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	environment := a.RemoteEnv
+	if environment == nil {
+		environment = remote.RealEnvironment{}
+	}
+	client, err := remote.DiscoverForPlatform(discoveryCtx, environment, *clientSelection, a.GOOS)
+	if err != nil {
+		return a.commandError("remote map", *asJSON, ExitBlocked, "%v", err)
+	}
+	if client.Flavor != remote.FlavorEmbedded {
+		return a.commandError("remote map", *asJSON, ExitUsage, "local controller mapping requires Moonlight Embedded; select --client moonlight-embedded or --client moonlight (got %q)", client.Flavor)
+	}
+	plan, err := remote.BuildDiscoveredInputMappingPlan(client, inputDevice)
+	if err != nil {
+		return a.commandError("remote map", *asJSON, ExitBlocked, "%v", err)
+	}
+	if *dryRun {
+		if *asJSON {
+			return a.writeJSON("remote map", plan)
 		}
 		fmt.Fprintln(a.Stdout, "Validated argument vector (no process started):")
 		fmt.Fprintf(a.Stdout, "  executable: %s\n", strconv.Quote(plan.Client.Binary))
@@ -311,68 +982,366 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	if runner == nil {
 		runner = remote.ExecRunner{}
 	}
-	if operation == remote.Stream && !*dryRun {
-		// Every live stream gets a host-application preflight. Use the same
-		// discovered client and bound executable identity, but build a separate
-		// list plan so no stream process starts when Sunshine has not advertised
-		// the exact application that will be launched. The explicit application
-		// requirement flags remain useful for `remote list` and for documenting
-		// intent, but a live stream is never allowed to skip this guard.
-		listPlan, err := remote.BuildDiscoveredPlan(client, remote.Request{
-			Route:                 route,
-			Operation:             remote.List,
-			Host:                  target.Host,
-			PhysicalHostConfirmed: target.PhysicalHostConfirmed,
-		})
-		if err != nil {
-			return a.commandError("remote "+args[0], false, ExitBlocked, "cannot build the application-list preflight: %v", err)
-		}
-		fmt.Fprintln(a.Stderr, "preflight: checking that the physical host advertises the requested application before streaming")
-		preflightCtx, cancelPreflight := context.WithTimeout(ctx, remoteControlTimeout)
-		observedListing := newRemoteListingCapture()
-		preflightStdout := io.MultiWriter(a.Stdout, observedListing)
-		preflightErr := remote.Execute(preflightCtx, runner, a.Stdin, preflightStdout, a.Stderr, listPlan)
-		preflightTimedOut := ctx.Err() == nil &&
-			(errors.Is(preflightCtx.Err(), context.DeadlineExceeded) || errors.Is(preflightErr, context.DeadlineExceeded))
-		cancelPreflight()
-		if preflightErr != nil {
-			if preflightTimedOut {
-				return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight application-list preflight timed out after %s; verify that the physical host is reachable and try again", remoteControlTimeout)
-			}
-			return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight application-list preflight failed: %v", preflightErr)
-		}
-		if !remote.ApplicationListed(observedListing.String(), applicationCheck) {
-			return a.commandError("remote "+args[0], false, ExitBlocked, "Moonlight listed the host successfully, but required application %q was not advertised; no stream was started", applicationCheck)
-		}
-	}
-	executionCtx := ctx
-	cancelExecution := func() {}
-	controllerDeadline := false
-	if operation != remote.Stream {
-		executionCtx, cancelExecution = context.WithTimeout(ctx, remoteControlTimeout)
-		controllerDeadline = true
-	}
-	defer cancelExecution()
-	remoteStdout := io.Writer(a.Stdout)
-	remoteStderr := io.Writer(a.Stderr)
-	observedListing := newRemoteListingCapture()
-	if operation == remote.List && applicationCheckRequested {
-		// Preserve the normal interactive output while retaining a bounded copy
-		// of stdout for the optional application-presence check. Moonlight sends
-		// its application list as informational stdout; stderr is diagnostics and
-		// must never satisfy the requirement.
-		remoteStdout = io.MultiWriter(a.Stdout, observedListing)
-	}
-	if err := remote.Execute(executionCtx, runner, a.Stdin, remoteStdout, remoteStderr, plan); err != nil {
-		if controllerDeadline && ctx.Err() == nil && errors.Is(executionCtx.Err(), context.DeadlineExceeded) {
-			return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight %s timed out after %s; verify that the physical host is reachable and try again", args[0], remoteControlTimeout)
-		}
-		return a.commandError("remote "+args[0], false, ExitInternal, "%v", err)
-	}
-	if operation == remote.List && applicationCheckRequested && !remote.ApplicationListed(observedListing.String(), applicationCheck) {
-		return a.commandError("remote "+args[0], false, ExitBlocked, "Moonlight listed the host successfully, but required application %q was not advertised; configure that application on the physical host", applicationCheck)
+	if err := remote.Execute(ctx, runner, a.Stdin, a.Stdout, a.Stderr, plan); err != nil {
+		return a.commandError("remote map", false, ExitInternal, "%v", err)
 	}
 	return ExitOK
+}
+
+func (a *App) runRemoteKVM(ctx context.Context, args []string) int {
+	set := a.flagSet("remote kvm")
+	configPath := set.String("config", "", "configuration file (uses its credential-free KVM endpoint when --url is omitted)")
+	routeName := set.String("route", "", "physical-host route: windows or macos (default: configuration, then windows)")
+	endpoint := set.String("url", "", "hardware KVM web-interface URL (https://...; clean endpoint only)")
+	browser := set.String("browser", "auto", "KVM launcher: auto, xdg-open, gio, sensible-browser, or an allowlisted browser (firefox/chromium/etc.)")
+	allowHTTP := set.Bool("allow-http", false, "allow an unencrypted HTTP KVM URL for a trusted LAN bootstrap")
+	confirmed := set.Bool("confirm-physical-host", false, "confirm that the KVM is attached to a physical Windows PC or Mac")
+	acknowledged := set.Bool("acknowledge-unverified-handoff", false, "acknowledge that hardware-KVM control is an unverified manual handoff")
+	wakeMAC := set.String("wake-mac", "", "Wake-on-LAN MAC address to wake the physical host before opening the KVM UI")
+	wakeDestination := set.String("wake-broadcast", wol.DefaultDestination, "Wake-on-LAN IPv4 broadcast or unicast destination")
+	wakePort := set.Int("wake-port", wol.DefaultPort, "Wake-on-LAN UDP destination port")
+	wakeWait := set.Int("wake-wait", remoteDefaultWakeWait, "seconds to wait after Wake-on-LAN before opening the KVM UI (0-300)")
+	dryRun := set.Bool("dry-run", false, "validate and print the browser argument vector without executing")
+	asJSON := set.Bool("json", false, "emit JSON (dry-run only)")
+	if err := parseFlags(set, args); err != nil {
+		return a.commandError("remote kvm", *asJSON, ExitUsage, "%v", err)
+	}
+	if *asJSON && !*dryRun {
+		return a.commandError("remote kvm", true, ExitUsage, "--json requires --dry-run so browser launch output is not mixed with JSON")
+	}
+	urlOverridden := false
+	confirmedOverridden := false
+	wakeMACOverridden := false
+	wakeDestinationOverridden := false
+	wakePortOverridden := false
+	wakeWaitOverridden := false
+	set.Visit(func(option *flag.Flag) {
+		switch option.Name {
+		case "url":
+			urlOverridden = true
+		case "confirm-physical-host":
+			confirmedOverridden = true
+		case "wake-mac":
+			wakeMACOverridden = true
+		case "wake-broadcast":
+			wakeDestinationOverridden = true
+		case "wake-port":
+			wakePortOverridden = true
+		case "wake-wait":
+			wakeWaitOverridden = true
+		}
+	})
+	wakeRequested := strings.TrimSpace(*wakeMAC) != ""
+	if wakeMACOverridden && !wakeRequested {
+		return a.commandError("remote kvm", *asJSON, ExitUsage, "--wake-mac must not be empty")
+	}
+	if (wakeDestinationOverridden || wakePortOverridden || wakeWaitOverridden) && !wakeRequested {
+		return a.commandError("remote kvm", *asJSON, ExitUsage, "--wake-broadcast, --wake-port, and --wake-wait require --wake-mac")
+	}
+	if wakeRequested && (*wakeWait < 0 || *wakeWait > remoteMaxWakeWait) {
+		return a.commandError("remote kvm", *asJSON, ExitUsage, "--wake-wait must be between 0 and %d seconds, got %d", remoteMaxWakeWait, *wakeWait)
+	}
+	if !eligibleClientPlatform(a.GOOS, a.GOARCH) {
+		return a.commandError("remote kvm", *asJSON, ExitBlocked, "hardware-KVM control targets Linux, FreeBSD, OpenBSD, or NetBSD on amd64/arm64, or DragonFly BSD on amd64; current host is %s/%s", a.GOOS, a.GOARCH)
+	}
+	selectedRoute := config.RouteWindows
+	if strings.TrimSpace(*routeName) != "" {
+		parsedRoute, err := config.ParseRoute(*routeName)
+		if err != nil {
+			return a.commandError("remote kvm", *asJSON, ExitUsage, "%v", err)
+		}
+		selectedRoute = parsedRoute
+	}
+	// A configured KVM endpoint is deliberately limited to a clean URL and is
+	// never a credential store. Explicit flags override the optional config
+	// values; the per-operation acknowledgement is never persisted. The same
+	// configuration route also selects which physical-host contract governs the
+	// KVM operation. An explicit route must agree with a configuration when one
+	// is actually used. A fully explicit URL, route, and physical-host
+	// confirmation is intentionally self-contained: an unrelated default
+	// configuration for the other host route must not block an ad-hoc KVM
+	// operation. If the endpoint or confirmation still needs to come from a
+	// configuration, load it and retain the route-conflict check.
+	needsConfiguredValues := !urlOverridden || strings.TrimSpace(*configPath) != "" || wakeRequested && !confirmedOverridden
+	if needsConfiguredValues {
+		configured, _, err := loadRemoteConfig(*configPath, *routeName)
+		if err != nil {
+			return a.commandError("remote kvm", *asJSON, ExitUsage, "load KVM configuration: %v", err)
+		}
+		configuredRoute, err := configured.Route()
+		if err != nil {
+			return a.commandError("remote kvm", *asJSON, ExitUsage, "resolve KVM physical-host route: %v", err)
+		}
+		selectedRoute = configuredRoute
+		if !confirmedOverridden {
+			*confirmed = configured.RemoteHost.PhysicalHostConfirmed
+		}
+		if configured.KVM != nil {
+			if !urlOverridden {
+				*endpoint = configured.KVM.Endpoint
+			}
+		} else if !urlOverridden {
+			return a.commandError("remote kvm", *asJSON, ExitUsage, "hardware KVM endpoint is not configured; pass --url or configure kvm.endpoint")
+		}
+	}
+	// A KVM operation is governed by the one selected physical-host route. Do
+	// not let an unrelated route's stale evidence block this handoff, and do
+	// not allow the selected route to bypass its own fresh handoff contract.
+	if err := a.verifyRemoteHandoffContract(selectedRoute); err != nil {
+		return a.commandError("remote kvm", *asJSON, ExitBlocked, "%s physical-host handoff contract: %v", selectedRoute, err)
+	}
+	if err := a.verifyHardwareKVMContract(); err != nil {
+		return a.commandError("remote kvm", *asJSON, ExitBlocked, "hardware-KVM handoff contract: %v", err)
+	}
+	request := kvm.Request{
+		Endpoint:                *endpoint,
+		AllowHTTP:               *allowHTTP,
+		PhysicalHostConfirmed:   *confirmed,
+		AcceptUnverifiedHandoff: *acknowledged,
+	}
+	if err := kvm.ValidateEndpoint(request.Endpoint, request.AllowHTTP); err != nil {
+		return a.commandError("remote kvm", *asJSON, ExitUsage, "%v", err)
+	}
+	environment := a.RemoteEnv
+	if environment == nil {
+		environment = remote.RealEnvironment{}
+	}
+	discoveryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	launcher, err := kvm.Discover(discoveryCtx, environment, *browser)
+	if err != nil {
+		return a.commandError("remote kvm", *asJSON, ExitBlocked, "%v", err)
+	}
+	plan, err := kvm.BuildDiscoveredPlan(launcher, request)
+	if err != nil {
+		return a.commandError("remote kvm", *asJSON, ExitBlocked, "%v", err)
+	}
+	var wakePlan *wol.Plan
+	if wakeRequested {
+		builtWakePlan, err := wol.BuildPlan(wol.Request{
+			MAC:                     *wakeMAC,
+			Destination:             *wakeDestination,
+			Port:                    *wakePort,
+			PhysicalHostConfirmed:   *confirmed,
+			AcceptUnverifiedHandoff: *acknowledged,
+		})
+		if err != nil {
+			return a.commandError("remote kvm", *asJSON, ExitBlocked, "%v", err)
+		}
+		wakePlan = &builtWakePlan
+	}
+	if *dryRun {
+		if *asJSON {
+			if wakePlan != nil {
+				return a.writeJSON("remote kvm", struct {
+					kvm.Plan
+					Wake *wol.Plan `json:"wake,omitempty"`
+				}{Plan: plan, Wake: wakePlan})
+			}
+			return a.writeJSON("remote kvm", plan)
+		}
+		fmt.Fprintln(a.Stdout, "Validated KVM browser argument vector (no process started):")
+		fmt.Fprintf(a.Stdout, "  executable: %s\n", strconv.Quote(plan.Launcher.Binary))
+		for i, argument := range plan.Arguments {
+			fmt.Fprintf(a.Stdout, "  argv[%d]: %s\n", i+1, strconv.Quote(argument))
+		}
+		for _, warning := range plan.Warnings {
+			fmt.Fprintf(a.Stdout, "  warning: %s\n", warning)
+		}
+		if wakePlan != nil {
+			fmt.Fprintf(a.Stdout, "  wake: %s:%d for %s; wait %d second(s) before opening the KVM UI\n", wakePlan.Destination, wakePlan.Port, wakePlan.MAC, *wakeWait)
+			for _, warning := range wakePlan.Warnings {
+				fmt.Fprintf(a.Stdout, "  wake warning: %s\n", warning)
+			}
+		}
+		return ExitOK
+	}
+	for _, warning := range plan.Warnings {
+		fmt.Fprintf(a.Stderr, "warning: %s\n", warning)
+	}
+	if wakePlan != nil {
+		for _, warning := range wakePlan.Warnings {
+			fmt.Fprintf(a.Stderr, "warning: %s\n", warning)
+		}
+		wakeCtx, cancelWake := context.WithTimeout(ctx, remoteControlTimeout)
+		err := wol.Execute(wakeCtx, *wakePlan)
+		wakeTimedOut := ctx.Err() == nil && errors.Is(wakeCtx.Err(), context.DeadlineExceeded)
+		cancelWake()
+		if err != nil {
+			if wakeTimedOut {
+				return a.commandError("remote kvm", false, ExitInternal, "Wake-on-LAN send timed out after %s; verify the local network and destination", remoteControlTimeout)
+			}
+			return a.commandError("remote kvm", false, ExitInternal, "%v", err)
+		}
+		fmt.Fprintf(a.Stdout, "Wake-on-LAN packet sent to %s:%d for %s.\n", wakePlan.Destination, wakePlan.Port, wakePlan.MAC)
+		if *wakeWait > 0 {
+			fmt.Fprintf(a.Stderr, "waiting %d second(s) for the physical host before opening the KVM UI\n", *wakeWait)
+			if err := waitForRemoteReconnect(ctx, time.Duration(*wakeWait)*time.Second); err != nil {
+				return a.commandError("remote kvm", false, ExitInternal, "Wake-on-LAN wait canceled: %v", err)
+			}
+		}
+	}
+	runner := a.RemoteRunner
+	if runner == nil {
+		runner = remote.ExecRunner{}
+	}
+	executionCtx, cancelExecution := context.WithTimeout(ctx, remoteControlTimeout)
+	defer cancelExecution()
+	if err := kvm.Execute(executionCtx, runner, a.Stdin, a.Stdout, a.Stderr, plan); err != nil {
+		if ctx.Err() == nil && errors.Is(executionCtx.Err(), context.DeadlineExceeded) {
+			return a.commandError("remote kvm", false, ExitInternal, "KVM browser launch timed out after %s; verify the desktop session and selected launcher", remoteControlTimeout)
+		}
+		return a.commandError("remote kvm", false, ExitInternal, "%v", err)
+	}
+	return ExitOK
+}
+
+func (a *App) runRemoteWake(ctx context.Context, args []string) int {
+	set := a.flagSet("remote wake")
+	configPath := set.String("config", "", "configuration file (used to verify the selected physical-host route)")
+	mac := set.String("mac", "", "physical host network-interface MAC address (for example 00:11:22:33:44:55)")
+	destination := set.String("broadcast", wol.DefaultDestination, "IPv4 broadcast or unicast destination for the magic packet")
+	port := set.Int("port", wol.DefaultPort, "UDP destination port for the magic packet")
+	confirmed := set.Bool("confirm-physical-host", false, "confirm that the target host is not a VM")
+	acknowledged := set.Bool("acknowledge-unverified-handoff", false, "acknowledge that waking the physical host is an unverified handoff")
+	dryRun := set.Bool("dry-run", false, "validate and print the Wake-on-LAN plan without sending a packet")
+	asJSON := set.Bool("json", false, "emit JSON (dry-run only)")
+	if err := parseFlags(set, args); err != nil {
+		return a.commandError("remote wake", *asJSON, ExitUsage, "%v", err)
+	}
+	if *asJSON && !*dryRun {
+		return a.commandError("remote wake", true, ExitUsage, "--json requires --dry-run so packet output is not mixed with execution")
+	}
+	if !eligibleClientPlatform(a.GOOS, a.GOARCH) {
+		return a.commandError("remote wake", *asJSON, ExitBlocked, "Wake-on-LAN handoff clients target Linux, FreeBSD, OpenBSD, or NetBSD on amd64/arm64, or DragonFly BSD on amd64; current host is %s/%s", a.GOOS, a.GOARCH)
+	}
+	if strings.TrimSpace(*mac) == "" {
+		return a.commandError("remote wake", *asJSON, ExitUsage, "--mac is required; provide the physical host's six-octet network-interface address")
+	}
+	cfg, usedPath, err := loadRemoteConfig(*configPath)
+	if err != nil {
+		return a.commandError("remote wake", *asJSON, ExitUsage, "%v", err)
+	}
+	_, route, err := cfg.ActiveRemote()
+	if err != nil {
+		return a.commandError("remote wake", *asJSON, ExitUsage, "%v", err)
+	}
+	if err := a.verifyRemoteHandoffContract(route); err != nil {
+		return a.commandError("remote wake", *asJSON, ExitBlocked, "%v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		location := "flags/defaults"
+		if usedPath != "" {
+			location = usedPath
+		}
+		return a.commandError("remote wake", *asJSON, ExitUsage, "invalid remote configuration (%s): %v", location, err)
+	}
+	confirmation := cfg.RemoteHost.PhysicalHostConfirmed
+	confirmationOverridden := false
+	set.Visit(func(option *flag.Flag) {
+		if option.Name == "confirm-physical-host" {
+			confirmationOverridden = true
+		}
+	})
+	if confirmationOverridden {
+		confirmation = *confirmed
+	}
+	plan, err := wol.BuildPlan(wol.Request{
+		MAC:                     *mac,
+		Destination:             *destination,
+		Port:                    *port,
+		PhysicalHostConfirmed:   confirmation,
+		AcceptUnverifiedHandoff: *acknowledged,
+	})
+	if err != nil {
+		return a.commandError("remote wake", *asJSON, ExitBlocked, "%v", err)
+	}
+	if *dryRun {
+		if *asJSON {
+			return a.writeJSON("remote wake", plan)
+		}
+		fmt.Fprintln(a.Stdout, "Validated Wake-on-LAN packet (no packet sent):")
+		fmt.Fprintf(a.Stdout, "  mac: %s\n", plan.MAC)
+		fmt.Fprintf(a.Stdout, "  destination: %s\n", plan.Destination)
+		fmt.Fprintf(a.Stdout, "  port: %d\n", plan.Port)
+		for _, warning := range plan.Warnings {
+			fmt.Fprintf(a.Stdout, "  warning: %s\n", warning)
+		}
+		return ExitOK
+	}
+	for _, warning := range plan.Warnings {
+		fmt.Fprintf(a.Stderr, "warning: %s\n", warning)
+	}
+	executionCtx, cancel := context.WithTimeout(ctx, remoteControlTimeout)
+	defer cancel()
+	if err := wol.Execute(executionCtx, plan); err != nil {
+		if ctx.Err() == nil && errors.Is(executionCtx.Err(), context.DeadlineExceeded) {
+			return a.commandError("remote wake", false, ExitInternal, "Wake-on-LAN send timed out after %s; verify the local network and destination", remoteControlTimeout)
+		}
+		return a.commandError("remote wake", false, ExitInternal, "%v", err)
+	}
+	fmt.Fprintf(a.Stdout, "Wake-on-LAN packet sent to %s:%d for %s. Wait for the physical host, then run the remote pair/list/stream flow.\n", plan.Destination, plan.Port, plan.MAC)
+	return ExitOK
+}
+
+func validateRemoteInputMappingFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("input mapping %q cannot be read: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("input mapping %q is not a regular file", path)
+	}
+	if info.Size() > remoteInputMappingFileLimit {
+		return fmt.Errorf("input mapping %q exceeds the %d-byte limit", path, remoteInputMappingFileLimit)
+	}
+	return nil
+}
+
+func validateRemoteInputDevice(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("input device %q cannot be read: %w", path, err)
+	}
+	if info.Mode()&os.ModeCharDevice == 0 {
+		return fmt.Errorf("input device %q is not a character device", path)
+	}
+	// Opening with O_NONBLOCK verifies the permission that Moonlight will need
+	// without risking a startup hang on a device node. Keep the handle open only
+	// for this check; Moonlight owns the actual device lifetime during a stream.
+	device, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return fmt.Errorf("input device %q cannot be opened for read: %w", path, err)
+	}
+	_ = device.Close()
+	return nil
+}
+
+func validateRemoteInputDevices(paths []string) error {
+	for index, path := range paths {
+		if err := validateRemoteInputDevice(path); err != nil {
+			return fmt.Errorf("input device %d: %w", index+1, err)
+		}
+	}
+	return nil
+}
+
+func remoteReconnectStopped(ctx context.Context, err error) bool {
+	return (ctx != nil && ctx.Err() != nil) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func waitForRemoteReconnect(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func loadRemoteConfig(explicitPath string, requestedRoute ...string) (config.Config, string, error) {
@@ -468,14 +1437,30 @@ func (a *App) verifyRemoteHandoffContract(routes ...config.Route) error {
 	return errors.New("embedded remote-handoff backend is missing")
 }
 
+func (a *App) verifyHardwareKVMContract() error {
+	manifest, err := compat.Embedded()
+	if err != nil {
+		return fmt.Errorf("embedded compatibility authority is invalid: %w", err)
+	}
+	freshness, err := manifest.FreshnessAt(a.now())
+	if err != nil {
+		return fmt.Errorf("compatibility evidence cannot be evaluated: %w", err)
+	}
+	if freshness.State != compat.FreshnessFresh {
+		return fmt.Errorf("compatibility evidence is %s; install a current LeagueBridge release before hardware-KVM handoff", freshness.State)
+	}
+	for _, backend := range manifest.Backends {
+		if backend.ID != compat.BackendHardwareKVMRemote {
+			continue
+		}
+		if backend.State != compat.StateHandoffOnly || backend.LaunchMode != compat.LaunchRemote || backend.Kind != compat.KindRemoteHardwareKVM || backend.LaunchVerdict != compat.DecisionDeny || backend.Authorization != compat.AuthorizationUnverified {
+			return errors.New("embedded hardware-KVM handoff safety contract is not satisfied")
+		}
+		return nil
+	}
+	return errors.New("embedded hardware-KVM handoff backend is missing")
+}
+
 func eligibleClientPlatform(goos, goarch string) bool {
-	if !strings.EqualFold(goarch, "amd64") {
-		return false
-	}
-	switch strings.ToLower(goos) {
-	case "linux", "freebsd", "openbsd", "netbsd", "dragonfly":
-		return true
-	default:
-		return false
-	}
+	return target.IsSupported(goos, goarch)
 }

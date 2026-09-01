@@ -1,8 +1,8 @@
 # Platform scope
 
 LeagueBridge is a Linux/BSD client project. Its supported installation and
-runtime targets are Linux, FreeBSD, OpenBSD, NetBSD, and DragonFly BSD on
-amd64.
+runtime targets are Linux, FreeBSD, OpenBSD, and NetBSD on amd64 or arm64,
+plus DragonFly BSD on amd64.
 
 Windows and macOS are not LeagueBridge gameplay targets. League, Riot Client,
 and Vanguard remain vendor-managed software on those operating systems. The

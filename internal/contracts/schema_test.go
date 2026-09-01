@@ -77,7 +77,7 @@ func TestRepositoryDocumentsConformToDraft202012Schemas(t *testing.T) {
 				})
 			}
 			if test.name == "validation evidence" {
-				record, err := evidence.NewTemplateWithRoute(evidence.RecordHost, "darwin", "arm64", "schema-test", evidence.RoutePhysicalMacOSRemote, time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC))
+				record, err := evidence.NewTemplateWithRoute(evidence.RecordHost, "darwin", "arm64", "schema-test", evidence.RoutePhysicalMacOSRemote, time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -99,8 +99,11 @@ func TestGeneratedPackageManifestsConformToPublicSchema(t *testing.T) {
 	commit := "0123456789abcdef0123456789abcdef01234567"
 	tree := "89abcdef0123456789abcdef0123456789abcdef"
 	targets := []struct{ goos, goarch string }{
-		{"linux", "amd64"}, {"freebsd", "amd64"}, {"openbsd", "amd64"},
-		{"netbsd", "amd64"}, {"dragonfly", "amd64"},
+		{"linux", "amd64"}, {"linux", "arm64"},
+		{"freebsd", "amd64"}, {"freebsd", "arm64"},
+		{"openbsd", "amd64"}, {"openbsd", "arm64"},
+		{"netbsd", "amd64"}, {"netbsd", "arm64"},
+		{"dragonfly", "amd64"},
 	}
 	for _, target := range targets {
 		target := target
@@ -179,10 +182,12 @@ func TestPackageManifestSchemaRejectsRuntimeAndBuilderOverclaims(t *testing.T) {
 		t.Fatal("package manifest schema accepted a non-production release builder")
 	}
 	document["provenance"].(map[string]any)["builder_go_version"] = packageinfo.ProductionBuilderGoVersion
+	document["target"].(map[string]any)["goos"] = "dragonfly"
 	document["target"].(map[string]any)["goarch"] = "arm64"
 	if err := schema.Validate(document); err == nil {
-		t.Fatal("package manifest schema accepted an unsupported linux/arm64 pair")
+		t.Fatal("package manifest schema accepted an unsupported dragonfly/arm64 pair")
 	}
+	document["target"].(map[string]any)["goos"] = "linux"
 	document["target"].(map[string]any)["goarch"] = "amd64"
 	document["provenance"].(map[string]any)["source_tree"] = strings.Repeat("A", 40)
 	if err := schema.Validate(document); err == nil {
@@ -199,7 +204,8 @@ func TestGeneratedNativePackageStagingManifestsConformToPublicSchema(t *testing.
 	schema := compileOffline(t, "schemas/native-package-staging.schema.json", nativePackageSchemaID)
 	targets := []struct{ goos, goarch string }{
 		{"linux", "amd64"}, {"freebsd", "amd64"}, {"openbsd", "amd64"},
-		{"netbsd", "amd64"}, {"dragonfly", "amd64"},
+		{"netbsd", "amd64"},
+		{"dragonfly", "amd64"},
 	}
 	for _, target := range targets {
 		target := target
@@ -647,7 +653,7 @@ func TestValidationEvidenceExamplesPassRuntimeParser(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse %s with runtime evidence contract: %v", example, err)
 			}
-			evaluation, err := evidence.EvaluateAt(record, time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC))
+			evaluation, err := evidence.EvaluateAt(record, time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC))
 			if err != nil {
 				t.Fatalf("evaluate %s: %v", example, err)
 			}
@@ -672,7 +678,7 @@ func TestGeneratedEvidenceTemplatesConformToPublicSchema(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(string(test.recordType)+"/"+test.platform, func(t *testing.T) {
-			record, err := evidence.NewTemplate(test.recordType, test.platform, test.architecture, "contract-test", time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC))
+			record, err := evidence.NewTemplate(test.recordType, test.platform, test.architecture, "contract-test", time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC))
 			if err != nil {
 				t.Fatalf("create template: %v", err)
 			}
@@ -695,7 +701,7 @@ func TestGeneratedEvidenceTemplatesConformToPublicSchema(t *testing.T) {
 
 func TestReviewedEvidenceArtifactMetadataConformsToPublicSchema(t *testing.T) {
 	schema := compileOffline(t, "schemas/validation-evidence.schema.json", evidenceSchemaID)
-	created := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	created := time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
 	record, err := evidence.NewTemplate(evidence.RecordClient, "openbsd", "amd64", "contract-test", created)
 	if err != nil {
 		t.Fatalf("create template: %v", err)

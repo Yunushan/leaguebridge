@@ -19,7 +19,7 @@ import (
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-var v2TestNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+var v2TestNow = time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
 
 type v2Fixture struct {
 	envelope         []byte

@@ -64,7 +64,7 @@ func TestPublishedReadinessSummaryMatchesDerivedScorecard(t *testing.T) {
 		fmt.Sprintf("The current verified source tree derives %d points", scorecard.EngineeringScore()),
 		fmt.Sprintf("for **%d/100**", scorecard.EngineeringScore()),
 		"development or ad hoc build has no value and reports **0/100",
-		"Both routes and all five platforms per route currently score **0/100 —",
+		"Both routes and all nine target combinations per route currently score **0/100 —",
 		"`physical-windows-remote`",
 		"`physical-macos-remote`",
 		"gamepad hosting is unavailable",

@@ -22,15 +22,19 @@ if [ -L "$archive" ] || [ ! -f "$archive" ]; then
 	fail "archive must be a regular, non-symlink file"
 fi
 case "$expected_goos/$expected_goarch" in
-	linux/amd64|freebsd/amd64|openbsd/amd64|netbsd/amd64|dragonfly/amd64) ;;
+	linux/amd64|linux/arm64|freebsd/amd64|freebsd/arm64|openbsd/amd64|openbsd/arm64|netbsd/amd64|netbsd/arm64|dragonfly/amd64) ;;
 	*) fail "expected target is not an installable production artifact" ;;
 esac
 case "$(basename "$archive")" in
 	leaguebridge_*_"$expected_goos"_"$expected_goarch".tar.gz) ;;
 	*) fail "archive filename does not match the expected GOOS/GOARCH target" ;;
 esac
+# Release tooling performs the complete Semantic Version validation before it
+# creates an archive. Keep this portable installer smoke check limited to the
+# required prefix so valid prerelease and build-metadata forms are not rejected
+# by a second, incomplete shell grammar.
 case "$expected_version" in
-	v[0-9]*.[0-9]*.[0-9]*) ;;
+	v*) ;;
 	*) fail "expected version must be v-prefixed" ;;
 esac
 
@@ -45,6 +49,7 @@ esac
 [ "$runtime_goos" = "$expected_goos" ] || fail "runtime kernel does not match the expected archive GOOS"
 case "$(uname -m)" in
 	x86_64|amd64) runtime_goarch=amd64 ;;
+	aarch64|arm64) runtime_goarch=arm64 ;;
 	*) fail "install smoke is running on an unsupported machine architecture" ;;
 esac
 [ "$runtime_goarch" = "$expected_goarch" ] || fail "runtime machine architecture does not match the expected archive GOARCH"

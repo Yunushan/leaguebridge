@@ -44,6 +44,7 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 		"export GONOSUMDB=",
 		"export GOVCS='*:off'",
 		"export GOAMD64=v1",
+		"export GOARM64=v8.0",
 		"export GOTMPDIR=",
 		`! "$SOURCE_DATE_EPOCH" =~ ^[1-9][0-9]*$`,
 		`release_git rev-parse --verify "${GITHUB_SHA}^{commit}"`,
@@ -65,6 +66,7 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 		"native_stage_root=",
 		"native_stage_families=(",
 		"native_stage_archives=(",
+		"created and verified nine Linux/BSD release archives",
 		"leaguebridge-release-contract-v4|",
 		"leaguebridge-build-v4-",
 		"filippo.io/edwards25519@v1.2.0#h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=",
@@ -238,6 +240,32 @@ func TestNativePackageSmokeGuardsWorkspaceOutputDirectories(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNativePackageSmokeUsesTargetPackageManagerContracts(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-bsd-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, required := range []string{
+		`pkg create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n`,
+		`as_root pkg add -f "$package"`,
+		`as_root pkg delete -y "$package_name"`,
+		`pkg_create -A amd64 -B "$staging/root" -p /usr/local \`,
+		`-f "$packlist" -d "$description" \`,
+		`as_root pkg_add -D unsigned -I "$package"`,
+		`as_root pkg_delete -I "$package_name"`,
+		`pkg_create \`,
+		`-I /usr/local -p "$root_abs/usr/local" -F gzip \`,
+		`-c "$comment" -d "$description" -f "$packlist" "$package"`,
+		`as_root pkg_add "$package"`,
+		`as_root pkg_delete -f "$package_name"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("BSD package smoke script is missing target package-manager contract %q", required)
+		}
 	}
 }
 

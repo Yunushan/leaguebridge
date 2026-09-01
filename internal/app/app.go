@@ -99,10 +99,10 @@ func (a *App) printUsage(w io.Writer) {
 Usage:
   leaguebridge status [--json]
   leaguebridge assess --backend ID [--platform OS] [--arch ARCH] [--json]
-  leaguebridge doctor [--profile client|windows-host|macos-host|compatibility] [--json]
+  leaguebridge doctor [--profile client|windows-host|macos-host|compatibility] [--client CLIENT] [--platform PLATFORM | --qt-platform PLATFORM] [--json]
   leaguebridge bundle [--profile client|windows-host|macos-host|compatibility] [--preview | --output FILE]
   leaguebridge config example [--route windows|macos]
-  leaguebridge config init --host HOST [--route windows|macos] [options]
+  leaguebridge config init --host HOST [--route windows|macos] [--kvm-url URL] [options]
   leaguebridge config validate [--file FILE]
   leaguebridge config path
   leaguebridge manifest show
@@ -110,19 +110,23 @@ Usage:
   leaguebridge manifest validate --file FILE
   leaguebridge readiness [--json]
   leaguebridge evidence template --type host|client|session [--route windows|macos] [--platform OS] [--arch ARCH] [--run-id ID]
-  leaguebridge evidence template-set --directory DIR [--route windows|macos] [--host-arch ARCH] [--client-platform OS] [--client-arch amd64] [--run-id ID] [--json]
+  leaguebridge evidence template-set --directory DIR [--route windows|macos] [--host-arch ARCH] [--client-platform OS] [--client-arch amd64|arm64] [--run-id ID] [--json]
   leaguebridge evidence validate --file FILE [--artifacts DIR] [--json]
   leaguebridge evidence verify-set --host FILE --client FILE --session FILE [--host-artifacts DIR --client-artifacts DIR --session-artifacts DIR] [--json]
-  leaguebridge evidence v2 prepare --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64 [--output FILE | --json]
-  leaguebridge evidence v2 verify --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64 [--json]
-  leaguebridge evidence v2 promote --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64 [--json]
-  leaguebridge remote pair|list|stream [options]
+  leaguebridge evidence v2 prepare --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64|arm64 [--output FILE | --json]
+  leaguebridge evidence v2 verify --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64|arm64 [--json]
+  leaguebridge evidence v2 promote --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64|arm64 [--json]
+  leaguebridge remote map|kvm|wake|pair|unpair|list|stream|quit [options]
   leaguebridge version [--json]
 
 League does not run locally on Linux/BSD today: Riot says Wine cannot meet
 Vanguard requirements and Vanguard does not support virtual machines. The
 remote command is an explicit handoff to a user-owned physical Windows PC or
-an unvalidated physical Mac using Sunshine's experimental macOS host.`)
+an unvalidated physical Mac using Sunshine's experimental macOS host. The
+remote wake subcommand can send one standard magic packet to a confirmed
+physical host, and remote kvm only opens a separately managed hardware-KVM web
+UI; neither operation implements a League/Vanguard backend or claims Riot
+compatibility.`)
 }
 
 func (a *App) now() time.Time {

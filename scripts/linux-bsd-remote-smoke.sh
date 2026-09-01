@@ -6,11 +6,11 @@ export LC_ALL=C
 umask 077
 
 usage() {
-	printf '%s\n' "usage: linux-bsd-remote-smoke.sh BINARY EVIDENCE_DIR CONFIG [EXPECTED_APPLICATION]" >&2
+	printf '%s\n' "usage: linux-bsd-remote-smoke.sh BINARY EVIDENCE_DIR CONFIG [EXPECTED_APPLICATION [WAKE_MAC [WAKE_WAIT [WAKE_BROADCAST [WAKE_PORT [WAKE_RETRIES [WAKE_RETRY_DELAY]]]]]]]" >&2
 	exit 2
 }
 
-if [ "$#" -ne 3 ] && [ "$#" -ne 4 ]; then
+if [ "$#" -lt 3 ] || [ "$#" -gt 10 ]; then
 	usage
 fi
 
@@ -18,10 +18,60 @@ binary=$1
 evidence_dir=$2
 config=$3
 expected_application=${4-}
+wake_mac=${5-}
+wake_wait=15
+if [ "$#" -ge 6 ]; then
+	wake_wait=$6
+fi
+wake_broadcast=255.255.255.255
+wake_port=9
+wake_retries=3
+wake_retry_delay=5
+if [ "$#" -ge 7 ]; then
+	wake_broadcast=$7
+fi
+if [ "$#" -ge 8 ]; then
+	wake_port=$8
+fi
+if [ "$#" -ge 9 ]; then
+	wake_retries=$9
+fi
+if [ "$#" -eq 10 ]; then
+	wake_retry_delay=${10}
+fi
 
 if [ "$#" -eq 4 ] && [ -z "$expected_application" ]; then
 	printf '%s\n' "linux-bsd-remote-smoke: EXPECTED_APPLICATION must not be empty" >&2
 	exit 2
+fi
+if [ "$#" -ge 5 ] && [ -z "$wake_mac" ]; then
+	printf '%s\n' "linux-bsd-remote-smoke: WAKE_MAC must not be empty" >&2
+	exit 2
+fi
+if [ "$#" -ge 6 ] && [ -z "$wake_wait" ]; then
+	printf '%s\n' "linux-bsd-remote-smoke: WAKE_WAIT must not be empty" >&2
+	exit 2
+fi
+if [ "$#" -ge 7 ] && [ -z "$wake_broadcast" ]; then
+	printf '%s\n' "linux-bsd-remote-smoke: WAKE_BROADCAST must not be empty" >&2
+	exit 2
+fi
+if [ "$#" -ge 8 ] && [ -z "$wake_port" ]; then
+	printf '%s\n' "linux-bsd-remote-smoke: WAKE_PORT must not be empty" >&2
+	exit 2
+fi
+if [ "$#" -ge 9 ] && [ -z "$wake_retries" ]; then
+	printf '%s\n' "linux-bsd-remote-smoke: WAKE_RETRIES must not be empty" >&2
+	exit 2
+fi
+if [ "$#" -eq 10 ] && [ -z "$wake_retry_delay" ]; then
+	printf '%s\n' "linux-bsd-remote-smoke: WAKE_RETRY_DELAY must not be empty" >&2
+	exit 2
+fi
+
+wake_requested=0
+if [ "$#" -ge 5 ]; then
+	wake_requested=1
 fi
 
 fail() {
@@ -51,8 +101,9 @@ case "$(uname -s)" in
 esac
 case "$(uname -m)" in
 	x86_64|amd64) expected_goarch=amd64 ;;
+	aarch64|arm64) expected_goarch=arm64 ;;
 	*)
-		printf '%s\n' "linux-bsd-remote-smoke: machine architecture is not amd64" >&2
+		printf '%s\n' "linux-bsd-remote-smoke: machine architecture is not amd64 or arm64" >&2
 		exit 1
 		;;
 esac
@@ -123,7 +174,7 @@ require_json_success "$evidence_dir/readiness.json" readiness
 require_json_success "$evidence_dir/manifest-verify.json" "manifest verify"
 require_json_success "$evidence_dir/doctor.json" doctor
 require_fixed "$evidence_dir/doctor.json" "\"os\": \"$expected_goos\"" "runtime GOOS $expected_goos"
-require_fixed "$evidence_dir/doctor.json" '"architecture": "amd64"' "runtime architecture amd64"
+require_fixed "$evidence_dir/doctor.json" "\"architecture\": \"$expected_goarch\"" "runtime architecture $expected_goarch"
 
 for check_id in client.platform client.moonlight client.graphical-session client.input; do
 	if ! awk -v wanted="$check_id" '
@@ -138,14 +189,41 @@ for check_id in client.platform client.moonlight client.graphical-session client
 done
 
 # Listing is the first route-bound operation that reaches the configured,
-# already-paired physical host. Its output remains on the operator's terminal;
+# already-paired physical host. When requested, the controller sends one
+# Wake-on-LAN packet before this operation; the MAC is invocation-only and is
+# never copied to the evidence directory. The output remains on the
+# operator's terminal;
 # only the exit status is retained so host/application names are not copied
 # into the evidence directory by this helper. The configured stream
 # application is always required; when EXPECTED_APPLICATION is supplied, the
 # command also requires that exact entry and LeagueBridge rejects a mismatch
 # with the configured application before reaching the host.
 list_exit=0
-if [ "$#" -eq 4 ]; then
+if [ "$wake_requested" -eq 1 ] && [ -n "$expected_application" ]; then
+	if "$binary" remote list \
+		--config "$config" \
+		--require-configured-app --require-app "$expected_application" \
+		--acknowledge-unverified-handoff --wake-mac "$wake_mac" \
+		--wake-wait "$wake_wait" --wake-broadcast "$wake_broadcast" \
+		--wake-port "$wake_port" --wake-retries "$wake_retries" \
+		--wake-retry-delay "$wake_retry_delay"; then
+		list_exit=0
+	else
+		list_exit=$?
+	fi
+elif [ "$wake_requested" -eq 1 ]; then
+	if "$binary" remote list \
+		--config "$config" \
+		--require-configured-app \
+		--acknowledge-unverified-handoff --wake-mac "$wake_mac" \
+		--wake-wait "$wake_wait" --wake-broadcast "$wake_broadcast" \
+		--wake-port "$wake_port" --wake-retries "$wake_retries" \
+		--wake-retry-delay "$wake_retry_delay"; then
+		list_exit=0
+	else
+		list_exit=$?
+	fi
+elif [ -n "$expected_application" ]; then
 	if "$binary" remote list --config "$config" --require-configured-app --require-app "$expected_application"; then
 		list_exit=0
 	else
@@ -157,7 +235,11 @@ else
 	list_exit=$?
 fi
 if [ "$list_exit" -ne 0 ]; then
-	printf '%s\n' "linux-bsd-remote-smoke: remote list failed; verify pairing, host reachability, and the physical-host confirmation" >&2
+	if [ "$wake_requested" -eq 1 ]; then
+		printf '%s\n' "linux-bsd-remote-smoke: remote list or Wake-on-LAN bootstrap failed; verify the MAC, pairing, host reachability, and physical-host confirmation" >&2
+	else
+		printf '%s\n' "linux-bsd-remote-smoke: remote list failed; verify pairing, host reachability, and the physical-host confirmation" >&2
+	fi
 	exit 1
 fi
 
@@ -192,11 +274,18 @@ require_fixed "$evidence_dir/stream-plan.json" '"1392"' "1392-byte packet-size o
 
 {
 	printf 'goos=%s\n' "$expected_goos"
-	printf 'goarch=%s\n' "$expected_goarch"
+printf 'goarch=%s\n' "$expected_goarch"
 	printf 'kernel_release=%s\n' "$(uname -r)"
 	printf 'doctor_exit=%s\n' "$doctor_exit"
 	printf 'remote_list_exit=%s\n' "$list_exit"
 	printf 'required_application_check=pass\n'
+	if [ "$wake_requested" -eq 1 ]; then
+		printf 'wake_bootstrap=used\n'
+		printf 'wake_retry_attempts=%s\n' "$wake_retries"
+		printf 'wake_retry_delay=%s\n' "$wake_retry_delay"
+	else
+		printf 'wake_bootstrap=not-requested\n'
+	fi
 	printf 'stream_dry_run_exit=%s\n' "$stream_dry_run_exit"
 	printf 'gameplay=not-tested\n'
 } > "$evidence_dir/result.txt"

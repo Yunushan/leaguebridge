@@ -173,7 +173,7 @@ func (a *App) runEvidenceTemplate(args []string) int {
 	recordType := set.String("type", "", "host, client, or session")
 	route := set.String("route", evidence.RoutePhysicalWindowsRemote, "physical-host route: physical-windows-remote or physical-macos-remote")
 	platform := set.String("platform", a.GOOS, "windows/macos for a host; linux or supported BSD for a client/session")
-	architecture := set.String("arch", a.GOARCH, "amd64 for Windows/Linux/BSD; amd64 or arm64 for a macOS host")
+	architecture := set.String("arch", a.GOARCH, "amd64 for Windows; amd64 or arm64 for macOS/Linux/BSD hosts")
 	runID := set.String("run-id", "", "shared run- plus 32 lowercase hexadecimal digits; generated when omitted")
 	if err := parseFlags(set, args); err != nil {
 		return a.commandError("evidence template", false, ExitUsage, "%v", err)
@@ -293,7 +293,7 @@ func (a *App) runEvidenceTemplateSet(args []string) int {
 	route := set.String("route", evidence.RoutePhysicalWindowsRemote, "physical-host route: physical-windows-remote or physical-macos-remote")
 	hostArchitecture := set.String("host-arch", "amd64", "host architecture: amd64 for Windows; amd64 or arm64 for macOS")
 	clientPlatform := set.String("client-platform", "linux", "linux, freebsd, openbsd, netbsd, or dragonflybsd")
-	clientArchitecture := set.String("client-arch", "amd64", "amd64 (the only supported evidence architecture)")
+	clientArchitecture := set.String("client-arch", "amd64", "amd64 or arm64 for Linux/BSD clients; DragonFly BSD is amd64-only")
 	runID := set.String("run-id", "", "shared run- plus 32 lowercase hexadecimal digits; generated when omitted")
 	asJSON := set.Bool("json", false, "emit JSON")
 	if err := parseFlags(set, args); err != nil {

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -22,6 +24,14 @@ const (
 	SchemaVersion       = 2
 	LegacySchemaVersion = 1
 	MaxFileSize         = 64 * 1024
+	MaxKVMEndpointSize  = 2048
+
+	// DefaultRemoteApplication is the exact League application name that a
+	// physical Sunshine host should publish. Starting with the game entry keeps
+	// a normal remote stream from silently opening a generic desktop; operators
+	// can still choose another published host application with --app or direct
+	// configuration editing.
+	DefaultRemoteApplication = "League of Legends"
 )
 
 var ErrNotFound = errors.New("LeagueBridge configuration not found")
@@ -34,6 +44,7 @@ type Config struct {
 	SchemaVersion int        `json:"schema_version"`
 	RouteID       Route      `json:"route_id"`
 	RemoteHost    RemoteHost `json:"remote_host"`
+	KVM           *KVMConfig `json:"kvm,omitempty"`
 }
 
 type RemoteHost struct {
@@ -41,6 +52,13 @@ type RemoteHost struct {
 	App                   string `json:"app"`
 	Client                string `json:"client"`
 	PhysicalHostConfirmed bool   `json:"physical_host_confirmed"`
+}
+
+// KVMConfig stores only a clean device endpoint. Browser credentials, session
+// tokens, device authentication, and HTTP exceptions remain invocation-only;
+// they are never accepted or persisted in LeagueBridge configuration.
+type KVMConfig struct {
+	Endpoint string `json:"endpoint"`
 }
 
 type Route string
@@ -67,7 +85,7 @@ func Default() Config {
 // physical-host route. The Windows route remains the default for compatibility.
 func DefaultForRoute(route Route) (Config, error) {
 	target := RemoteHost{
-		App:    "League of Legends",
+		App:    DefaultRemoteApplication,
 		Client: "auto",
 	}
 	switch route {
@@ -119,7 +137,11 @@ func (c *Config) ActiveRemote() (*RemoteHost, Route, error) {
 
 // Clone returns an independent value copy.
 func (c Config) Clone() Config {
-	return c
+	clone := c
+	if c.KVM != nil {
+		clone.KVM = &KVMConfig{Endpoint: c.KVM.Endpoint}
+	}
+	return clone
 }
 
 // DefaultPath respects an explicit override and otherwise uses the operating
@@ -325,7 +347,57 @@ func (c Config) Validate() error {
 	if _, err := c.Route(); err != nil {
 		return err
 	}
-	return validateRemoteHost("remote_host", c.RemoteHost)
+	if err := validateRemoteHost("remote_host", c.RemoteHost); err != nil {
+		return err
+	}
+	if c.KVM != nil {
+		if err := ValidateKVMEndpoint(c.KVM.Endpoint, false); err != nil {
+			return fmt.Errorf("kvm.endpoint: %w", err)
+		}
+	}
+	return nil
+}
+
+// ValidateKVMEndpoint accepts a clean HTTP(S) hardware-KVM UI endpoint. It is
+// shared by configuration loading and the runtime launcher so a stored value
+// cannot bypass the same credential/token and scheme checks used by --url.
+func ValidateKVMEndpoint(endpoint string, allowHTTP bool) error {
+	if endpoint == "" {
+		return errors.New("KVM endpoint URL is required")
+	}
+	if len(endpoint) > MaxKVMEndpointSize {
+		return fmt.Errorf("KVM endpoint URL exceeds the %d-byte limit", MaxKVMEndpointSize)
+	}
+	if strings.TrimSpace(endpoint) != endpoint || strings.ContainsAny(endpoint, "\r\n\t") {
+		return errors.New("KVM endpoint URL must not contain surrounding whitespace or control characters")
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid KVM endpoint URL: %w", err)
+	}
+	if parsed.Opaque != "" || parsed.Host == "" || parsed.Hostname() == "" {
+		return errors.New("KVM endpoint URL must be an absolute URL with a host")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	switch scheme {
+	case "https":
+	case "http":
+		if !allowHTTP {
+			return errors.New("KVM endpoint uses HTTP; pass --allow-http only for a trusted LAN bootstrap or device that cannot use HTTPS")
+		}
+	default:
+		return errors.New("KVM endpoint URL must use https (or explicit http with --allow-http)")
+	}
+	if parsed.User != nil {
+		return errors.New("KVM endpoint URL must not contain embedded credentials")
+	}
+	if parsed.RawQuery != "" {
+		return errors.New("KVM endpoint URL must not contain query parameters or session tokens")
+	}
+	if parsed.Fragment != "" {
+		return errors.New("KVM endpoint URL must not contain a fragment")
+	}
+	return nil
 }
 
 func validateRemoteHost(field string, target RemoteHost) error {
@@ -370,48 +442,158 @@ func ValidateAppName(app string) error {
 	return nil
 }
 
-// ValidateHost accepts IP literals and conservative DNS/mDNS names. It rejects
-// option-like, URL-like, or shell-like values even though LeagueBridge never
-// invokes a shell.
-func ValidateHost(host string) error {
+// HostEndpoint is a validated Moonlight host address with an optional TCP
+// control port. Port is zero when the client default should be used.
+//
+// Bracketed IPv6 endpoints are accepted because Moonlight Qt uses the
+// [address]:port form for manually supplied hosts. Moonlight Embedded uses the
+// Address and Port fields separately when LeagueBridge builds its argv.
+type HostEndpoint struct {
+	Address string
+	Port    int
+}
+
+// ParseHostEndpoint accepts IP literals and conservative DNS/mDNS names, with
+// an optional port written as HOST:PORT for DNS/IPv4 names or [IPv6]:PORT for
+// IPv6 literals. It rejects option-like, URL-like, or shell-like values even
+// though LeagueBridge never invokes a shell.
+func ParseHostEndpoint(host string) (HostEndpoint, error) {
 	if host == "" || !utf8.ValidString(host) {
-		return errors.New("must be non-empty valid UTF-8")
+		return HostEndpoint{}, errors.New("must be non-empty valid UTF-8")
 	}
 	for _, r := range host {
 		if unicode.IsControl(r) {
-			return errors.New("must not contain control characters")
+			return HostEndpoint{}, errors.New("must not contain control characters")
 		}
 	}
 	if strings.TrimSpace(host) != host {
-		return errors.New("must be non-empty without surrounding whitespace")
+		return HostEndpoint{}, errors.New("must be non-empty without surrounding whitespace")
 	}
 	if len(host) > 253 {
-		return errors.New("exceeds 253 bytes")
+		return HostEndpoint{}, errors.New("exceeds 253 bytes")
 	}
-	if strings.HasPrefix(host, "-") || strings.Contains(host, "://") || strings.ContainsAny(host, "\x00/\\@[] \t\r\n;&|`$<>(){}") {
-		return errors.New("must be an IP address or DNS name, not a URL, option, path, or command")
+	if strings.HasPrefix(host, "-") || strings.Contains(host, "://") || strings.ContainsAny(host, "\x00/\\@ \t\r\n;&|`$<>(){}") {
+		return HostEndpoint{}, errors.New("must be an IP address or DNS name, not a URL, option, path, or command")
 	}
-	// Colons are allowed only for valid IPv6 literals. netip also handles an
-	// interface zone for link-local addresses without accepting URL brackets.
-	if strings.Contains(host, ":") {
-		address, err := netip.ParseAddr(host)
-		if err != nil || !address.Is6() {
-			return errors.New("invalid IPv6 literal")
+
+	addressText := host
+	port := 0
+	bracketed := false
+	if strings.HasPrefix(host, "[") {
+		bracketed = true
+		close := strings.IndexByte(host, ']')
+		if close < 0 {
+			return HostEndpoint{}, errors.New("invalid bracketed IPv6 endpoint")
 		}
-		return nil
+		addressText = host[1:close]
+		suffix := host[close+1:]
+		if suffix != "" {
+			if !strings.HasPrefix(suffix, ":") {
+				return HostEndpoint{}, errors.New("invalid bracketed IPv6 endpoint suffix")
+			}
+			parsedPort, err := parseHostEndpointPort(suffix[1:])
+			if err != nil {
+				return HostEndpoint{}, err
+			}
+			port = parsedPort
+		}
+	} else if strings.ContainsAny(host, "[]") {
+		return HostEndpoint{}, errors.New("brackets are allowed only around an IPv6 literal")
+	} else if strings.Count(host, ":") == 1 {
+		// A single colon cannot be part of an IPv6 literal. Treat it as the
+		// unambiguous HOST:PORT form used by Moonlight Qt and normalize it to
+		// Address plus Port for Moonlight Embedded.
+		separator := strings.LastIndexByte(host, ':')
+		addressText = host[:separator]
+		parsedPort, err := parseHostEndpointPort(host[separator+1:])
+		if err != nil {
+			return HostEndpoint{}, err
+		}
+		port = parsedPort
 	}
-	labels := strings.Split(host, ".")
+
+	// Colons are allowed only for valid IPv6 literals. Moonlight Qt receives the
+	// original bracketed endpoint, where RFC 6874 represents a link-local zone
+	// delimiter as %25 (for example [fe80::1%25em0]:47989). Embedded receives a
+	// decoded zone through Address, so both clients use the form they document.
+	if strings.Contains(addressText, ":") {
+		decodedAddressText, err := decodeIPv6Zone(addressText)
+		if err != nil {
+			return HostEndpoint{}, err
+		}
+		address, err := netip.ParseAddr(decodedAddressText)
+		if err != nil || !address.Is6() {
+			return HostEndpoint{}, errors.New("invalid IPv6 literal")
+		}
+		return HostEndpoint{Address: decodedAddressText, Port: port}, nil
+	}
+	if bracketed {
+		return HostEndpoint{}, errors.New("brackets are allowed only around an IPv6 literal")
+	}
+	labels := strings.Split(addressText, ".")
 	for _, label := range labels {
 		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return errors.New("invalid DNS label")
+			return HostEndpoint{}, errors.New("invalid DNS label")
 		}
 		for _, r := range label {
 			if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '-' && r != '_' {
-				return errors.New("invalid DNS character")
+				return HostEndpoint{}, errors.New("invalid DNS character")
 			}
 		}
 	}
-	return nil
+	return HostEndpoint{Address: addressText, Port: port}, nil
+}
+
+// ValidateHost validates the host endpoint without exposing a parsed value to
+// callers that only need a yes/no check.
+func ValidateHost(host string) error {
+	_, err := ParseHostEndpoint(host)
+	return err
+}
+
+func parseHostEndpointPort(value string) (int, error) {
+	if value == "" || len(value) > 5 || !allASCIIDigits(value) {
+		return 0, errors.New("invalid host port; expected a decimal port from 1 to 65535")
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 || strconv.Itoa(port) != value {
+		return 0, errors.New("invalid host port; expected a decimal port from 1 to 65535")
+	}
+	return port, nil
+}
+
+func allASCIIDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// decodeIPv6Zone accepts the URL-escaped zone delimiter used inside a
+// bracketed IPv6 endpoint and converts it to the scoped-address form accepted
+// by netip and Moonlight Embedded. The rest of the zone is intentionally left
+// untouched; interface names are not URL-decoded by this parser.
+func decodeIPv6Zone(value string) (string, error) {
+	zone := strings.IndexByte(value, '%')
+	if zone < 0 {
+		return value, nil
+	}
+	if zone+3 <= len(value) && value[zone:zone+3] == "%25" {
+		decoded := value[:zone] + "%" + value[zone+3:]
+		if strings.ContainsRune(decoded[zone+1:], '%') {
+			return "", errors.New("invalid IPv6 interface zone")
+		}
+		return decoded, nil
+	}
+	if strings.ContainsRune(value[zone+1:], '%') {
+		return "", errors.New("invalid IPv6 interface zone")
+	}
+	return value, nil
 }
 
 func MarshalExample() ([]byte, error) {

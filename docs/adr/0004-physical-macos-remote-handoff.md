@@ -13,7 +13,7 @@ gamepad hosting, and the project has no physical-Mac session evidence.
 ## Decision
 
 LeagueBridge adds `physical-macos-remote` as an explicit Moonlight handoff route
-for Linux/BSD amd64 clients. The embedded route is fixed to `handoff-only`,
+for Linux/BSD amd64 or arm64 clients. The embedded route is fixed to `handoff-only`,
 `deny`, and `unverified`. It does not authorize local execution, installation,
 service changes, security changes, or anti-cheat workarounds.
 
@@ -39,7 +39,7 @@ route-bound macOS host records for `physical-macos-remote`, including Intel
 `amd64` and Apple-silicon `arm64`; Windows records cannot be reused for that
 route. Readiness schema v3 still represents the macOS route separately at hard
 zero because the production reviewer policy is unprovisioned and no physical
-Mac evidence exists. The release contract publishes exactly five Linux/BSD
+Mac evidence exists. The release contract publishes exactly nine Linux/BSD
 amd64 archives and no Darwin archive or macOS LeagueBridge package;
 cross-compilation and hosted lifecycle execution alone do not establish
 physical-Mac or gameplay support.

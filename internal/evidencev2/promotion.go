@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -151,23 +153,14 @@ func PromoteRemoteSetAt(set VerifiedSet, now time.Time) (ReadinessPromotion, err
 }
 
 func validPromotionCell(set VerifiedSet) bool {
-	if set.clientArchitecture != "amd64" {
+	if !target.IsSupportedEvidencePlatform(set.clientPlatform, set.clientArchitecture) {
 		return false
 	}
 	switch set.routeID {
 	case RoutePhysicalWindowsRemote:
-		return set.hostPlatform == "windows" && set.hostArchitecture == "amd64" && set.clientPlatformIsSupported()
+		return set.hostPlatform == "windows" && set.hostArchitecture == "amd64"
 	case RoutePhysicalMacOSRemote:
-		return set.hostPlatform == "macos" && (set.hostArchitecture == "amd64" || set.hostArchitecture == "arm64") && set.clientPlatformIsSupported()
-	default:
-		return false
-	}
-}
-
-func (set VerifiedSet) clientPlatformIsSupported() bool {
-	switch set.clientPlatform {
-	case "linux", "freebsd", "openbsd", "netbsd", "dragonflybsd":
-		return true
+		return set.hostPlatform == "macos" && (set.hostArchitecture == "amd64" || set.hostArchitecture == "arm64")
 	default:
 		return false
 	}

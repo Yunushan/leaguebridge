@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Yunushan/leaguebridge/internal/releaseversion"
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -84,6 +85,7 @@ type BuildEnvironment struct {
 	GOTOOLCHAIN  string `json:"gotoolchain"`
 	GOWORK       string `json:"gowork"`
 	GOAMD64      string `json:"goamd64"`
+	GOARM64      string `json:"goarm64"`
 	GO111MODULE  string `json:"go111module"`
 	GOPROXY      string `json:"goproxy"`
 	GONOPROXY    string `json:"gonoproxy"`
@@ -154,7 +156,7 @@ func Build(version, goos, goarch string, epoch int64, commit, tree, builderGoVer
 			SourceTree:       tree,
 			SourceDateEpoch:  epoch,
 			BuilderGoVersion: builderGoVersion,
-			BuildEnvironment: buildEnvironmentFor(),
+			BuildEnvironment: buildEnvironmentFor(goarch),
 		},
 		ValidationScope: ValidationScope,
 		DefaultPrefix:   spec.defaultPrefix,
@@ -206,15 +208,18 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 	if !releaseversion.Valid(version) {
 		return targetSpec{}, errors.New("version must be a valid v-prefixed Semantic Version")
 	}
-	if goarch != "amd64" {
-		return targetSpec{}, fmt.Errorf("unsupported architecture %q", goarch)
-	}
 	kernels := map[string]string{
 		"linux":     "Linux",
 		"freebsd":   "FreeBSD",
 		"openbsd":   "OpenBSD",
 		"netbsd":    "NetBSD",
 		"dragonfly": "DragonFly",
+	}
+	if !target.IsSupported(goos, goarch) {
+		if _, ok := kernels[goos]; !ok {
+			return targetSpec{}, fmt.Errorf("unsupported operating system %q", goos)
+		}
+		return targetSpec{}, fmt.Errorf("unsupported target %s/%s", goos, goarch)
 	}
 	kernel, ok := kernels[goos]
 	if !ok {
@@ -243,7 +248,7 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 	}, nil
 }
 
-func buildEnvironmentFor() BuildEnvironment {
+func buildEnvironmentFor(goarch string) BuildEnvironment {
 	environment := BuildEnvironment{
 		CGOEnabled:   "0",
 		GOENV:        "off",
@@ -262,7 +267,11 @@ func buildEnvironmentFor() BuildEnvironment {
 		GOVCS:        "*:off",
 		GOPRIVATE:    "",
 	}
-	environment.GOAMD64 = "v1"
+	if goarch == "amd64" {
+		environment.GOAMD64 = "v1"
+	} else if goarch == "arm64" {
+		environment.GOARM64 = "v8.0"
+	}
 	return environment
 }
 

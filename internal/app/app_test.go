@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,12 +25,22 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/remote"
 )
 
-var fixedNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+var fixedNow = time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
 
 type scriptedProber struct {
-	reports  map[probe.Profile]probe.Report
-	profiles []probe.Profile
-	contexts []context.Context
+	reports          map[probe.Profile]probe.Report
+	clientReports    map[string]probe.Report
+	profiles         []probe.Profile
+	contexts         []context.Context
+	clientSelections []string
+}
+
+type streamAwareScriptedProber struct {
+	*scriptedProber
+	streamSelections   []string
+	streamPlatforms    []string
+	qtStreamSelections []string
+	qtStreamPlatforms  []string
 }
 
 func (p *scriptedProber) Run(ctx context.Context, profile probe.Profile) probe.Report {
@@ -38,6 +50,32 @@ func (p *scriptedProber) Run(ctx context.Context, profile probe.Profile) probe.R
 		return report
 	}
 	return probeReport(profile, probe.StatusPass)
+}
+
+func (p *scriptedProber) ClientFor(ctx context.Context, preferred string) probe.Report {
+	p.clientSelections = append(p.clientSelections, preferred)
+	if report, ok := p.clientReports[preferred]; ok {
+		return report
+	}
+	return p.Run(ctx, probe.ProfileClient)
+}
+
+func (p *streamAwareScriptedProber) ClientForStream(ctx context.Context, preferred, outputPlatform string) probe.Report {
+	p.streamSelections = append(p.streamSelections, preferred)
+	p.streamPlatforms = append(p.streamPlatforms, outputPlatform)
+	if report, ok := p.clientReports[preferred]; ok {
+		return report
+	}
+	return p.Run(ctx, probe.ProfileClient)
+}
+
+func (p *streamAwareScriptedProber) ClientForStreamWithQtPlatform(ctx context.Context, preferred, outputPlatform, qtPlatform string) probe.Report {
+	p.qtStreamSelections = append(p.qtStreamSelections, preferred)
+	p.qtStreamPlatforms = append(p.qtStreamPlatforms, qtPlatform)
+	if report, ok := p.clientReports[preferred]; ok {
+		return report
+	}
+	return p.Run(ctx, probe.ProfileClient)
 }
 
 type fakeRemoteEnvironment struct {
@@ -54,12 +92,16 @@ func (e fakeRemoteEnvironment) LookPath(file string) (string, error) {
 type recordingRemoteRunner struct {
 	name        string
 	args        []string
+	qtPlatform  string
 	stdin       io.Reader
 	ctx         context.Context
 	called      int
+	argsHistory [][]string
 	output      string
+	outputs     []string
 	errorOutput string
 	err         error
+	results     []error
 }
 
 func (r *recordingRemoteRunner) Run(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
@@ -68,8 +110,16 @@ func (r *recordingRemoteRunner) Run(ctx context.Context, stdin io.Reader, stdout
 	r.stdin = stdin
 	r.name = name
 	r.args = append([]string(nil), args...)
-	if r.err == nil {
+	r.argsHistory = append(r.argsHistory, append([]string(nil), args...))
+	err := r.err
+	if len(r.results) >= r.called {
+		err = r.results[r.called-1]
+	}
+	if err == nil {
 		output := r.output
+		if len(r.outputs) >= r.called {
+			output = r.outputs[r.called-1]
+		}
 		if output == "" {
 			output = "moonlight output\n"
 		}
@@ -78,7 +128,12 @@ func (r *recordingRemoteRunner) Run(ctx context.Context, stdin io.Reader, stdout
 			_, _ = io.WriteString(stderr, r.errorOutput)
 		}
 	}
-	return r.err
+	return err
+}
+
+func (r *recordingRemoteRunner) RunWithQtPlatform(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, qtPlatform, name string, args ...string) error {
+	r.qtPlatform = qtPlatform
+	return r.Run(ctx, stdin, stdout, stderr, name, args...)
 }
 
 type failingWriter struct{ err error }
@@ -800,6 +855,51 @@ func TestDoctorPassFailProfilesAndErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("Qt stream selection mirrors live preflight", func(t *testing.T) {
+		a, _, errOut, prober, _ := newTestApp(t)
+		aware := &streamAwareScriptedProber{scriptedProber: prober}
+		a.NewProber = func() ProbeRunner { return aware }
+		if code := a.Run(context.Background(), []string{"doctor", "--profile", "client", "--client", "moonlight-qt", "--qt-platform", "xcb"}); code != ExitOK {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if !reflect.DeepEqual(aware.qtStreamSelections, []string{"moonlight-qt"}) || !reflect.DeepEqual(aware.qtStreamPlatforms, []string{"xcb"}) {
+			t.Fatalf("Qt selections=%v platforms=%v", aware.qtStreamSelections, aware.qtStreamPlatforms)
+		}
+	})
+
+	t.Run("Embedded stream selection mirrors live preflight", func(t *testing.T) {
+		a, _, errOut, prober, _ := newTestApp(t)
+		aware := &streamAwareScriptedProber{scriptedProber: prober}
+		a.NewProber = func() ProbeRunner { return aware }
+		if code := a.Run(context.Background(), []string{"doctor", "--profile", "client", "--platform", "sdl"}); code != ExitOK {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if !reflect.DeepEqual(aware.streamSelections, []string{"moonlight-embedded"}) || !reflect.DeepEqual(aware.streamPlatforms, []string{"sdl"}) {
+			t.Fatalf("Embedded selections=%v platforms=%v", aware.streamSelections, aware.streamPlatforms)
+		}
+	})
+
+	t.Run("backend flags reject incompatible profile and flavor", func(t *testing.T) {
+		tests := []struct {
+			name string
+			args []string
+			want string
+		}{
+			{name: "host profile", args: []string{"doctor", "--profile", "windows-host", "--qt-platform", "xcb"}, want: "require the client profile"},
+			{name: "Qt flag with Embedded", args: []string{"doctor", "--client", "moonlight-embedded", "--qt-platform", "xcb"}, want: "requires --client moonlight-qt or flatpak"},
+			{name: "Embedded flag with Qt", args: []string{"doctor", "--client", "moonlight-qt", "--platform", "sdl"}, want: "cannot be combined with --client moonlight-qt"},
+			{name: "invalid Qt backend", args: []string{"doctor", "--qt-platform", "offscreen"}, want: "must be auto, xcb, wayland, eglfs, or linuxfb"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				a, _, errOut, _, _ := newTestApp(t)
+				if code := a.Run(context.Background(), tt.args); code != ExitUsage || !strings.Contains(errOut.String(), tt.want) {
+					t.Fatalf("code=%d stderr=%q; want usage containing %q", code, errOut.String(), tt.want)
+				}
+			})
+		}
+	})
+
 	if got := defaultProfileName("LiNuX"); got != "client" {
 		t.Errorf("Linux default profile = %q", got)
 	}
@@ -1098,9 +1198,53 @@ func TestConfigCommands(t *testing.T) {
 		envelope := decodeEnvelope(t, out.Bytes())
 		plan := envelope.Data.(map[string]any)
 		arguments := plan["arguments"].([]any)
-		want := []any{"stream", "-1440", "gaming-pc.local", "League"}
+		want := []any{"stream", "-1440", "-no-absolute-mouse", "gaming-pc.local", "League"}
 		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
 			t.Fatalf("arguments=%#v runner.called=%d; want %#v and no process", arguments, runner.called, want)
+		}
+	})
+
+	t.Run("initialized config stores and feeds the KVM endpoint", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "kvm.json")
+		a, _, errOut, _, _ := newTestApp(t)
+		if code := a.Run(context.Background(), []string{
+			"config", "init", "--file", path, "--host", "gaming-pc.local",
+			"--kvm-url", "https://kvm.lan/", "--confirm-physical-host",
+		}); code != ExitOK {
+			t.Fatalf("init code = %d; stderr=%q", code, errOut.String())
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.KVM == nil || cfg.KVM.Endpoint != "https://kvm.lan/" {
+			t.Fatalf("stored KVM config = %+v", cfg.KVM)
+		}
+
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		if code := a.Run(context.Background(), []string{
+			"remote", "kvm", "--config", path,
+			"--acknowledge-unverified-handoff", "--dry-run", "--json",
+		}); code != ExitOK {
+			t.Fatalf("KVM code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		if !reflect.DeepEqual(plan["arguments"].([]any), []any{"https://kvm.lan/"}) || runner.called != 0 {
+			t.Fatalf("plan=%#v runner.called=%d; want configured endpoint and no process", plan, runner.called)
+		}
+
+		a, out, errOut, _, runner = newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		if code := a.Run(context.Background(), []string{
+			"remote", "kvm", "--config", path, "--confirm-physical-host=false",
+			"--acknowledge-unverified-handoff", "--dry-run",
+		}); code != ExitBlocked {
+			t.Fatalf("revoked confirmation code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "not confirmed as a physical") || runner.called != 0 {
+			t.Fatalf("revoked confirmation stderr=%q runner.called=%d", errOut.String(), runner.called)
 		}
 	})
 
@@ -1271,8 +1415,8 @@ func TestLoadRemoteConfig(t *testing.T) {
 }
 
 func TestRemoteDryRunAndExecution(t *testing.T) {
-	t.Run("pair and list allow headless control operations", func(t *testing.T) {
-		for _, operation := range []string{"pair", "list"} {
+	t.Run("pair, list, and quit allow headless control operations", func(t *testing.T) {
+		for _, operation := range []string{"pair", "list", "quit"} {
 			t.Run(operation, func(t *testing.T) {
 				a, out, errOut, prober, runner := newTestApp(t)
 				prober.reports[probe.ProfileClient] = probe.Report{
@@ -1298,6 +1442,40 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 					t.Fatalf("runner.called=%d output=%q", runner.called, out.String())
 				}
 			})
+		}
+	})
+
+	t.Run("Embedded unpair allows pairing recovery", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
+		args := []string{"remote", "unpair", "--client", "moonlight-embedded", "--host", "gaming-pc.local", "--confirm-physical-host", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		arguments := plan["arguments"].([]any)
+		want := []any{"unpair", "gaming-pc.local"}
+		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
+			t.Fatalf("arguments=%#v runner.called=%d; want %#v and no process", arguments, runner.called, want)
+		}
+	})
+
+	t.Run("quit terminates a remote application with the control timeout", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		moonlightPath := useRealRemoteFixture(t, a)
+		args := []string{"remote", "quit", "--host", "gaming-pc.local", "--confirm-physical-host"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if runner.called != 1 || runner.name != moonlightPath || !reflect.DeepEqual(runner.args, []string{"quit", "gaming-pc.local"}) {
+			t.Fatalf("runner=%+v; want quit operation", runner)
+		}
+		if runner.ctx == nil {
+			t.Fatal("quit runner did not receive a context")
+		}
+		if deadline, ok := runner.ctx.Deadline(); !ok || time.Until(deadline) <= 0 || time.Until(deadline) > remoteControlTimeout {
+			t.Fatalf("quit context deadline = %v; want a %s deadline", deadline, remoteControlTimeout)
 		}
 	})
 
@@ -1366,21 +1544,132 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		envelope := decodeEnvelope(t, out.Bytes())
 		plan := envelope.Data.(map[string]any)
 		arguments := plan["arguments"].([]any)
-		if envelope.Command != "remote stream" || arguments[len(arguments)-1] != "League of Legends" || runner.called != 0 {
+		if envelope.Command != "remote stream" || arguments[len(arguments)-1] != config.DefaultRemoteApplication || runner.called != 0 {
 			t.Fatalf("envelope=%+v runner.called=%d", envelope, runner.called)
 		}
 	})
 
+	t.Run("stream dry-run includes the opt-in Wake-on-LAN plan", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "192.0.2.255", "--wake-port", "4009", "--wake-wait", "30",
+			"--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q", code, out.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		wake := plan["wake"].(map[string]any)
+		wakeRetry := plan["wake_retry"].(map[string]any)
+		if wake["mac"] != "00:11:22:33:44:55" || wake["destination"] != "192.0.2.255" || wake["port"] != float64(4009) || wakeRetry["additional_attempts"] != float64(3) || wakeRetry["delay_seconds"] != float64(5) || runner.called != 0 {
+			t.Fatalf("wake=%#v wake_retry=%#v runner.called=%d; want normalized no-I/O wake and retry plans", wake, wakeRetry, runner.called)
+		}
+	})
+
+	t.Run("pair dry-run includes the opt-in Wake-on-LAN plan", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		args := []string{
+			"remote", "pair", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "AA-BB-CC-DD-EE-FF",
+			"--wake-broadcast", "192.0.2.255", "--wake-port", "4009", "--wake-wait", "30",
+			"--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q", code, out.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		wake := plan["wake"].(map[string]any)
+		if envelope.Command != "remote pair" || wake["mac"] != "aa:bb:cc:dd:ee:ff" || wake["destination"] != "192.0.2.255" || wake["port"] != float64(4009) || runner.called != 0 {
+			t.Fatalf("envelope=%+v runner.called=%d; want normalized no-I/O pairing wake plan", envelope, runner.called)
+		}
+	})
+
+	t.Run("list dry-run includes the opt-in Wake-on-LAN plan", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		args := []string{
+			"remote", "list", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "AA-BB-CC-DD-EE-FF",
+			"--wake-broadcast", "192.0.2.255", "--wake-port", "4009", "--wake-wait", "30",
+			"--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q", code, out.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		wake := plan["wake"].(map[string]any)
+		if envelope.Command != "remote list" || wake["mac"] != "aa:bb:cc:dd:ee:ff" || wake["destination"] != "192.0.2.255" || wake["port"] != float64(4009) || runner.called != 0 {
+			t.Fatalf("envelope=%+v runner.called=%d; want normalized no-I/O listing wake plan", envelope, runner.called)
+		}
+	})
+
+	t.Run("Wake-on-LAN is available for pairing, listing, and streaming and requires a MAC", func(t *testing.T) {
+		t.Run("unpair rejects wake flags", func(t *testing.T) {
+			a, _, errOut, _, runner := newTestApp(t)
+			code := a.Run(context.Background(), []string{
+				"remote", "unpair", "--wake-mac", "00:11:22:33:44:55",
+			})
+			if code != ExitUsage || !strings.Contains(errOut.String(), "require the stream operation") || runner.called != 0 {
+				t.Fatalf("code=%d stderr=%q runner.called=%d", code, errOut.String(), runner.called)
+			}
+		})
+
+		t.Run("pair wake requires explicit acknowledgement", func(t *testing.T) {
+			a, _, errOut, _, runner := newTestApp(t)
+			code := a.Run(context.Background(), []string{
+				"remote", "pair", "--host", "gaming-pc.local", "--confirm-physical-host",
+				"--wake-mac", "00:11:22:33:44:55", "--dry-run",
+			})
+			if code != ExitBlocked || !strings.Contains(errOut.String(), "pass explicit acknowledgement") || runner.called != 0 {
+				t.Fatalf("code=%d stderr=%q runner.called=%d", code, errOut.String(), runner.called)
+			}
+		})
+
+		t.Run("stream rejects wake transport overrides without a MAC", func(t *testing.T) {
+			a, _, errOut, _, runner := newTestApp(t)
+			code := a.Run(context.Background(), []string{
+				"remote", "stream", "--wake-port", "4009",
+			})
+			if code != ExitUsage || !strings.Contains(errOut.String(), "require --wake-mac") || runner.called != 0 {
+				t.Fatalf("code=%d stderr=%q runner.called=%d", code, errOut.String(), runner.called)
+			}
+		})
+
+		t.Run("wake retry flags are limited to list and stream", func(t *testing.T) {
+			a, _, errOut, _, runner := newTestApp(t)
+			code := a.Run(context.Background(), []string{
+				"remote", "pair", "--wake-mac", "00:11:22:33:44:55", "--wake-retries", "1",
+			})
+			if code != ExitUsage || !strings.Contains(errOut.String(), "require the list or stream operation") || runner.called != 0 {
+				t.Fatalf("code=%d stderr=%q runner.called=%d", code, errOut.String(), runner.called)
+			}
+		})
+
+		t.Run("wake retry delay requires retries", func(t *testing.T) {
+			a, _, errOut, _, runner := newTestApp(t)
+			code := a.Run(context.Background(), []string{
+				"remote", "list", "--wake-mac", "00:11:22:33:44:55", "--wake-retries", "0", "--wake-retry-delay", "1",
+			})
+			if code != ExitUsage || !strings.Contains(errOut.String(), "requires --wake-retries greater than zero") || runner.called != 0 {
+				t.Fatalf("code=%d stderr=%q runner.called=%d", code, errOut.String(), runner.called)
+			}
+		})
+	})
+
 	t.Run("stream quality options are forwarded as fixed arguments", func(t *testing.T) {
 		a, out, _, _, runner := newTestApp(t)
-		args := []string{"remote", "stream", "--host", "gaming-pc.local", "--resolution", "1080", "--fps", "60", "--bitrate", "20000", "--packet-size", "1392", "--codec", "h264", "--audio-config", "5.1-surround", "--preserve-host-settings", "--decoder", "hardware", "--display-mode", "borderless", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		args := []string{"remote", "stream", "--host", "gaming-pc.local", "--resolution", "1080", "--fps", "60", "--bitrate", "20000", "--packet-size", "1392", "--codec", "h264", "--audio-config", "5.1-surround", "--preserve-host-settings", "--frame-pacing", "on", "--vsync", "on", "--keep-awake", "--quit-after", "--capture-system-keys", "always", "--decoder", "hardware", "--display-mode", "borderless", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
 		if code := a.Run(context.Background(), args); code != ExitOK {
 			t.Fatalf("code = %d; output=%q", code, out.String())
 		}
 		envelope := decodeEnvelope(t, out.Bytes())
 		plan := envelope.Data.(map[string]any)
 		arguments := plan["arguments"].([]any)
-		want := []any{"stream", "-1080", "-fps", "60", "-bitrate", "20000", "-packet-size", "1392", "-video-codec", "H.264", "-audio-config", "5.1-surround", "-no-game-optimization", "-video-decoder", "hardware", "-display-mode", "borderless", "gaming-pc.local", "League of Legends"}
+		want := []any{"stream", "-1080", "-fps", "60", "-bitrate", "20000", "-packet-size", "1392", "-video-codec", "H.264", "-audio-config", "5.1-surround", "-no-game-optimization", "-frame-pacing", "-vsync", "-keep-awake", "-quit-after", "-capture-system-keys", "always", "-video-decoder", "hardware", "-display-mode", "borderless", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}
 		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
 			t.Fatalf("arguments=%#v runner.called=%d; want %#v and no process", arguments, runner.called, want)
 		}
@@ -1395,7 +1684,7 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		envelope := decodeEnvelope(t, out.Bytes())
 		plan := envelope.Data.(map[string]any)
 		arguments := plan["arguments"].([]any)
-		want := []any{"stream", "-resolution", "3440x1440", "gaming-pc.local", "League of Legends"}
+		want := []any{"stream", "-resolution", "3440x1440", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}
 		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
 			t.Fatalf("arguments=%#v runner.called=%d; want %#v and no process", arguments, runner.called, want)
 		}
@@ -1403,7 +1692,7 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 
 	t.Run("Embedded platform option is forwarded as a fixed argument", func(t *testing.T) {
 		a, out, _, _, runner := newTestApp(t)
-		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight": "/fixture/moonlight"}}
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
 		args := []string{"remote", "stream", "--client", "moonlight-embedded", "--platform", "sdl", "--host", "gaming-pc.local", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
 		if code := a.Run(context.Background(), args); code != ExitOK {
 			t.Fatalf("code = %d; output=%q", code, out.String())
@@ -1411,15 +1700,69 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		envelope := decodeEnvelope(t, out.Bytes())
 		plan := envelope.Data.(map[string]any)
 		arguments := plan["arguments"].([]any)
-		want := []any{"stream", "-platform", "sdl", "-app", "League of Legends", "gaming-pc.local"}
+		want := []any{"stream", "-platform", "sdl", "-app", config.DefaultRemoteApplication, "gaming-pc.local"}
 		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
 			t.Fatalf("arguments=%#v runner.called=%d; want %#v and no process", arguments, runner.called, want)
 		}
 	})
 
+	t.Run("auto client selection follows the Embedded platform selector", func(t *testing.T) {
+		a, out, errOut, prober, runner := newTestApp(t)
+		aware := &streamAwareScriptedProber{scriptedProber: prober}
+		a.NewProber = func() ProbeRunner { return aware }
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{
+			"moonlight-qt":       "/fixture/moonlight-qt",
+			"moonlight-embedded": "/fixture/moonlight-embedded",
+		}}
+		args := []string{"remote", "stream", "--platform", "sdl", "--host", "gaming-pc.local", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if len(aware.qtStreamSelections) != 1 || aware.qtStreamSelections[0] != "moonlight-embedded" {
+			t.Fatalf("Qt-aware stream selections=%v; want the effective Embedded selection", aware.qtStreamSelections)
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		client := plan["client"].(map[string]any)
+		if client["flavor"] != string(remote.FlavorEmbedded) || runner.called != 0 {
+			t.Fatalf("client=%#v runner.called=%d; want Embedded discovery and no process", client, runner.called)
+		}
+	})
+
+	t.Run("auto client selection follows the Qt platform selector", func(t *testing.T) {
+		a, out, errOut, prober, runner := newTestApp(t)
+		aware := &streamAwareScriptedProber{scriptedProber: prober}
+		a.NewProber = func() ProbeRunner { return aware }
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{
+			"moonlight-qt":       "/fixture/moonlight-qt",
+			"moonlight-embedded": "/fixture/moonlight-embedded",
+		}}
+		args := []string{"remote", "stream", "--qt-platform", "xcb", "--host", "gaming-pc.local", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if len(aware.qtStreamSelections) != 1 || aware.qtStreamSelections[0] != "moonlight-qt" {
+			t.Fatalf("Qt-aware stream selections=%v; want the effective Qt selection", aware.qtStreamSelections)
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		client := plan["client"].(map[string]any)
+		if client["flavor"] != string(remote.FlavorQt) || runner.called != 0 {
+			t.Fatalf("client=%#v runner.called=%d; want Qt discovery and no process", client, runner.called)
+		}
+	})
+
+	t.Run("stream backend selectors cannot be combined", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		args := []string{"remote", "stream", "--platform", "sdl", "--qt-platform", "xcb", "--host", "gaming-pc.local", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run"}
+		if code := a.Run(context.Background(), args); code != ExitUsage || !strings.Contains(errOut.String(), "cannot be combined") || runner.called != 0 {
+			t.Fatalf("code=%d stderr=%q runner.called=%d; want early selector rejection", code, errOut.String(), runner.called)
+		}
+	})
+
 	t.Run("Embedded audio configuration is translated to surround syntax", func(t *testing.T) {
 		a, out, _, _, runner := newTestApp(t)
-		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight": "/fixture/moonlight"}}
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
 		args := []string{"remote", "stream", "--client", "moonlight-embedded", "--audio-config", "7.1-surround", "--preserve-host-settings", "--network-mode", "wan", "--host", "gaming-pc.local", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
 		if code := a.Run(context.Background(), args); code != ExitOK {
 			t.Fatalf("code = %d; output=%q", code, out.String())
@@ -1427,7 +1770,7 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		envelope := decodeEnvelope(t, out.Bytes())
 		plan := envelope.Data.(map[string]any)
 		arguments := plan["arguments"].([]any)
-		want := []any{"stream", "-surround", "7.1", "-nosops", "-remote", "yes", "-app", "League of Legends", "gaming-pc.local"}
+		want := []any{"stream", "-surround", "7.1", "-nosops", "-remote", "yes", "-app", config.DefaultRemoteApplication, "gaming-pc.local"}
 		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
 			t.Fatalf("arguments=%#v runner.called=%d; want %#v and no process", arguments, runner.called, want)
 		}
@@ -1453,6 +1796,55 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 	})
 
+	t.Run("fully explicit Mac stream ignores an unrelated default config", func(t *testing.T) {
+		defaultPath := filepath.Join(t.TempDir(), "default-windows.json")
+		writeConfigFile(t, defaultPath, nil)
+		a, out, errOut, _, runner := newTestApp(t)
+		// newTestApp supplies a missing config path for isolation; this test
+		// deliberately replaces it with a valid Windows config to ensure the
+		// explicit Mac invocation does not accidentally consult that route.
+		t.Setenv("LEAGUEBRIDGE_CONFIG", defaultPath)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-qt": "/fixture/moonlight-qt"}}
+		code := a.Run(context.Background(), []string{
+			"remote", "stream", "--route", "macos", "--host", "gaming-mac.local",
+			"--app", "League of Legends", "--client", "moonlight-qt",
+			"--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json",
+		})
+		if code != ExitOK || runner.called != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d", code, out.String(), errOut.String(), runner.called)
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		if plan["route"] != string(config.RouteMacOS) || plan["qt_platform"] != nil {
+			t.Fatalf("plan=%#v; want explicit Mac route without an implicit Qt platform override", plan)
+		}
+		arguments := plan["arguments"].([]any)
+		want := []any{"stream", "-no-absolute-mouse", "gaming-mac.local", "League of Legends"}
+		if !reflect.DeepEqual(arguments, want) {
+			t.Fatalf("arguments=%#v; want %#v", arguments, want)
+		}
+	})
+
+	t.Run("named config remains authoritative for an explicit route", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "default-windows.json")
+		writeConfigFile(t, configPath, nil)
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-qt": "/fixture/moonlight-qt"}}
+		code := a.Run(context.Background(), []string{
+			"remote", "stream", "--config", configPath, "--route", "macos",
+			"--host", "gaming-mac.local", "--app", "League of Legends",
+			"--client", "moonlight-qt", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--dry-run", "--json",
+		})
+		if code != ExitUsage || runner.called != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want named-config route conflict", code, out.String(), errOut.String(), runner.called)
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		if envelope.OK || !strings.Contains(envelope.Error, "conflicts with configuration route") {
+			t.Fatalf("envelope=%+v; want named-config route conflict", envelope)
+		}
+	})
+
 	t.Run("execute", func(t *testing.T) {
 		a, out, errOut, _, runner := newTestApp(t)
 		moonlightPath := useRealRemoteFixture(t, a)
@@ -1473,6 +1865,134 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 	})
 
+	t.Run("native pairing PIN is forwarded only for a live pair", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		args := []string{"remote", "pair", "--host", "gaming-pc.local", "--pin", "0427", "--confirm-physical-host"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if runner.called != 1 || !reflect.DeepEqual(runner.args, []string{"pair", "-pin", "0427", "gaming-pc.local"}) {
+			t.Fatalf("runner=%+v; want native pair PIN argv", runner)
+		}
+	})
+
+	t.Run("pairing PIN never enters dry-run JSON", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		code := a.Run(context.Background(), []string{"remote", "pair", "--host", "gaming-pc.local", "--pin", "0427", "--confirm-physical-host", "--dry-run", "--json"})
+		if code != ExitUsage || !strings.Contains(out.String(), "pairing PIN") || strings.Contains(out.String(), "0427") || runner.called != 0 {
+			t.Fatalf("code=%d output=%q runner.called=%d; want rejected secret-free dry run", code, out.String(), runner.called)
+		}
+	})
+
+	t.Run("Embedded pairing PIN is forwarded", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		directory := t.TempDir()
+		name := "moonlight-embedded"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		path := filepath.Join(directory, name)
+		if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+		a.RemoteEnv = remote.RealEnvironment{}
+		code := a.Run(context.Background(), []string{"remote", "pair", "--client", "moonlight-embedded", "--host", "gaming-pc.local", "--pin", "0427", "--confirm-physical-host"})
+		if code != ExitOK || runner.called != 1 || !reflect.DeepEqual(runner.args, []string{"pair", "-pin", "0427", "gaming-pc.local"}) {
+			t.Fatalf("code=%d stderr=%q runner=%+v; want Embedded pair PIN argv", code, errOut.String(), runner)
+		}
+	})
+
+	t.Run("Qt platform override is forwarded to a live stream", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		runner.outputs = []string{"Desktop\nLeague of Legends\n", "stream output\n"}
+		args := []string{"remote", "stream", "--host", "gaming-pc.local", "--qt-platform", "xcb", "--confirm-physical-host", "--acknowledge-unverified-handoff"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if runner.qtPlatform != "xcb" || runner.called != 2 {
+			t.Fatalf("runner Qt platform=%q calls=%d; want xcb and list preflight plus stream", runner.qtPlatform, runner.called)
+		}
+		want := []string{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}
+		if !reflect.DeepEqual(runner.args, want) {
+			t.Fatalf("stream args=%#v; want %#v", runner.args, want)
+		}
+	})
+
+	t.Run("Qt platform override is available in dry-run JSON", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		args := []string{"remote", "stream", "--host", "gaming-pc.local", "--qt-platform", "wayland", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		if plan["qt_platform"] != "wayland" || runner.called != 0 {
+			t.Fatalf("plan=%#v runner.called=%d; want a dry-run Qt platform and no process", plan, runner.called)
+		}
+	})
+
+	t.Run("Qt platform rejects non-stream operations", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		code := a.Run(context.Background(), []string{"remote", "pair", "--host", "gaming-pc.local", "--qt-platform", "xcb"})
+		if code != ExitUsage || !strings.Contains(errOut.String(), "requires the stream operation") || runner.called != 0 {
+			t.Fatalf("code=%d stderr=%q runner.called=%d; want stream-only rejection", code, errOut.String(), runner.called)
+		}
+	})
+
+	t.Run("live pairing sends Wake-on-LAN before the Moonlight pair operation", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		port := listener.LocalAddr().(*net.UDPAddr).Port
+		packetCh := make(chan []byte, 1)
+		go func() {
+			buffer := make([]byte, 2048)
+			_ = listener.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, readErr := listener.ReadFromUDP(buffer)
+			if readErr != nil {
+				packetCh <- nil
+				return
+			}
+			packetCh <- append([]byte(nil), buffer[:n]...)
+		}()
+		args := []string{
+			"remote", "pair", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "127.0.0.1", "--wake-port", strconv.Itoa(port), "--wake-wait", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		packet := <-packetCh
+		if len(packet) != 102 {
+			t.Fatalf("Wake-on-LAN packet length = %d; want 102", len(packet))
+		}
+		for index := 0; index < 6; index++ {
+			if packet[index] != 0xff {
+				t.Fatalf("packet prefix byte %d = %#x; want ff", index, packet[index])
+			}
+		}
+		mac := []byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55}
+		for repeat := 0; repeat < 16; repeat++ {
+			if !bytes.Equal(packet[6+repeat*6:6+(repeat+1)*6], mac) {
+				t.Fatalf("packet MAC repeat %d = %x; want %x", repeat, packet[6+repeat*6:6+(repeat+1)*6], mac)
+			}
+		}
+		if runner.called != 1 || len(runner.argsHistory) != 1 || !reflect.DeepEqual(runner.argsHistory[0], []string{"pair", "gaming-pc.local"}) {
+			t.Fatalf("runner calls=%d history=%#v; want one pair operation after wake", runner.called, runner.argsHistory)
+		}
+		if !strings.Contains(out.String(), "Wake-on-LAN packet sent") || !strings.Contains(out.String(), "moonlight output") {
+			t.Fatalf("stdout=%q stderr=%q; want wake confirmation and pair output", out.String(), errOut.String())
+		}
+	})
+
 	t.Run("interactive stream keeps caller lifetime", func(t *testing.T) {
 		a, _, _, _, runner := newTestApp(t)
 		useRealRemoteFixture(t, a)
@@ -1489,6 +2009,209 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 	})
 
+	t.Run("live stream sends Wake-on-LAN before host application preflight", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		port := listener.LocalAddr().(*net.UDPAddr).Port
+		packetCh := make(chan []byte, 1)
+		go func() {
+			buffer := make([]byte, 2048)
+			_ = listener.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, readErr := listener.ReadFromUDP(buffer)
+			if readErr != nil {
+				packetCh <- nil
+				return
+			}
+			packetCh <- append([]byte(nil), buffer[:n]...)
+		}()
+		runner.outputs = []string{"Desktop\nLeague of Legends\n", "stream output\n"}
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "127.0.0.1", "--wake-port", strconv.Itoa(port), "--wake-wait", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		packet := <-packetCh
+		if len(packet) != 102 {
+			t.Fatalf("Wake-on-LAN packet length = %d; want 102", len(packet))
+		}
+		for index := 0; index < 6; index++ {
+			if packet[index] != 0xff {
+				t.Fatalf("packet prefix byte %d = %#x; want ff", index, packet[index])
+			}
+		}
+		mac := []byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55}
+		for repeat := 0; repeat < 16; repeat++ {
+			if !bytes.Equal(packet[6+repeat*6:6+(repeat+1)*6], mac) {
+				t.Fatalf("packet MAC repeat %d = %x; want %x", repeat, packet[6+repeat*6:6+(repeat+1)*6], mac)
+			}
+		}
+		if runner.called != 2 || len(runner.argsHistory) != 2 || runner.argsHistory[0][0] != "list" || runner.argsHistory[1][0] != "stream" {
+			t.Fatalf("runner calls=%d history=%#v; want list preflight followed by stream", runner.called, runner.argsHistory)
+		}
+		if !strings.Contains(out.String(), "Wake-on-LAN packet sent") || !strings.Contains(errOut.String(), "preflight:") {
+			t.Fatalf("stdout=%q stderr=%q; want wake confirmation and host preflight", out.String(), errOut.String())
+		}
+	})
+
+	t.Run("WOL retries a slow host application list before streaming", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		port := listener.LocalAddr().(*net.UDPAddr).Port
+		packetCh := make(chan []byte, 1)
+		go func() {
+			buffer := make([]byte, 2048)
+			_ = listener.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, readErr := listener.ReadFromUDP(buffer)
+			if readErr != nil {
+				packetCh <- nil
+				return
+			}
+			packetCh <- append([]byte(nil), buffer[:n]...)
+		}()
+		runner.results = []error{errors.New("host still booting"), nil, nil}
+		runner.outputs = []string{"", "Desktop\nLeague of Legends\n", "stream output\n"}
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "127.0.0.1", "--wake-port", strconv.Itoa(port), "--wake-wait", "0",
+			"--wake-retries", "1", "--wake-retry-delay", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if packet := <-packetCh; len(packet) != 102 {
+			t.Fatalf("Wake-on-LAN packet length = %d; want 102", len(packet))
+		}
+		wantHistory := [][]string{
+			{"list", "gaming-pc.local"},
+			{"list", "gaming-pc.local"},
+			{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication},
+		}
+		if runner.called != 3 || !reflect.DeepEqual(runner.argsHistory, wantHistory) {
+			t.Fatalf("runner calls=%d history=%#v; want one failed list, one retry, and one stream", runner.called, runner.argsHistory)
+		}
+		if !strings.Contains(errOut.String(), "Wake-on-LAN retry attempt(s) remaining") {
+			t.Fatalf("stderr=%q; want bounded WOL retry notice", errOut.String())
+		}
+	})
+
+	t.Run("WOL does not retry a successful listing that lacks the app", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		port := listener.LocalAddr().(*net.UDPAddr).Port
+		runner.outputs = []string{"Steam\n"}
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "127.0.0.1", "--wake-port", strconv.Itoa(port), "--wake-wait", "0",
+			"--wake-retries", "3", "--wake-retry-delay", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitBlocked {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if runner.called != 1 || strings.Contains(errOut.String(), "retrying") {
+			t.Fatalf("runner calls=%d stderr=%q; want one fail-closed listing check", runner.called, errOut.String())
+		}
+	})
+
+	t.Run("stream reconnect retries a failed session with the same plan", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		runner.output = "Desktop\nLeague of Legends\n"
+		runner.results = []error{nil, errors.New("temporary connection loss"), nil, nil}
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--reconnect-attempts", "1", "--reconnect-delay", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if runner.called != 4 {
+			t.Fatalf("runner.called=%d; want initial list preflight, failed stream, retry list preflight, and successful stream", runner.called)
+		}
+		wantHistory := [][]string{
+			{"list", "gaming-pc.local"},
+			{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication},
+			{"list", "gaming-pc.local"},
+			{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication},
+		}
+		if !reflect.DeepEqual(runner.argsHistory, wantHistory) {
+			t.Fatalf("runner.argsHistory=%#v; want %#v", runner.argsHistory, wantHistory)
+		}
+		if !reflect.DeepEqual(runner.args, []string{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}) {
+			t.Fatalf("final runner args=%#v; want the original fixed stream plan", runner.args)
+		}
+		if !strings.Contains(errOut.String(), "reconnect attempt(s) remaining") {
+			t.Fatalf("stderr=%q; want retry notice", errOut.String())
+		}
+	})
+
+	t.Run("stream reconnect rechecks application before launching retry", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		runner.results = []error{nil, errors.New("temporary connection loss"), nil}
+		runner.outputs = []string{"Desktop\nLeague of Legends\n", "", "Steam\n"}
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--reconnect-attempts", "1", "--reconnect-delay", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitBlocked {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		wantHistory := [][]string{
+			{"list", "gaming-pc.local"},
+			{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication},
+			{"list", "gaming-pc.local"},
+		}
+		if !reflect.DeepEqual(runner.argsHistory, wantHistory) {
+			t.Fatalf("runner.argsHistory=%#v; want %#v", runner.argsHistory, wantHistory)
+		}
+		if strings.Contains(errOut.String(), "stream attempt 2") {
+			t.Fatalf("stderr=%q; retry stream must not start after application disappears", errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "no stream was started") {
+			t.Fatalf("stderr=%q; want fail-closed application check", errOut.String())
+		}
+	})
+
+	t.Run("stream reconnect never retries cancellation", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		useRealRemoteFixture(t, a)
+		runner.output = "Desktop\nLeague of Legends\n"
+		runner.results = []error{nil, context.Canceled}
+		args := []string{
+			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--reconnect-attempts", "2", "--reconnect-delay", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitInternal {
+			t.Fatalf("code = %d; stderr=%q", code, errOut.String())
+		}
+		if runner.called != 2 {
+			t.Fatalf("runner.called=%d; want one list preflight and one canceled stream", runner.called)
+		}
+		if strings.Contains(errOut.String(), "retrying") {
+			t.Fatalf("stderr=%q; cancellation must not trigger a retry", errOut.String())
+		}
+	})
+
 	t.Run("execution failure", func(t *testing.T) {
 		a, _, errOut, _, runner := newTestApp(t)
 		useRealRemoteFixture(t, a)
@@ -1501,6 +2224,111 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 			t.Fatalf("stderr=%q runner.called=%d", errOut.String(), runner.called)
 		}
 	})
+}
+
+func TestRemoteStreamAutomaticallyFallsBackToReadyNativeClient(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	qtBlocked := readyClientReport()
+	qtBlocked.Status = probe.StatusFail
+	qtBlocked.Checks[1].Status = probe.StatusFail
+	qtBlocked.Checks[2].Status = probe.StatusFail
+	prober.clientReports = map[string]probe.Report{
+		"auto":               qtBlocked,
+		"moonlight-qt":       qtBlocked,
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.outputs = []string{"League of Legends\n", "stream output\n"}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff",
+	})
+	if code != ExitOK || runner.called != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want application preflight plus stream execution", code, out.String(), errOut.String(), runner.called)
+	}
+	if !strings.Contains(errOut.String(), "automatic Moonlight selection used moonlight-embedded") {
+		t.Fatalf("stderr=%q; want fallback warning", errOut.String())
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+		t.Fatalf("client selections=%#v; want automatic fallback sequence", prober.clientSelections)
+	}
+	if !strings.Contains(out.String(), "stream output") {
+		t.Fatalf("stdout=%q; want stream output", out.String())
+	}
+}
+
+func TestRemoteStreamDryRunDoesNotProbeAutomaticFallback(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{
+		"moonlight-qt":       "/fixture/moonlight-qt",
+		"moonlight-embedded": "/fixture/moonlight-embedded",
+	}}
+	blocked := readyClientReport()
+	blocked.Status = probe.StatusFail
+	blocked.Checks[1].Status = probe.StatusFail
+	blocked.Checks[2].Status = probe.StatusFail
+	prober.clientReports = map[string]probe.Report{
+		"auto":               blocked,
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff", "--dry-run", "--json",
+	})
+	if code != ExitBlocked || runner.called != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want a blocked dry-run without fallback or execution", code, out.String(), errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto"}) {
+		t.Fatalf("client selections=%#v; want only the initial dry-run preflight", prober.clientSelections)
+	}
+}
+
+func TestEffectiveRemoteStreamClientSelectionHonorsOptionSurface(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		options    remote.StreamOptions
+		wantClient string
+	}{
+		{name: "Qt decoder", options: remote.StreamOptions{Decoder: "hardware"}, wantClient: "moonlight-qt"},
+		{name: "Embedded input", options: remote.StreamOptions{InputDevice: "/dev/input/event4"}, wantClient: "moonlight-embedded"},
+		{name: "Qt mouse mode", options: remote.StreamOptions{MouseMode: "relative"}, wantClient: "moonlight-qt"},
+		{name: "Embedded platform", options: remote.StreamOptions{Platform: "sdl"}, wantClient: "moonlight-embedded"},
+		{name: "HDR is shared", options: remote.StreamOptions{HDR: true}, wantClient: "auto"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := effectiveRemoteStreamClientSelection("auto", "", "", tt.options)
+			if err != nil {
+				t.Fatalf("selection error = %v", err)
+			}
+			if got != tt.wantClient {
+				t.Fatalf("selection = %q, want %q", got, tt.wantClient)
+			}
+		})
+	}
+	if _, err := effectiveRemoteStreamClientSelection("auto", "", "", remote.StreamOptions{
+		Decoder: "hardware", InputDevice: "/dev/input/event4",
+	}); err == nil || !strings.Contains(err.Error(), "both Embedded and Qt") {
+		t.Fatalf("mixed backend options error = %v; want conflict", err)
+	}
+	if got, err := effectiveRemoteStreamClientSelection(" MOONLIGHT-QT ", "", "", remote.StreamOptions{}); err != nil || got != "moonlight-qt" {
+		t.Fatalf("case-insensitive client selection = %q, error=%v; want moonlight-qt", got, err)
+	}
 }
 
 func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
@@ -1554,7 +2382,7 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 		if code := a.Run(context.Background(), args); code != ExitOK {
 			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
-		if runner.called != 2 || !reflect.DeepEqual(runner.args, []string{"stream", "gaming-pc.local", "Custom League Entry"}) {
+		if runner.called != 2 || !reflect.DeepEqual(runner.args, []string{"stream", "-no-absolute-mouse", "gaming-pc.local", "Custom League Entry"}) {
 			t.Fatalf("runner.called=%d args=%#v; want configured preflight and stream", runner.called, runner.args)
 		}
 	})
@@ -1617,7 +2445,7 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 		runner.output = "Desktop\nLeague of Legends\n"
 		args := []string{
 			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
-			"--acknowledge-unverified-handoff", "--require-app", "League of Legends",
+			"--acknowledge-unverified-handoff", "--app", "League of Legends", "--require-app", "League of Legends",
 		}
 		if code := a.Run(context.Background(), args); code != ExitOK {
 			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
@@ -1625,7 +2453,7 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 		if runner.called != 2 {
 			t.Fatalf("runner.called=%d; want one list preflight and one stream", runner.called)
 		}
-		if !reflect.DeepEqual(runner.args, []string{"stream", "gaming-pc.local", "League of Legends"}) {
+		if !reflect.DeepEqual(runner.args, []string{"stream", "-no-absolute-mouse", "gaming-pc.local", "League of Legends"}) {
 			t.Fatalf("final runner args=%#v; want stream args", runner.args)
 		}
 		if !strings.Contains(errOut.String(), "checking that the physical host advertises") {
@@ -1644,7 +2472,7 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 		if code := a.Run(context.Background(), args); code != ExitOK {
 			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
-		if runner.called != 2 || !reflect.DeepEqual(runner.args, []string{"stream", "gaming-pc.local", "League of Legends"}) {
+		if runner.called != 2 || !reflect.DeepEqual(runner.args, []string{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}) {
 			t.Fatalf("runner.called=%d args=%#v; want a list preflight followed by the stream", runner.called, runner.args)
 		}
 	})
@@ -1674,7 +2502,7 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 		runner.output = "Desktop\nSteam\n"
 		args := []string{
 			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
-			"--acknowledge-unverified-handoff", "--require-app", "League of Legends",
+			"--acknowledge-unverified-handoff", "--app", "League of Legends", "--require-app", "League of Legends",
 		}
 		if code := a.Run(context.Background(), args); code != ExitBlocked {
 			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
@@ -1694,7 +2522,7 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 		runner.errorOutput = "warning: League of Legends could not be started\n"
 		args := []string{
 			"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
-			"--acknowledge-unverified-handoff", "--require-app", "League of Legends",
+			"--acknowledge-unverified-handoff", "--app", "League of Legends", "--require-app", "League of Legends",
 		}
 		if code := a.Run(context.Background(), args); code != ExitBlocked {
 			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
@@ -1757,6 +2585,316 @@ func TestRemoteListCanRequireAdvertisedApplication(t *testing.T) {
 	})
 }
 
+func TestRemotePreflightUsesSelectedMoonlightClient(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
+	args := []string{
+		"remote", "pair", "--client", "moonlight-embedded", "--host", "gaming-pc.local",
+		"--confirm-physical-host", "--dry-run",
+	}
+	if code := a.Run(context.Background(), args); code != ExitOK {
+		t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"moonlight-embedded"}) {
+		t.Fatalf("client selections = %#v, want explicit Embedded selection", prober.clientSelections)
+	}
+	if runner.called != 0 {
+		t.Fatalf("dry run invoked remote runner %d time(s)", runner.called)
+	}
+}
+
+func TestRemoteWakeUsesConfiguredPhysicalRoute(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wake.json")
+	a, out, errOut, _, runner := newTestApp(t)
+	if code := a.Run(context.Background(), []string{
+		"config", "init", "--file", path, "--host", "gaming-pc.local", "--confirm-physical-host",
+	}); code != ExitOK {
+		t.Fatalf("init code = %d; stderr=%q", code, errOut.String())
+	}
+
+	a, out, errOut, _, runner = newTestApp(t)
+	if code := a.Run(context.Background(), []string{
+		"remote", "wake", "--config", path, "--mac", "AA-BB-CC-DD-EE-FF",
+		"--acknowledge-unverified-handoff", "--dry-run", "--json",
+	}); code != ExitOK {
+		t.Fatalf("wake code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	envelope := decodeEnvelope(t, out.Bytes())
+	plan := envelope.Data.(map[string]any)
+	if envelope.Command != "remote wake" || plan["mac"] != "aa:bb:cc:dd:ee:ff" || plan["destination"] != "255.255.255.255" || plan["port"] != float64(9) || runner.called != 0 {
+		t.Fatalf("envelope=%+v runner.called=%d; want normalized dry-run plan", envelope, runner.called)
+	}
+
+	a, out, errOut, _, runner = newTestApp(t)
+	if code := a.Run(context.Background(), []string{
+		"remote", "wake", "--config", path, "--mac", "00:11:22:33:44:55",
+		"--confirm-physical-host=false", "--acknowledge-unverified-handoff", "--dry-run",
+	}); code != ExitBlocked {
+		t.Fatalf("revoked confirmation code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if runner.called != 0 || !strings.Contains(errOut.String(), "physical") {
+		t.Fatalf("revoked confirmation stderr=%q runner.called=%d", errOut.String(), runner.called)
+	}
+}
+
+func TestRemoteKVMOpensOnlyAnExplicitCleanEndpoint(t *testing.T) {
+	t.Run("dry-run builds a shell-free xdg-open vector", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		args := []string{
+			"remote", "kvm", "--url", "https://kvm.lan/", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		launcher := plan["launcher"].(map[string]any)
+		arguments := plan["arguments"].([]any)
+		if envelope.Command != "remote kvm" || launcher["name"] != "xdg-open" || launcher["binary"] != "/fixture/xdg-open" || !reflect.DeepEqual(arguments, []any{"https://kvm.lan/"}) || runner.called != 0 {
+			t.Fatalf("envelope=%+v runner.called=%d", envelope, runner.called)
+		}
+	})
+
+	t.Run("dry-run honors an explicit physical Mac route", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		args := []string{
+			"remote", "kvm", "--route", "macos", "--url", "https://kvm.lan/", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if runner.called != 0 {
+			t.Fatalf("runner.called=%d; dry-run must not launch the browser", runner.called)
+		}
+		if !strings.Contains(out.String(), "https://kvm.lan/") {
+			t.Fatalf("stdout=%q; want selected KVM endpoint", out.String())
+		}
+	})
+
+	t.Run("fully explicit Mac route ignores an unrelated default config", func(t *testing.T) {
+		defaultPath := filepath.Join(t.TempDir(), "default-windows.json")
+		writeConfigFile(t, defaultPath, nil)
+		a, out, errOut, _, runner := newTestApp(t)
+		// newTestApp supplies a missing config path for isolation; this test
+		// deliberately replaces it with a valid Windows config to ensure the
+		// explicit Mac invocation does not accidentally consult that route.
+		t.Setenv("LEAGUEBRIDGE_CONFIG", defaultPath)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		code := a.Run(context.Background(), []string{
+			"remote", "kvm", "--route", "macos", "--url", "https://kvm.lan/",
+			"--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json",
+		})
+		if code != ExitOK || runner.called != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want explicit route to remain self-contained", code, out.String(), errOut.String(), runner.called)
+		}
+		if !strings.Contains(out.String(), "https://kvm.lan/") {
+			t.Fatalf("stdout=%q; want selected KVM endpoint", out.String())
+		}
+	})
+
+	t.Run("explicit route must agree with configured route", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "mac-kvm.json")
+		a, _, errOut, _, runner := newTestApp(t)
+		if code := a.Run(context.Background(), []string{
+			"config", "init", "--file", path, "--route", "macos", "--host", "gaming-mac.local",
+			"--kvm-url", "https://kvm.lan/", "--confirm-physical-host",
+		}); code != ExitOK {
+			t.Fatalf("config init code = %d; stderr=%q", code, errOut.String())
+		}
+		a, _, errOut, _, runner = newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		code := a.Run(context.Background(), []string{
+			"remote", "kvm", "--config", path, "--route", "windows",
+			"--acknowledge-unverified-handoff", "--dry-run",
+		})
+		if code != ExitUsage || !strings.Contains(errOut.String(), "conflicts with configuration route") || runner.called != 0 {
+			t.Fatalf("code=%d stderr=%q runner.called=%d; want route-conflict rejection", code, errOut.String(), runner.called)
+		}
+	})
+
+	t.Run("dry-run builds an endpoint-only direct browser vector", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"firefox": "/fixture/firefox"}}
+		args := []string{
+			"remote", "kvm", "--browser", "firefox", "--url", "https://kvm.lan/", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		launcher := plan["launcher"].(map[string]any)
+		arguments := plan["arguments"].([]any)
+		if launcher["name"] != "firefox" || launcher["binary"] != "/fixture/firefox" || !reflect.DeepEqual(arguments, []any{"https://kvm.lan/"}) || runner.called != 0 {
+			t.Fatalf("envelope=%+v runner.called=%d", envelope, runner.called)
+		}
+	})
+
+	t.Run("dry-run includes the opt-in Wake-on-LAN plan", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+		args := []string{
+			"remote", "kvm", "--url", "https://kvm.lan/", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "192.0.2.255", "--wake-port", "4009", "--wake-wait", "30",
+			"--dry-run", "--json",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		wake := plan["wake"].(map[string]any)
+		if wake["mac"] != "00:11:22:33:44:55" || wake["destination"] != "192.0.2.255" || wake["port"] != float64(4009) || runner.called != 0 {
+			t.Fatalf("wake=%#v runner.called=%d; want normalized no-I/O wake plan", wake, runner.called)
+		}
+	})
+
+	t.Run("wake transport overrides require a MAC", func(t *testing.T) {
+		a, _, errOut, _, runner := newTestApp(t)
+		code := a.Run(context.Background(), []string{"remote", "kvm", "--url", "https://kvm.lan/", "--wake-port", "4009"})
+		if code != ExitUsage || !strings.Contains(errOut.String(), "require --wake-mac") || runner.called != 0 {
+			t.Fatalf("code=%d stderr=%q runner.called=%d", code, errOut.String(), runner.called)
+		}
+	})
+
+	t.Run("live launch uses the discovered opener and bounded context", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		directory := t.TempDir()
+		name := "xdg-open"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		path := filepath.Join(directory, name)
+		if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+		a.RemoteEnv = remote.RealEnvironment{}
+		args := []string{
+			"remote", "kvm", "--url", "https://kvm.lan/", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if runner.called != 1 || runner.name != path || !reflect.DeepEqual(runner.args, []string{"https://kvm.lan/"}) {
+			t.Fatalf("runner=%+v; want one xdg-open launch", runner)
+		}
+		if runner.ctx == nil {
+			t.Fatal("KVM runner did not receive a context")
+		}
+		if deadline, ok := runner.ctx.Deadline(); !ok || time.Until(deadline) <= 0 || time.Until(deadline) > remoteControlTimeout {
+			t.Fatalf("KVM runner deadline = %v; want a %s deadline", deadline, remoteControlTimeout)
+		}
+	})
+
+	t.Run("live launch sends Wake-on-LAN before opening the KVM UI", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		directory := t.TempDir()
+		name := "xdg-open"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		path := filepath.Join(directory, name)
+		if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+		a.RemoteEnv = remote.RealEnvironment{}
+		listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		port := listener.LocalAddr().(*net.UDPAddr).Port
+		packetCh := make(chan []byte, 1)
+		go func() {
+			buffer := make([]byte, 2048)
+			_ = listener.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, readErr := listener.ReadFromUDP(buffer)
+			if readErr != nil {
+				packetCh <- nil
+				return
+			}
+			packetCh <- append([]byte(nil), buffer[:n]...)
+		}()
+		args := []string{
+			"remote", "kvm", "--url", "https://kvm.lan/", "--confirm-physical-host",
+			"--acknowledge-unverified-handoff", "--wake-mac", "00:11:22:33:44:55",
+			"--wake-broadcast", "127.0.0.1", "--wake-port", strconv.Itoa(port), "--wake-wait", "0",
+		}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		packet := <-packetCh
+		if len(packet) != 102 {
+			t.Fatalf("Wake-on-LAN packet length = %d; want 102", len(packet))
+		}
+		for index := 0; index < 6; index++ {
+			if packet[index] != 0xff {
+				t.Fatalf("packet prefix byte %d = %#x; want ff", index, packet[index])
+			}
+		}
+		if runner.called != 1 || runner.name != path || !reflect.DeepEqual(runner.args, []string{"https://kvm.lan/"}) {
+			t.Fatalf("runner=%+v; want one xdg-open launch after wake", runner)
+		}
+		if !strings.Contains(out.String(), "Wake-on-LAN packet sent") || !strings.Contains(errOut.String(), "warning:") {
+			t.Fatalf("stdout=%q stderr=%q; want wake confirmation and warnings", out.String(), errOut.String())
+		}
+	})
+}
+
+func TestRemoteKVMRejectsCredentialsAndUnacknowledgedHandoffs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing physical confirmation", args: []string{"remote", "kvm", "--url", "https://kvm.lan/", "--acknowledge-unverified-handoff", "--dry-run"}, want: "not confirmed as a physical"},
+		{name: "missing acknowledgement", args: []string{"remote", "kvm", "--url", "https://kvm.lan/", "--confirm-physical-host", "--dry-run"}, want: "pass explicit acknowledgement"},
+		{name: "embedded credentials", args: []string{"remote", "kvm", "--url", "https://user:secret@kvm.lan/", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run"}, want: "must not contain embedded credentials"},
+		{name: "query token", args: []string{"remote", "kvm", "--url", "https://kvm.lan/?token=secret", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run"}, want: "must not contain query parameters"},
+		{name: "unencrypted endpoint", args: []string{"remote", "kvm", "--url", "http://kvm.lan/", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run"}, want: "pass --allow-http"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, out, errOut, _, runner := newTestApp(t)
+			a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+			if code := a.Run(context.Background(), tt.args); code != ExitUsage && code != ExitBlocked {
+				t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+			if !strings.Contains(errOut.String(), tt.want) || runner.called != 0 {
+				t.Fatalf("stderr=%q runner.called=%d; want %q and no process", errOut.String(), runner.called, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoteKVMRequiresFreshPhysicalHostContracts(t *testing.T) {
+	a, out, errOut, _, runner := newTestApp(t)
+	a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"xdg-open": "/fixture/xdg-open"}}
+	a.Now = func() time.Time { return fixedNow.AddDate(2, 0, 0) }
+	args := []string{
+		"remote", "kvm", "--url", "https://kvm.lan/", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff", "--dry-run",
+	}
+	if code := a.Run(context.Background(), args); code != ExitBlocked {
+		t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "physical-host handoff contract") || !strings.Contains(errOut.String(), "evidence is stale") {
+		t.Fatalf("stderr=%q; want stale physical-host contract failure", errOut.String())
+	}
+	if runner.called != 0 {
+		t.Fatalf("runner.called=%d; stale KVM contract must not discover or execute a browser", runner.called)
+	}
+}
+
 func TestRemoteErrorsAndSafetyGates(t *testing.T) {
 	missingConfig := filepath.Join(t.TempDir(), "missing.json")
 	tests := []struct {
@@ -1767,12 +2905,12 @@ func TestRemoteErrorsAndSafetyGates(t *testing.T) {
 		want     string
 		json     bool
 	}{
-		{name: "missing subcommand", args: []string{"remote"}, wantCode: ExitUsage, want: "expected pair, list, or stream"},
+		{name: "missing subcommand", args: []string{"remote"}, wantCode: ExitUsage, want: "expected map, kvm, wake, pair, unpair, list, stream, or quit"},
 		{name: "unknown subcommand", args: []string{"remote", "shell"}, wantCode: ExitUsage, want: "unknown subcommand"},
 		{name: "unexpected argument", args: []string{"remote", "pair", "extra"}, wantCode: ExitUsage, want: "unexpected arguments"},
 		{name: "unknown route", args: []string{"remote", "pair", "--route", "darwin", "--dry-run"}, wantCode: ExitUsage, want: "route must be windows or macos"},
 		{name: "JSON requires dry run", args: []string{"remote", "pair", "--json"}, wantCode: ExitUsage, want: "--json requires --dry-run", json: true},
-		{name: "ineligible architecture", args: []string{"remote", "pair", "--dry-run", "--json"}, mutate: func(a *App, _ *scriptedProber) { a.GOARCH = "arm64" }, wantCode: ExitBlocked, want: "target Linux and BSD on amd64", json: true},
+		{name: "ineligible architecture", args: []string{"remote", "pair", "--dry-run", "--json"}, mutate: func(a *App, _ *scriptedProber) { a.GOARCH = "386" }, wantCode: ExitBlocked, want: "target Linux, FreeBSD, OpenBSD, or NetBSD on amd64/arm64", json: true},
 		{name: "ineligible OS", args: []string{"remote", "pair", "--dry-run"}, mutate: func(a *App, _ *scriptedProber) { a.GOOS = "windows" }, wantCode: ExitBlocked, want: "current host is windows/amd64"},
 		{name: "stale evidence", args: []string{"remote", "pair", "--dry-run"}, mutate: func(a *App, _ *scriptedProber) { a.Now = func() time.Time { return fixedNow.AddDate(2, 0, 0) } }, wantCode: ExitBlocked, want: "evidence is stale"},
 		{name: "future evidence", args: []string{"remote", "pair", "--dry-run"}, mutate: func(a *App, _ *scriptedProber) {
@@ -1799,10 +2937,17 @@ func TestRemoteErrorsAndSafetyGates(t *testing.T) {
 		{name: "false configured application expectation", args: []string{"remote", "list", "--require-configured-app=false"}, wantCode: ExitUsage, want: "must be true when supplied"},
 		{name: "invalid application expectation", args: []string{"remote", "list", "--require-app", "-League", "--dry-run"}, wantCode: ExitUsage, want: "invalid required application"},
 		{name: "stream options on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--fps", "60", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
+		{name: "reconnect attempts on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--reconnect-attempts", "1", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
+		{name: "reconnect attempts are bounded", args: []string{"remote", "stream", "--reconnect-attempts", "6", "--dry-run"}, wantCode: ExitUsage, want: "--reconnect-attempts must be between"},
+		{name: "reconnect delay needs attempts", args: []string{"remote", "stream", "--reconnect-delay", "1", "--dry-run"}, wantCode: ExitUsage, want: "requires --reconnect-attempts"},
 		{name: "codec on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--codec", "h264", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
 		{name: "audio config on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--audio-config", "stereo", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
 		{name: "host settings on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--preserve-host-settings", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
 		{name: "network mode on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--network-mode", "lan", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
+		{name: "frame pacing on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--frame-pacing", "on", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
+		{name: "keep awake on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--keep-awake", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
+		{name: "system-key capture on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--capture-system-keys", "always", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
+		{name: "vsync on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--vsync", "on", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
 		{name: "packet size on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--packet-size", "1392", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
 		{name: "platform on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--platform", "sdl", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
 		{name: "display mode on pair", args: []string{"remote", "pair", "--host", "gaming-pc.local", "--display-mode", "borderless", "--dry-run"}, wantCode: ExitUsage, want: "require the stream operation"},
@@ -1812,6 +2957,9 @@ func TestRemoteErrorsAndSafetyGates(t *testing.T) {
 		{name: "invalid stream codec", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--codec", "vp9", "--dry-run"}, wantCode: ExitUsage, want: "codec must be"},
 		{name: "invalid stream audio config", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--audio-config", "2.1-surround", "--dry-run"}, wantCode: ExitUsage, want: "audio config must be"},
 		{name: "invalid stream network mode", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--network-mode", "internet", "--dry-run"}, wantCode: ExitUsage, want: "network mode must be"},
+		{name: "invalid stream frame pacing", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--frame-pacing", "adaptive", "--dry-run"}, wantCode: ExitUsage, want: "frame pacing must be"},
+		{name: "invalid stream system-key capture", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--capture-system-keys", "focused", "--dry-run"}, wantCode: ExitUsage, want: "capture system keys must be"},
+		{name: "invalid stream vsync", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--vsync", "adaptive", "--dry-run"}, wantCode: ExitUsage, want: "vsync must be"},
 		{name: "invalid stream packet size", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--packet-size", "1025", "--dry-run"}, wantCode: ExitUsage, want: "packet size must be"},
 		{name: "invalid stream platform", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--platform", "wayland", "--dry-run"}, wantCode: ExitUsage, want: "platform must be"},
 		{name: "invalid stream decoder", args: []string{"remote", "stream", "--host", "gaming-pc.local", "--decoder", "vp9", "--dry-run"}, wantCode: ExitUsage, want: "decoder must be"},
@@ -1912,7 +3060,8 @@ func TestRemoteConfigOverridesAndHelpers(t *testing.T) {
 		{"dragonfly", "amd64", true},
 		{"dragonflybsd", "amd64", false},
 		{"windows", "amd64", false},
-		{"linux", "arm64", false},
+		{"linux", "arm64", true},
+		{"dragonfly", "arm64", false},
 	}
 	for _, tt := range platformTests {
 		if got := eligibleClientPlatform(tt.goos, tt.arch); got != tt.want {
@@ -1943,4 +3092,48 @@ func TestAppFallbackHelpers(t *testing.T) {
 	if a.prober() == nil {
 		t.Fatal("nil NewProber fallback returned nil")
 	}
+}
+
+func TestRemoteMapIsLocalEmbeddedOnly(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
+	args := []string{"remote", "map", "--client", "moonlight-embedded", "--input-device", "/dev/input/event4", "--dry-run", "--json"}
+	if code := a.Run(context.Background(), args); code != ExitOK {
+		t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	envelope := decodeEnvelope(t, out.Bytes())
+	plan := envelope.Data.(map[string]any)
+	arguments := plan["arguments"].([]any)
+	if envelope.Command != "remote map" || plan["local"] != true || plan["route"] != "" || !reflect.DeepEqual(arguments, []any{"map", "-input", "/dev/input/event4"}) {
+		t.Fatalf("envelope=%+v", envelope)
+	}
+	if runner.called != 0 || !reflect.DeepEqual(prober.clientSelections, []string{"moonlight-embedded"}) {
+		t.Fatalf("runner.called=%d clientSelections=%#v", runner.called, prober.clientSelections)
+	}
+}
+
+func TestRemoteMapRejectsUnsupportedClientAndMissingDevice(t *testing.T) {
+	t.Run("unsupported client", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-qt": "/fixture/moonlight-qt"}}
+		args := []string{"remote", "map", "--client", "moonlight-qt", "--input-device", "/dev/input/event4", "--dry-run"}
+		if code := a.Run(context.Background(), args); code != ExitUsage {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "requires Moonlight Embedded") || runner.called != 0 {
+			t.Fatalf("stderr=%q runner.called=%d", errOut.String(), runner.called)
+		}
+	})
+
+	t.Run("live missing device", func(t *testing.T) {
+		a, out, errOut, _, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
+		args := []string{"remote", "map", "--input-device", "/dev/input/event999999999"}
+		if code := a.Run(context.Background(), args); code != ExitUsage {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "input device") || runner.called != 0 {
+			t.Fatalf("stderr=%q runner.called=%d", errOut.String(), runner.called)
+		}
+	})
 }

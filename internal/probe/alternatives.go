@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 // Compatibility audits the compatibility layers and virtual-machine launchers
@@ -26,18 +28,18 @@ func (p *Prober) Compatibility(_ context.Context) Report {
 }
 
 func (p *Prober) compatibilityPlatformCheck() Check {
-	if _, ok := eligibleClientOS[p.goos]; ok && p.goarch == "amd64" {
+	if _, ok := eligibleClientOS[p.goos]; ok && target.IsSupported(p.goos, p.goarch) {
 		return Check{
 			ID:      "compatibility.platform",
 			Status:  StatusPass,
-			Summary: "This Linux/BSD amd64 machine is in the client audit target.",
+			Summary: "This Linux/BSD " + target.NormalizeArchitecture(p.goarch) + " machine is in the client audit target.",
 		}
 	}
 	return Check{
 		ID:       "compatibility.platform",
 		Status:   StatusFail,
-		Summary:  "This machine is outside the Linux/BSD amd64 alternatives-audit target.",
-		Guidance: "Run this audit on Linux, FreeBSD, OpenBSD, NetBSD, or DragonFly BSD amd64.",
+		Summary:  "This machine is outside the supported Linux/BSD alternatives-audit target.",
+		Guidance: "Run this audit on Linux, FreeBSD, OpenBSD, or NetBSD amd64/arm64, or DragonFly BSD amd64.",
 	}
 }
 
@@ -126,14 +128,17 @@ func (p *Prober) lutrisCompatibilityCheck() Check {
 
 func (p *Prober) virtualMachineCompatibilityCheck() Check {
 	if command, ok := p.lookupAny(
-		"docker", "podman", "qemu-system-x86_64", "wsl", "winboat", "libvirt",
-		"libvirtd", "virsh", "virt-manager", "virt-install", "vboxmanage", "vmrun", "vmware", "bhyve",
+		"docker", "podman", "containerd", "nerdctl", "qemu-system-x86_64", "qemu-system-i386", "qemu",
+		"kvm", "lkvm", "wsl", "winboat", "libvirt", "libvirtd", "virsh", "virt-manager", "virt-install",
+		"vboxmanage", "vmrun", "vmware", "bhyve", "vmd", "vmctl", "xen", "xl", "xenstored",
+		"lxc", "lxc-start", "incus", "incusd", "systemd-nspawn", "firecracker", "cloud-hypervisor",
+		"virtctl", "multipass", "lima", "colima",
 	); ok {
 		return Check{
 			ID:       "compatibility.virtual-machine",
 			Status:   StatusWarn,
 			Summary:  "The virtual-machine or container launcher " + command + " is present, but it cannot turn a Windows guest into a Riot-approved physical host.",
-			Guidance: "Dockur/QEMU/WSL remain VM or container paths; do not use them to bypass Vanguard or physical-host checks.",
+			Guidance: "Dockur/WinBoat/QEMU/WSL/VMM/LXC/Incus and other container or VM paths remain non-certifying; do not use them to bypass Vanguard or physical-host checks.",
 		}
 	}
 	if app, ok := p.lookupFlatpakApp(map[string]string{
@@ -149,17 +154,18 @@ func (p *Prober) virtualMachineCompatibilityCheck() Check {
 	return Check{
 		ID:       "compatibility.virtual-machine",
 		Status:   StatusWarn,
-		Summary:  "No container or virtual-machine launcher was detected; adding one would remain non-certifying.",
-		Guidance: "Use a directly owned physical Windows host for the supported remote route.",
+		Summary:  "No known container or virtual-machine launcher was detected; adding one would remain non-certifying.",
+		Guidance: "Use a directly owned physical Windows host for the supported remote route; Docker, Dockur, QEMU, bhyve, VMM, LXC, and similar guests are not substitutes.",
 	}
 }
 
 func (p *Prober) otherCompatibilityLayerCheck() Check {
-	found := make([]string, 0, 2)
+	found := make([]string, 0, 3)
 	for _, candidate := range []struct {
 		name  string
 		label string
 	}{
+		{name: "parsec", label: "Parsec"},
 		{name: "darling", label: "Darling"},
 		{name: "waydroid", label: "Waydroid"},
 	} {
@@ -171,15 +177,15 @@ func (p *Prober) otherCompatibilityLayerCheck() Check {
 		return Check{
 			ID:       "compatibility.other-layers",
 			Status:   StatusWarn,
-			Summary:  strings.Join(found, " and ") + " is present, but it is not an authorized Windows League/Vanguard runtime.",
-			Guidance: "Darling and Waydroid are not substitutes for Riot's supported Windows or native macOS client; keep local Linux/BSD gameplay blocked.",
+			Summary:  strings.Join(found, " and ") + " is present, but it is not an authorized Windows League/Vanguard runtime; Parsec's own guidance also identifies Vanguard as a cause of blocked League input.",
+			Guidance: "Parsec, Darling, and Waydroid are not substitutes for Riot's supported Windows or native macOS client; keep local Linux/BSD gameplay blocked and use only the physical-host routes.",
 		}
 	}
 	return Check{
 		ID:       "compatibility.other-layers",
 		Status:   StatusWarn,
-		Summary:  "Darling and Waydroid are not present; adding either would not provide a supported League/Vanguard route.",
-		Guidance: "Use a directly owned physical Windows host or the experimental physical Mac handoff instead of an emulation or Android-container path.",
+		Summary:  "Parsec, Darling, and Waydroid are not present; adding any of them would not provide a supported League/Vanguard route.",
+		Guidance: "Use a directly owned physical Windows host or the experimental physical Mac handoff instead of a software remote client, emulation layer, or Android container.",
 	}
 }
 
@@ -209,6 +215,16 @@ func (p *Prober) lookupFlatpakApp(apps map[string]string) (string, bool) {
 	}
 	if home, ok := p.localEnvironmentRoot(p.envValue("HOME")); ok {
 		paths = append(paths, filepath.Join(home, ".local", "share", "flatpak", "app"))
+	}
+	if dataDirs := p.envValue("XDG_DATA_DIRS"); dataDirs != "" {
+		// XDG_DATA_DIRS is a colon-separated Unix variable. Use the target
+		// convention rather than filepath.ListSeparator so cross-target probes
+		// remain correct when tests run on Windows.
+		for _, dataDir := range strings.Split(dataDirs, ":") {
+			if root, ok := p.localEnvironmentRoot(dataDir); ok {
+				paths = append(paths, filepath.Join(root, "flatpak", "app"))
+			}
+		}
 	}
 	appIDs := make([]string, 0, len(apps))
 	for appID := range apps {

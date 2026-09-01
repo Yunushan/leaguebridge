@@ -4,11 +4,14 @@ package probe
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"path"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -99,7 +102,7 @@ func (r Report) Ready() bool {
 // endpoints are not control-plane blockers. The target platform and a
 // PATH-resolvable Moonlight launcher remain required.
 func (r Report) ReadyForControl() bool {
-	if r.SchemaVersion != SchemaVersion || r.Profile != ProfileClient || r.Architecture != "amd64" {
+	if r.SchemaVersion != SchemaVersion || r.Profile != ProfileClient || !target.IsSupported(r.OS, r.Architecture) {
 		return false
 	}
 	if _, ok := eligibleClientOS[r.OS]; !ok {
@@ -190,6 +193,14 @@ func (r Report) Check(id string) (Check, bool) {
 // implementation does not follow the final symbolic link.
 type FileSystem interface {
 	Stat(name string) (fs.FileInfo, error)
+}
+
+// DeviceAccess is an optional read-only extension used when a client input
+// endpoint must be checked for actual session access. Fixture file systems may
+// omit it and retain existence-only semantics; the system file system
+// implements it with a nonblocking read-only open.
+type DeviceAccess interface {
+	OpenRead(name string) (io.Closer, error)
 }
 
 // Environment supplies environment values without requiring probes to depend
@@ -455,6 +466,30 @@ func (p *Prober) run(ctx context.Context, name string, args ...string) (CommandR
 	commandCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 	return p.command.Run(commandCtx, name, args...)
+}
+
+// readableCharacterDeviceAny verifies both the device-node type and the
+// permission needed by a client input backend. It deliberately returns to
+// existence-only behavior for fixture file systems that do not expose the
+// optional DeviceAccess surface.
+func (p *Prober) readableCharacterDeviceAny(paths ...string) bool {
+	access, canCheckAccess := p.fs.(DeviceAccess)
+	for _, candidate := range uniqueNonEmpty(paths) {
+		info, err := p.fs.Stat(candidate)
+		if err != nil || info == nil || info.Mode()&fs.ModeCharDevice == 0 {
+			continue
+		}
+		if !canCheckAccess {
+			return true
+		}
+		device, err := access.OpenRead(candidate)
+		if err != nil || device == nil {
+			continue
+		}
+		_ = device.Close()
+		return true
+	}
+	return false
 }
 
 func uniqueNonEmpty(values []string) []string {

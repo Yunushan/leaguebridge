@@ -62,6 +62,66 @@ func TestBSDPackageSmokeAllowsTargetNativeVersionChecker(t *testing.T) {
 	}
 }
 
+func TestBSDRuntimeSmokeBindsSupportedArchitectureToTheGuest(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "bsd-runtime-smoke.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, required := range []string{
+		"usage: bsd-runtime-smoke.sh BINARY GOOS GOARCH UNAME EVIDENCE_DIR",
+		`if [ "$#" -ne 5 ]; then`,
+		"expected_goarch=$3",
+		"freebsd:amd64:FreeBSD | freebsd:arm64:FreeBSD",
+		"openbsd:amd64:OpenBSD | openbsd:arm64:OpenBSD",
+		"netbsd:amd64:NetBSD | netbsd:arm64:NetBSD",
+		"dragonfly:amd64:DragonFly",
+		`\"architecture\": \"$expected_goarch\"`,
+		`printf 'goarch=%s\n' "$expected_goarch"`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("BSD runtime smoke script is missing architecture contract fragment %q", required)
+		}
+	}
+}
+
+func TestLinuxBSDRemoteSmokeSupportsOptionalWakeBootstrap(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "linux-bsd-remote-smoke.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, required := range []string{
+		"usage: linux-bsd-remote-smoke.sh BINARY EVIDENCE_DIR CONFIG [EXPECTED_APPLICATION [WAKE_MAC [WAKE_WAIT [WAKE_BROADCAST [WAKE_PORT [WAKE_RETRIES [WAKE_RETRY_DELAY]]]]]]]",
+		`if [ "$#" -lt 3 ] || [ "$#" -gt 10 ]; then`,
+		"wake_mac=${5-}",
+		"wake_wait=15",
+		`if [ "$#" -ge 6 ]; then`,
+		"wake_broadcast=255.255.255.255",
+		"wake_port=9",
+		"wake_retries=3",
+		"wake_retry_delay=5",
+		`if [ "$#" -ge 8 ]; then`,
+		`if [ "$#" -ge 9 ]; then`,
+		"wake_retry_delay=${10}",
+		"--acknowledge-unverified-handoff --wake-mac \"$wake_mac\" \\",
+		"--wake-wait \"$wake_wait\" --wake-broadcast \"$wake_broadcast\" \\",
+		"--wake-port \"$wake_port\" --wake-retries \"$wake_retries\" \\",
+		"--wake-retry-delay \"$wake_retry_delay\"; then",
+		"printf 'wake_bootstrap=used\\n'",
+		"printf 'wake_bootstrap=not-requested\\n'",
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("Linux/BSD remote smoke script is missing Wake-on-LAN fragment %q", required)
+		}
+	}
+	if strings.Contains(script, "printf 'wake_mac=") || strings.Contains(script, "printf 'wake_mac=%s") {
+		t.Fatal("Linux/BSD remote smoke script must not write the Wake-on-LAN MAC to evidence")
+	}
+}
+
 func TestWorkflowsUseTheResolvedSetupGoPinEverywhere(t *testing.T) {
 	const expected = "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
 	for _, relative := range []string{
@@ -140,6 +200,8 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 		"export CI_ATTESTATION_TREE=\"$actual_tree\"",
 		"./tools/ciattestation",
 		"./tools/nativeattestation",
+		"Create score-free Linux runtime attestation subject",
+		"Create score-free BSD runtime attestation subject",
 		"-kind race-vet",
 		"-kind cross-build",
 		"-kind linux-runtime",
@@ -148,8 +210,9 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 		"-target-goos \"${{ matrix.goos }}\"",
 		"-target-goarch \"${{ matrix.goarch }}\"",
 		"-subject \"ci-build/leaguebridge-${{ matrix.goos }}-${{ matrix.goarch }}\"",
+		"-evidence-dir \"bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}\"",
 		"actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26",
-		"subject-path: ci-attestation-input/ci-attestation/race-vet.json",
+		"subject-path: ci-attestation-input/race-vet.json",
 		"ci-attestation/cross-build.json",
 		"native-package-linux:",
 		"native-package-bsd:",
@@ -168,16 +231,85 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 		"native-package-evidence/rpm/install.txt",
 		"native-package-evidence/${{ matrix.family }}/install.txt",
 		"verify-native-package-attestations:",
+		"needs: [bsd-runtime, dragonfly-runtime]",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("ci.yml is missing attestation contract fragment %q", required)
 		}
 	}
-	if count := strings.Count(workflow, "actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26"); count != 6 {
-		t.Fatalf("ci.yml has %d attestation action references; want Linux/BSD race/vet, cross-build, runtime, and package references", count)
+	if count := strings.Count(workflow, "actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26"); count != 7 {
+		t.Fatalf("ci.yml has %d attestation action references; want Linux/BSD race/vet, cross-build, runtime, and package references including DragonFly", count)
 	}
 	if count := strings.Count(workflow, "-verify-subject native-package-evidence/"); count != 6 {
 		t.Fatalf("ci.yml verifies %d native package subjects; want the complete Linux/BSD package set", count)
+	}
+}
+
+func TestBSDRuntimeMatrixCoversPortableArchitectures(t *testing.T) {
+	path := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	for _, required := range []string{
+		"label: FreeBSD 15.1 arm64",
+		"label: OpenBSD 7.9 arm64",
+		"label: NetBSD 11.0 arm64",
+		"cpa_architecture: arm64",
+		"architecture: ${{ matrix.cpa_architecture }}",
+		"GOARCH: ${{ matrix.goarch }}",
+		"bsd-runtime-${{ matrix.goos }}-${{ matrix.guest_version }}-${{ matrix.goarch }}",
+		"dist/leaguebridge_0.0.0-ci_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz",
+		"bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}",
+		"dragonfly-runtime:",
+		"vmactions/dragonflybsd-vm@7cd7c9b7f2b06e8e03d2337a9476995f3c112acf",
+		"custom-shell-name: dragonflybsd",
+		"mem: 6144",
+		"shell: dragonflybsd {0}",
+		"bsd-runtime-dragonfly-6.4.2-amd64",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("ci.yml is missing portable BSD runtime fragment %q", required)
+		}
+	}
+	if strings.Contains(workflow, "label: DragonFly BSD 6.4.2 arm64") {
+		t.Fatal("ci.yml added an unsupported DragonFly arm64 runtime guest")
+	}
+	if count := strings.Count(workflow, "-verify-subject bsd-evidence/"); count != 7 {
+		t.Fatalf("ci.yml verifies %d native BSD runtime subjects; want 7", count)
+	}
+}
+
+func TestCIWorkflowKeepsSmokeArgumentsAndVMHelperGuardsIntact(t *testing.T) {
+	path := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	for _, required := range []string{
+		"run: |\n          set -euo pipefail\n          bash scripts/native-package-linux-smoke.sh \\\n            v0.0.0-ci \\\n            dist/leaguebridge_0.0.0-ci_linux_amd64.tar.gz",
+		"run: |\n          set -eu\n          sh scripts/native-package-bsd-smoke.sh \\\n            v0.0.0-ci \"${{ matrix.goos }}\" \"${{ matrix.family }}\" \\\n            \"bsd-ci/versioncheck-${{ matrix.goos }}-amd64\"",
+		"run: |\n          set -eu\n          sh scripts/native-package-bsd-smoke.sh \\\n            v0.0.0-ci dragonfly dports \\\n            bsd-ci/versioncheck-dragonfly-amd64",
+		"cp ci-attestation-input/ci-attestation-race-vet-ubuntu-24.04/race-vet.json",
+		"id: cpa-ready",
+		"command -v cpa.sh >/dev/null 2>&1",
+		"if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'\n        shell: cpa.sh {0}",
+		"if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'\n        run: cpa.sh --sync-files vm-to-runner",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("ci.yml is missing smoke/VM safety contract fragment %q", required)
+		}
+	}
+	if count := strings.Count(workflow, "id: start-vm"); count != 2 {
+		t.Fatalf("ci.yml has %d VM startup step IDs; want runtime and package jobs", count)
+	}
+	if count := strings.Count(workflow, "id: cpa-ready"); count != 2 {
+		t.Fatalf("ci.yml has %d cpa.sh readiness gates; want runtime and package jobs", count)
+	}
+	if count := strings.Count(workflow, "if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'"); count != 3 {
+		t.Fatalf("ci.yml has %d guarded always-steps; want install and sync coverage", count)
 	}
 }
 
@@ -192,9 +324,11 @@ func TestCIWorkflowVerifiesCompleteAttestationSets(t *testing.T) {
 		"verify-ci-attestations:",
 		"verify-native-runtime-attestations:",
 		"verify-native-package-attestations:",
+		"dragonfly-native-package:",
+		"native-package-bsd-dragonfly",
 		"if: github.event_name != 'pull_request'",
 		"needs: [attest-race-vet, attest-cross-build]",
-		"needs: [native-package-linux, native-package-bsd]",
+		"needs: [native-package-linux, native-package-bsd, dragonfly-native-package]",
 		"needs: [attest-linux-runtime, attest-bsd-runtime]",
 		"attestations: read",
 		"pattern: ci-attestation-*",
@@ -215,9 +349,13 @@ func TestCIWorkflowVerifiesCompleteAttestationSets(t *testing.T) {
 		"-expected-host-class virtualized",
 		"ci-attestation/race-vet-linux.json",
 		"ci-attestation/cross-build-linux-amd64.json",
+		"ci-attestation/cross-build-linux-arm64.json",
 		"ci-attestation/cross-build-freebsd-amd64.json",
+		"ci-attestation/cross-build-freebsd-arm64.json",
 		"ci-attestation/cross-build-openbsd-amd64.json",
+		"ci-attestation/cross-build-openbsd-arm64.json",
 		"ci-attestation/cross-build-netbsd-amd64.json",
+		"ci-attestation/cross-build-netbsd-arm64.json",
 		"ci-attestation/cross-build-dragonfly-amd64.json",
 		"native-package-evidence/debian/native-package.json",
 		"native-package-evidence/rpm/native-package.json",
@@ -246,9 +384,13 @@ func TestReleaseWorkflowVerifiesEveryAttestedPublicationSubject(t *testing.T) {
 		"Set up Go for release attestation verification",
 		"dist/checksums.txt",
 		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_linux_amd64.tar.gz",
+		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_linux_arm64.tar.gz",
 		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_freebsd_amd64.tar.gz",
+		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_freebsd_arm64.tar.gz",
 		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_openbsd_amd64.tar.gz",
+		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_openbsd_arm64.tar.gz",
 		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_netbsd_amd64.tar.gz",
+		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_netbsd_arm64.tar.gz",
 		"dist/leaguebridge_${{ steps.verify_artifacts.outputs.release_version }}_dragonfly_amd64.tar.gz",
 		"go run -mod=vendor ./tools/ciattestation",
 		"-verify -kind release",

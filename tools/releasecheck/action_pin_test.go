@@ -17,7 +17,8 @@ func TestWorkflowsUseOnlyResolvedActionPins(t *testing.T) {
 		"actions/upload-artifact":       "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 		"actions/download-artifact":     "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
 		"actions/attest":                "59d89421af93a897026c735860bf21b6eb4f7b26",
-		"cross-platform-actions/action": "24ef01df165c76df1ed2b9f9e9212e78dc2fc963",
+		"cross-platform-actions/action": "faa0c6197e94aacf1c5956460152c8380d3560a5",
+		"vmactions/dragonflybsd-vm":     "7cd7c9b7f2b06e8e03d2337a9476995f3c112acf",
 	}
 	workflowFiles := []string{
 		filepath.Join("..", "..", ".github", "workflows", "ci.yml"),

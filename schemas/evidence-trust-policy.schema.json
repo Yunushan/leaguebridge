@@ -134,11 +134,9 @@
     "scopeListArchitecture": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 1,
-      "prefixItems": [
-        { "const": "amd64" }
-      ],
-      "items": false
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "enum": ["amd64", "arm64"] }
     },
     "scopeListClientPlatform": {
       "type": "array",

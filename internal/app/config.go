@@ -76,10 +76,11 @@ func (a *App) runConfigInit(args []string) int {
 	set := a.flagSet("config init")
 	file := set.String("file", "", "destination (default: per-user path)")
 	routeName := set.String("route", "windows", "physical-host route: windows or macos")
-	host := set.String("host", "", "physical host DNS name or IP")
-	application := set.String("app", "League of Legends", "Sunshine application name")
+	host := set.String("host", "", "physical host DNS name or IP; use HOST:PORT or [IPv6]:PORT for an explicit Moonlight port")
+	application := set.String("app", config.DefaultRemoteApplication, "Sunshine application name (default: League of Legends)")
 	client := set.String("client", "auto", "auto, moonlight, moonlight-embedded, moonlight-qt, or flatpak")
 	confirmed := set.Bool("confirm-physical-host", false, "confirm that the host is not a VM")
+	kvmURL := set.String("kvm-url", "", "optional clean hardware-KVM web-interface URL to store in the credential-free config")
 	if err := parseFlags(set, args); err != nil {
 		return a.commandError("config init", false, ExitUsage, "%v", err)
 	}
@@ -107,6 +108,9 @@ func (a *App) runConfigInit(args []string) int {
 	target.App = *application
 	target.Client = *client
 	target.PhysicalHostConfirmed = *confirmed
+	if *kvmURL != "" {
+		cfg.KVM = &config.KVMConfig{Endpoint: *kvmURL}
+	}
 	if err := config.WriteNew(path, cfg); err != nil {
 		if errors.Is(err, config.ErrExists) {
 			return a.commandError("config init", false, ExitUsage, "refusing to overwrite existing configuration: %s", path)

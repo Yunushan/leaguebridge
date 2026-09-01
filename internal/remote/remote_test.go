@@ -2,7 +2,9 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -14,6 +16,15 @@ import (
 
 type fakeEnv struct {
 	paths map[string]string
+}
+
+type flatpakFixtureEnv struct {
+	fakeEnv
+	installed bool
+}
+
+func (e flatpakFixtureEnv) flatpakApplicationInstalled() bool {
+	return e.installed
 }
 
 func boundTestClient(t *testing.T, flavor Flavor) Client {
@@ -36,6 +47,7 @@ func boundTestClient(t *testing.T, flavor Flavor) Client {
 
 func bindTestPlan(plan Plan) Plan {
 	plan.argumentBinding = append([]string(nil), plan.Arguments...)
+	plan.qtPlatformBinding = plan.QtPlatform
 	return plan
 }
 
@@ -64,24 +76,92 @@ func TestDiscover(t *testing.T) {
 	tests := []struct {
 		name      string
 		preferred string
+		goos      string
 		env       fakeEnv
 		want      Flavor
 	}{
-		{"qt-first", "auto", fakeEnv{paths: map[string]string{"moonlight-qt": "/bin/moonlight-qt"}}, FlavorQt},
-		{"explicit-embedded", "moonlight", fakeEnv{paths: map[string]string{"moonlight": "/bin/moonlight"}}, FlavorEmbedded},
-		{"explicit-embedded-alias", "moonlight-embedded", fakeEnv{paths: map[string]string{"moonlight": "/bin/moonlight"}}, FlavorEmbedded},
-		{"explicit-embedded-executable", "moonlight-embedded", fakeEnv{paths: map[string]string{"moonlight-embedded": "/bin/moonlight-embedded"}}, FlavorEmbedded},
-		{"flatpak", "auto", fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}}, FlavorFlatpak},
-		{"explicit-flatpak", "flatpak", fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}}, FlavorFlatpak},
+		{"qt-first", "auto", "linux", fakeEnv{paths: map[string]string{"moonlight-qt": "/bin/moonlight-qt"}}, FlavorQt},
+		{"explicit-embedded", "moonlight", "linux", fakeEnv{paths: map[string]string{"moonlight": "/bin/moonlight"}}, FlavorEmbedded},
+		{"explicit-embedded-alias", "moonlight-embedded", "freebsd", fakeEnv{paths: map[string]string{"moonlight": "/bin/moonlight"}}, FlavorEmbedded},
+		{"explicit-embedded-executable", "moonlight-embedded", "linux", fakeEnv{paths: map[string]string{"moonlight-embedded": "/bin/moonlight-embedded"}}, FlavorEmbedded},
+		{"flatpak", "auto", "linux", fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}}, FlavorFlatpak},
+		{"explicit-flatpak", "flatpak", "linux", fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}}, FlavorFlatpak},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := Discover(context.Background(), tt.env, tt.preferred)
+			client, err := discoverForPlatform(context.Background(), tt.env, tt.preferred, tt.goos)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if client.Flavor != tt.want {
 				t.Fatalf("got %s, want %s", client.Flavor, tt.want)
+			}
+		})
+	}
+}
+
+func TestDiscoverNormalizesClientSelection(t *testing.T) {
+	client, err := DiscoverForPlatform(context.Background(), fakeEnv{paths: map[string]string{
+		"moonlight-qt": "/bin/moonlight-qt",
+	}}, " MOONLIGHT-QT ", "linux")
+	if err != nil {
+		t.Fatalf("DiscoverForPlatform(): %v", err)
+	}
+	if client.Flavor != FlavorQt || client.Binary != "/bin/moonlight-qt" {
+		t.Fatalf("client = %+v; want Qt /bin/moonlight-qt", client)
+	}
+}
+
+func TestDiscoverFlatpakRequiresInstalledApplicationWhenEnvironmentCanCheckIt(t *testing.T) {
+	for _, preferred := range []string{"auto", "flatpak"} {
+		t.Run(preferred+"-missing-app", func(t *testing.T) {
+			env := flatpakFixtureEnv{
+				fakeEnv:   fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}},
+				installed: false,
+			}
+			if _, err := discoverForPlatform(context.Background(), env, preferred, "linux"); err == nil || !strings.Contains(err.Error(), "Flatpak app is not installed") {
+				t.Fatalf("discoverForPlatform(%q) error = %v; want missing-app rejection", preferred, err)
+			}
+		})
+		t.Run(preferred+"-installed-app", func(t *testing.T) {
+			env := flatpakFixtureEnv{
+				fakeEnv:   fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}},
+				installed: true,
+			}
+			client, err := discoverForPlatform(context.Background(), env, preferred, "linux")
+			if err != nil {
+				t.Fatalf("discoverForPlatform(%q): %v", preferred, err)
+			}
+			if client.Flavor != FlavorFlatpak || client.Binary != "/bin/flatpak" {
+				t.Fatalf("discovered client = %+v; want Flatpak /bin/flatpak", client)
+			}
+		})
+	}
+}
+
+func TestDiscoverDoesNotUseFlatpakOnBSD(t *testing.T) {
+	for _, goos := range []string{"freebsd", "openbsd", "netbsd", "dragonfly"} {
+		t.Run(goos+"-auto", func(t *testing.T) {
+			env := fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}}
+			if _, err := discoverForPlatform(context.Background(), env, "auto", goos); err == nil || !strings.Contains(err.Error(), "Moonlight was not found") {
+				t.Fatalf("BSD auto discovery error = %v; want native-client not-found error", err)
+			}
+		})
+		t.Run(goos+"-explicit", func(t *testing.T) {
+			env := fakeEnv{paths: map[string]string{"flatpak": "/bin/flatpak"}}
+			if _, err := discoverForPlatform(context.Background(), env, "flatpak", goos); err == nil || !strings.Contains(err.Error(), "only on Linux") {
+				t.Fatalf("BSD Flatpak discovery error = %v; want Linux-only rejection", err)
+			}
+		})
+	}
+}
+
+func TestDiscoverExplicitEmbeddedRejectsGenericQtConvention(t *testing.T) {
+	env := fakeEnv{paths: map[string]string{"moonlight": "/opt/moonlight"}}
+	for _, goos := range []string{"linux", "openbsd", "netbsd"} {
+		t.Run(goos, func(t *testing.T) {
+			if _, err := discoverForPlatform(context.Background(), env, "moonlight-embedded", goos); err == nil {
+				t.Fatalf("generic Qt-convention Moonlight binary was accepted as Embedded on %s", goos)
 			}
 		})
 	}
@@ -156,6 +236,17 @@ func TestDiscoverAutoUsesExpectedFlavorForEveryNativeClient(t *testing.T) {
 	}
 }
 
+func TestAutomaticClientSelectionsMatchPlatformPolicy(t *testing.T) {
+	if got, want := AutomaticClientSelections("linux"), []string{"moonlight-qt", "moonlight-embedded", "moonlight", "flatpak"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Linux automatic selections = %#v, want %#v", got, want)
+	}
+	for _, goos := range []string{"freebsd", "openbsd", "netbsd", "dragonfly"} {
+		if got, want := AutomaticClientSelections(goos), []string{"moonlight-qt", "moonlight-embedded", "moonlight"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s automatic selections = %#v, want %#v", goos, got, want)
+		}
+	}
+}
+
 func TestBuildPlan(t *testing.T) {
 	base := Request{Operation: Stream, Host: "gaming-pc.local", App: "League of Legends", PhysicalHostConfirmed: true, AcceptUnverifiedHandoff: true}
 	tests := []struct {
@@ -178,6 +269,356 @@ func TestBuildPlan(t *testing.T) {
 		if !reflect.DeepEqual(plan.Arguments, tt.want) {
 			t.Fatalf("%s args = %#v, want %#v", tt.flavor, plan.Arguments, tt.want)
 		}
+	}
+}
+
+func TestPairingPINIsSupportedByNativeClientsAndValidated(t *testing.T) {
+	tests := []struct {
+		name    string
+		client  Client
+		request Request
+		want    []string
+		wantErr string
+	}{
+		{
+			name:    "valid Qt PIN",
+			client:  Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
+			request: Request{Operation: Pair, Host: "gaming-pc.local", PairingPIN: "0427", PhysicalHostConfirmed: true},
+			want:    []string{"pair", "-pin", "0427", "gaming-pc.local"},
+		},
+		{
+			name:    "valid Flatpak PIN",
+			client:  Client{Flavor: FlavorFlatpak, Binary: "/usr/bin/flatpak", Prefix: []string{"run", "com.moonlight_stream.Moonlight"}},
+			request: Request{Operation: Pair, Host: "gaming-pc.local", PairingPIN: "0427", PhysicalHostConfirmed: true},
+			want:    []string{"run", "com.moonlight_stream.Moonlight", "pair", "-pin", "0427", "gaming-pc.local"},
+		},
+		{
+			name:    "valid Embedded PIN",
+			client:  Client{Flavor: FlavorEmbedded, Binary: "/usr/bin/moonlight"},
+			request: Request{Operation: Pair, Host: "gaming-pc.local", PairingPIN: "0427", PhysicalHostConfirmed: true},
+			want:    []string{"pair", "-pin", "0427", "gaming-pc.local"},
+		},
+		{
+			name:    "invalid PIN",
+			client:  Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
+			request: Request{Operation: Pair, Host: "gaming-pc.local", PairingPIN: "04a7", PhysicalHostConfirmed: true},
+			wantErr: "exactly four ASCII digits",
+		},
+		{
+			name:    "PIN only pairs",
+			client:  Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
+			request: Request{Operation: List, Host: "gaming-pc.local", PairingPIN: "0427", PhysicalHostConfirmed: true},
+			wantErr: "only valid for the pair operation",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := BuildPlan(tt.client, tt.request)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("BuildPlan() error = %v; want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BuildPlan(): %v", err)
+			}
+			if !reflect.DeepEqual(plan.Arguments, tt.want) {
+				t.Fatalf("arguments = %#v, want %#v", plan.Arguments, tt.want)
+			}
+			if err := validatePlanArguments(tt.client, plan.Arguments); err != nil {
+				t.Fatalf("generated arguments rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestQtPlatformIsStreamOnlyAndBounded(t *testing.T) {
+	base := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "gaming-pc.local",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	}
+	tests := []struct {
+		name      string
+		client    Client
+		operation Operation
+		platform  string
+		want      string
+		wantError string
+	}{
+		{
+			name:     "Qt xcb",
+			client:   Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
+			platform: "XCB",
+			want:     "xcb",
+		},
+		{
+			name:     "Flatpak linuxfb",
+			client:   Client{Flavor: FlavorFlatpak, Binary: "/usr/bin/flatpak", Prefix: []string{"run", "com.moonlight_stream.Moonlight"}},
+			platform: "linuxfb",
+			want:     "linuxfb",
+		},
+		{
+			name:      "Embedded rejects Qt platform",
+			client:    Client{Flavor: FlavorEmbedded, Binary: "/usr/bin/moonlight"},
+			platform:  "xcb",
+			wantError: "only by Moonlight Qt",
+		},
+		{
+			name:      "pair rejects Qt platform",
+			client:    Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
+			operation: Pair,
+			platform:  "xcb",
+			wantError: "only valid for the stream operation",
+		},
+		{
+			name:      "invalid platform",
+			client:    Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
+			platform:  "offscreen",
+			wantError: "must be auto, xcb, wayland, eglfs, or linuxfb",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := base
+			if tt.operation != "" {
+				request.Operation = tt.operation
+			}
+			request.QtPlatform = tt.platform
+			plan, err := BuildPlan(tt.client, request)
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("BuildPlan() error = %v; want %q", err, tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BuildPlan(): %v", err)
+			}
+			if plan.QtPlatform != tt.want || plan.qtPlatformBinding != tt.want {
+				t.Fatalf("QtPlatform=%q binding=%q; want %q", plan.QtPlatform, plan.qtPlatformBinding, tt.want)
+			}
+			if err := validatePlanArguments(tt.client, plan.Arguments); err != nil {
+				t.Fatalf("generated arguments rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestFlatpakQtPlatformIsBoundInsideSandbox(t *testing.T) {
+	client := boundTestClient(t, FlavorFlatpak)
+	client.Prefix = []string{"run", moonlightFlatpakAppID}
+	request := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "gaming-pc.local",
+		App:                     "League of Legends",
+		QtPlatform:              "XCB",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	}
+	plan, err := BuildPlan(client, request)
+	if err != nil {
+		t.Fatalf("BuildPlan(): %v", err)
+	}
+	want := []string{"run", "--env=QT_QPA_PLATFORM=xcb", moonlightFlatpakAppID, "stream", "gaming-pc.local", "League of Legends"}
+	if !reflect.DeepEqual(plan.Arguments, want) {
+		t.Fatalf("Flatpak arguments = %#v, want %#v", plan.Arguments, want)
+	}
+	if err := validatePlanArguments(client, plan.Arguments); err != nil {
+		t.Fatalf("generated Flatpak arguments rejected: %v", err)
+	}
+
+	runner := &recordingRunner{}
+	if err := Execute(context.Background(), runner, nil, io.Discard, io.Discard, plan); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if runner.qtPlatform != "xcb" {
+		t.Fatalf("runner Qt platform = %q, want xcb", runner.qtPlatform)
+	}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("runner arguments = %#v, want %#v", runner.args, want)
+	}
+
+	mismatched := plan
+	mismatched.Arguments = append([]string(nil), plan.Arguments...)
+	mismatched.Arguments[1] = "--env=QT_QPA_PLATFORM=wayland"
+	if err := Execute(context.Background(), &recordingRunner{}, nil, io.Discard, io.Discard, mismatched); err == nil || !strings.Contains(err.Error(), "does not match its planned platform") {
+		t.Fatalf("Execute() mismatch error = %v; want Flatpak platform mismatch rejection", err)
+	}
+}
+
+func TestFlatpakQtPlatformPrefixRejectsUnboundedEnvironment(t *testing.T) {
+	client := Client{
+		Flavor: FlavorFlatpak,
+		Binary: "flatpak",
+		Prefix: []string{"run", moonlightFlatpakAppID},
+	}
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "arbitrary environment",
+			args: []string{"run", "--env=PATH=/tmp", moonlightFlatpakAppID, "stream", "pc.local", "League"},
+			want: "only the fixed QT_QPA_PLATFORM",
+		},
+		{
+			name: "auto environment",
+			args: []string{"run", "--env=QT_QPA_PLATFORM=auto", moonlightFlatpakAppID, "stream", "pc.local", "League"},
+			want: "must be a concrete backend",
+		},
+		{
+			name: "invalid backend",
+			args: []string{"run", "--env=QT_QPA_PLATFORM=offscreen", moonlightFlatpakAppID, "stream", "pc.local", "League"},
+			want: "must be auto, xcb, wayland, eglfs, or linuxfb",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validatePlanArguments(client, tt.args); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validatePlanArguments() error = %v; want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateQtPlatform(t *testing.T) {
+	for _, tt := range []struct {
+		value string
+		valid bool
+	}{
+		{value: "auto", valid: true},
+		{value: "XCB", valid: true},
+		{value: "wayland", valid: true},
+		{value: "eglfs", valid: true},
+		{value: "linuxfb", valid: true},
+		{value: "offscreen", valid: false},
+		{value: "", valid: false},
+	} {
+		t.Run(tt.value, func(t *testing.T) {
+			err := ValidateQtPlatform(tt.value)
+			if (err == nil) != tt.valid {
+				t.Fatalf("ValidateQtPlatform(%q) = %v, valid=%v", tt.value, err, tt.valid)
+			}
+		})
+	}
+}
+
+func TestValidatePairingPIN(t *testing.T) {
+	for _, tt := range []struct {
+		value string
+		valid bool
+	}{
+		{value: "0427", valid: true},
+		{value: "0000", valid: true},
+		{value: "427", valid: false},
+		{value: "04270", valid: false},
+		{value: "04a7", valid: false},
+		{value: " 427", valid: false},
+	} {
+		t.Run(tt.value, func(t *testing.T) {
+			err := ValidatePairingPIN(tt.value)
+			if (err == nil) != tt.valid {
+				t.Fatalf("ValidatePairingPIN(%q) = %v, valid=%v", tt.value, err, tt.valid)
+			}
+		})
+	}
+}
+
+func TestBuildPlanBracketedIPv6EndpointUsesClientSpecificPortSyntax(t *testing.T) {
+	streamRequest := Request{
+		Operation:               Stream,
+		Host:                    "[2001:db8::1]:47989",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	}
+	listRequest := streamRequest
+	listRequest.Operation = List
+	listRequest.App = ""
+
+	tests := []struct {
+		name       string
+		host       string
+		client     Client
+		streamWant []string
+		listWant   []string
+	}{
+		{
+			name:       "embedded",
+			host:       "[2001:db8::1]:47989",
+			client:     Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			streamWant: []string{"stream", "-app", "League of Legends", "2001:db8::1", "-port", "47989"},
+			listWant:   []string{"list", "2001:db8::1", "-port", "47989"},
+		},
+		{
+			name:       "qt",
+			host:       "[2001:db8::1]:47989",
+			client:     Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			streamWant: []string{"stream", "[2001:db8::1]:47989", "League of Legends"},
+			listWant:   []string{"list", "[2001:db8::1]:47989"},
+		},
+		{
+			name:       "embedded link-local zone",
+			host:       "[fe80::1%25em0]:47989",
+			client:     Client{Flavor: FlavorEmbedded, Binary: "moonlight-embedded"},
+			streamWant: []string{"stream", "-app", "League of Legends", "fe80::1%em0", "-port", "47989"},
+			listWant:   []string{"list", "fe80::1%em0", "-port", "47989"},
+		},
+		{
+			name:       "qt link-local zone",
+			host:       "[fe80::1%25em0]:47989",
+			client:     Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			streamWant: []string{"stream", "[fe80::1%25em0]:47989", "League of Legends"},
+			listWant:   []string{"list", "[fe80::1%25em0]:47989"},
+		},
+		{
+			name:       "embedded IPv4 endpoint",
+			host:       "192.0.2.10:47989",
+			client:     Client{Flavor: FlavorEmbedded, Binary: "moonlight-embedded"},
+			streamWant: []string{"stream", "-app", "League of Legends", "192.0.2.10", "-port", "47989"},
+			listWant:   []string{"list", "192.0.2.10", "-port", "47989"},
+		},
+		{
+			name:       "qt DNS endpoint",
+			host:       "gaming-pc.local:47989",
+			client:     Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			streamWant: []string{"stream", "gaming-pc.local:47989", "League of Legends"},
+			listWant:   []string{"list", "gaming-pc.local:47989"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			streamRequest.Host = tt.host
+			listRequest.Host = tt.host
+			streamPlan, err := BuildPlan(tt.client, streamRequest)
+			if err != nil {
+				t.Fatalf("BuildPlan(stream): %v", err)
+			}
+			if !reflect.DeepEqual(streamPlan.Arguments, tt.streamWant) {
+				t.Fatalf("stream arguments = %#v, want %#v", streamPlan.Arguments, tt.streamWant)
+			}
+			if err := validatePlanArguments(tt.client, streamPlan.Arguments); err != nil {
+				t.Fatalf("stream arguments rejected: %v", err)
+			}
+
+			listPlan, err := BuildPlan(tt.client, listRequest)
+			if err != nil {
+				t.Fatalf("BuildPlan(list): %v", err)
+			}
+			if !reflect.DeepEqual(listPlan.Arguments, tt.listWant) {
+				t.Fatalf("list arguments = %#v, want %#v", listPlan.Arguments, tt.listWant)
+			}
+			if err := validatePlanArguments(tt.client, listPlan.Arguments); err != nil {
+				t.Fatalf("list arguments rejected: %v", err)
+			}
+		})
 	}
 }
 
@@ -214,6 +655,29 @@ func TestApplicationListedStripsTerminalControlSequences(t *testing.T) {
 	}
 }
 
+func TestApplicationListedForFlavorUsesClientNameSemantics(t *testing.T) {
+	const requested = "League of Legends"
+	tests := []struct {
+		name   string
+		output string
+		flavor Flavor
+		want   bool
+	}{
+		{name: "Qt is case insensitive", output: "league of legends\n", flavor: FlavorQt, want: true},
+		{name: "Flatpak uses Qt semantics", output: "LEAGUE OF LEGENDS\n", flavor: FlavorFlatpak, want: true},
+		{name: "Embedded remains exact", output: "league of legends\n", flavor: FlavorEmbedded, want: false},
+		{name: "Qt decorated line is case insensitive", output: "2. LEAGUE OF LEGENDS\n", flavor: FlavorQt, want: true},
+		{name: "diagnostic mention remains rejected", output: "Connecting to league of legends\n", flavor: FlavorQt, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ApplicationListedForFlavor(tt.output, requested, tt.flavor); got != tt.want {
+				t.Fatalf("ApplicationListedForFlavor(%q, %q, %q) = %v, want %v", tt.output, requested, tt.flavor, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildPlanMacOSRouteRemainsExplicitlyUnvalidated(t *testing.T) {
 	client := Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"}
 	plan, err := BuildPlan(client, Request{
@@ -235,6 +699,27 @@ func TestBuildPlanMacOSRouteRemainsExplicitlyUnvalidated(t *testing.T) {
 	}
 	warnings := strings.Join(plan.Warnings, " ")
 	for _, required := range []string{"native client", "experimental", "unvalidated", "not endorsed"} {
+		if !strings.Contains(warnings, required) {
+			t.Errorf("warnings lack %q: %q", required, warnings)
+		}
+	}
+}
+
+func TestBuildPlanWindowsRouteExplainsHostInputContract(t *testing.T) {
+	client := Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"}
+	plan, err := BuildPlan(client, Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "gaming-pc.local",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := strings.Join(plan.Warnings, " ")
+	for _, required := range []string{"licensed Virtual HID Raw Input", "relative mouse mode", "physical mouse", "headless", "SendInput fallback", "hardware KVM", "never installs or alters"} {
 		if !strings.Contains(warnings, required) {
 			t.Errorf("warnings lack %q: %q", required, warnings)
 		}
@@ -340,15 +825,28 @@ func TestBuildPlanValidatesAppName(t *testing.T) {
 }
 
 type recordingRunner struct {
-	name string
-	args []string
-	err  error
+	name       string
+	args       []string
+	qtPlatform string
+	err        error
 }
 
 func (r *recordingRunner) Run(_ context.Context, _ io.Reader, _, _ io.Writer, name string, args ...string) error {
 	r.name = name
 	r.args = append([]string(nil), args...)
 	return r.err
+}
+
+func (r *recordingRunner) RunWithQtPlatform(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, qtPlatform, name string, args ...string) error {
+	r.qtPlatform = qtPlatform
+	return r.Run(ctx, stdin, stdout, stderr, name, args...)
+}
+
+func TestQtPlatformProcessHelper(t *testing.T) {
+	if os.Getenv("LEAGUEBRIDGE_QT_PLATFORM_HELPER") != "1" {
+		return
+	}
+	_, _ = io.WriteString(os.Stdout, os.Getenv("QT_QPA_PLATFORM"))
 }
 
 func TestExecuteUsesArgumentVectorWithoutShell(t *testing.T) {
@@ -360,6 +858,70 @@ func TestExecuteUsesArgumentVectorWithoutShell(t *testing.T) {
 	}
 	if runner.name != client.Binary || !reflect.DeepEqual(runner.args, plan.Arguments) {
 		t.Fatalf("unexpected execution: %q %#v", runner.name, runner.args)
+	}
+}
+
+func TestExecuteAppliesQtPlatformThroughRunnerExtension(t *testing.T) {
+	runner := &recordingRunner{}
+	client := boundTestClient(t, FlavorQt)
+	plan := bindTestPlan(Plan{
+		Route:            config.RouteWindows,
+		Client:           client,
+		Arguments:        []string{"stream", "pc.local", "League of Legends"},
+		QtPlatform:       "xcb",
+		validated:        true,
+		clientDiscovered: true,
+		clientBinding:    bindClient(client),
+	})
+	if err := Execute(context.Background(), runner, nil, io.Discard, io.Discard, plan); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if runner.qtPlatform != "xcb" {
+		t.Fatalf("runner Qt platform = %q, want xcb", runner.qtPlatform)
+	}
+}
+
+func TestExecuteRejectsQtPlatformMutation(t *testing.T) {
+	runner := &recordingRunner{}
+	client := boundTestClient(t, FlavorQt)
+	plan := bindTestPlan(Plan{
+		Route:            config.RouteWindows,
+		Client:           client,
+		Arguments:        []string{"stream", "pc.local", "League"},
+		QtPlatform:       "xcb",
+		validated:        true,
+		clientDiscovered: true,
+		clientBinding:    bindClient(client),
+	})
+	plan.QtPlatform = "wayland"
+	if err := Execute(context.Background(), runner, nil, io.Discard, io.Discard, plan); err == nil || !strings.Contains(err.Error(), "Qt platform was changed") {
+		t.Fatalf("Execute() error = %v; want Qt platform mutation rejection", err)
+	}
+	if runner.name != "" {
+		t.Fatalf("runner was called after Qt platform mutation: %q", runner.name)
+	}
+}
+
+func TestEnvironmentWithOverridesReplacesExistingValue(t *testing.T) {
+	got := environmentWithOverrides([]string{"QT_QPA_PLATFORM=wayland", "PATH=/usr/bin"}, []string{"QT_QPA_PLATFORM=xcb"})
+	if !reflect.DeepEqual(got, []string{"PATH=/usr/bin", "QT_QPA_PLATFORM=xcb"}) {
+		t.Fatalf("environmentWithOverrides() = %#v", got)
+	}
+}
+
+func TestExecRunnerPassesQtPlatformToChildProcess(t *testing.T) {
+	t.Setenv("LEAGUEBRIDGE_QT_PLATFORM_HELPER", "1")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr strings.Builder
+	err = (ExecRunner{}).RunWithQtPlatform(context.Background(), nil, &stdout, &stderr, "xcb", executable, "-test.run=^TestQtPlatformProcessHelper$")
+	if err != nil {
+		t.Fatalf("ExecRunner.RunWithQtPlatform(): %v; stderr=%q", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "xcb") {
+		t.Fatalf("child output = %q; want QT_QPA_PLATFORM=xcb", stdout.String())
 	}
 }
 
@@ -448,6 +1010,11 @@ func TestExecuteAcceptsFixedArgumentShapes(t *testing.T) {
 			name:   "qt stereo stream",
 			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt", discovered: true},
 			args:   []string{"stream", "-audio-config", "stereo", "-no-game-optimization", "pc.local", "League of Legends"},
+		},
+		{
+			name:   "qt session stability stream",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt", discovered: true},
+			args:   []string{"stream", "-frame-pacing", "-vsync", "-keep-awake", "-capture-system-keys", "always", "pc.local", "League of Legends"},
 		},
 		{
 			name:   "qt pair",
@@ -580,6 +1147,26 @@ func TestExecuteRejectsInvalidArgumentVectors(t *testing.T) {
 			name:   "embedded invalid network mode",
 			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
 			args:   []string{"stream", "-remote", "lan", "-app", "League", "pc.local"},
+		},
+		{
+			name:   "embedded Qt-only frame pacing",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-frame-pacing", "-app", "League", "pc.local"},
+		},
+		{
+			name:   "embedded Qt-only keep awake",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-keep-awake", "-app", "League", "pc.local"},
+		},
+		{
+			name:   "embedded Qt-only system-key capture",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-capture-system-keys", "always", "-app", "League", "pc.local"},
+		},
+		{
+			name:   "embedded Qt-only VSync",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-vsync", "-app", "League", "pc.local"},
 		},
 		{
 			name: "flatpak missing fixed prefix",
@@ -795,6 +1382,391 @@ func TestBuildPlanEmbeddedNetworkModeUsesDocumentedRemoteSyntax(t *testing.T) {
 	}
 }
 
+func TestBuildPlanQtSessionStabilityUsesDocumentedToggles(t *testing.T) {
+	base := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "pc.local",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	}
+	tests := []struct {
+		name    string
+		options StreamOptions
+		want    []string
+	}{
+		{
+			name:    "enabled and keep awake",
+			options: StreamOptions{FramePacing: "on", VSync: "on", KeepAwake: true, CaptureSystemKeys: "always"},
+			want:    []string{"stream", "-frame-pacing", "-vsync", "-keep-awake", "-capture-system-keys", "always", "pc.local", "League of Legends"},
+		},
+		{
+			name:    "disabled",
+			options: StreamOptions{FramePacing: "off"},
+			want:    []string{"stream", "-no-frame-pacing", "pc.local", "League of Legends"},
+		},
+		{
+			name:    "auto keeps client default",
+			options: StreamOptions{FramePacing: "auto", KeepAwake: true},
+			want:    []string{"stream", "-keep-awake", "pc.local", "League of Legends"},
+		},
+		{
+			name:    "quit host app after session",
+			options: StreamOptions{QuitAfter: true},
+			want:    []string{"stream", "-quit-after", "pc.local", "League of Legends"},
+		},
+	}
+	client := Client{Flavor: FlavorQt, Binary: "moonlight-qt"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := base
+			request.Stream = tt.options
+			plan, err := BuildPlan(client, request)
+			if err != nil {
+				t.Fatalf("BuildPlan(): %v", err)
+			}
+			if !reflect.DeepEqual(plan.Arguments, tt.want) {
+				t.Fatalf("arguments = %#v, want %#v", plan.Arguments, tt.want)
+			}
+			if err := validatePlanArguments(client, plan.Arguments); err != nil {
+				t.Fatalf("generated arguments rejected: %v", err)
+			}
+		})
+	}
+	for _, options := range []StreamOptions{{FramePacing: "on"}, {KeepAwake: true}} {
+		request := base
+		request.Stream = options
+		client := Client{Flavor: FlavorEmbedded, Binary: "moonlight"}
+		if _, err := BuildPlan(client, request); err == nil || !strings.Contains(err.Error(), "only by Moonlight Qt") || !strings.Contains(err.Error(), "moonlight-qt") {
+			t.Errorf("BuildPlan(%s, %#v) error = %v; want Qt-only rejection", client.Flavor, options, err)
+		}
+	}
+	embeddedRequest := base
+	embeddedRequest.Stream = StreamOptions{QuitAfter: true}
+	embeddedClient := Client{Flavor: FlavorEmbedded, Binary: "moonlight"}
+	embeddedPlan, err := BuildPlan(embeddedClient, embeddedRequest)
+	if err != nil {
+		t.Fatalf("BuildPlan(embedded quit-after): %v", err)
+	}
+	embeddedWant := []string{"stream", "-quitappafter", "-app", "League of Legends", "pc.local"}
+	if !reflect.DeepEqual(embeddedPlan.Arguments, embeddedWant) {
+		t.Fatalf("Embedded quit-after arguments = %#v, want %#v", embeddedPlan.Arguments, embeddedWant)
+	}
+	if err := validatePlanArguments(embeddedClient, embeddedPlan.Arguments); err != nil {
+		t.Fatalf("Embedded quit-after arguments rejected: %v", err)
+	}
+	flatpak := Client{Flavor: FlavorFlatpak, Binary: "flatpak", Prefix: []string{"run", "com.moonlight_stream.Moonlight"}}
+	request := base
+	request.Stream = StreamOptions{FramePacing: "on", VSync: "on", KeepAwake: true, CaptureSystemKeys: "always"}
+	plan, err := BuildPlan(flatpak, request)
+	if err != nil {
+		t.Fatalf("BuildPlan(flatpak): %v", err)
+	}
+	want := []string{"run", "com.moonlight_stream.Moonlight", "stream", "-frame-pacing", "-vsync", "-keep-awake", "-capture-system-keys", "always", "pc.local", "League of Legends"}
+	if !reflect.DeepEqual(plan.Arguments, want) {
+		t.Fatalf("Flatpak arguments = %#v, want %#v", plan.Arguments, want)
+	}
+	if err := validatePlanArguments(flatpak, plan.Arguments); err != nil {
+		t.Fatalf("Flatpak generated arguments rejected: %v", err)
+	}
+}
+
+func TestBuildPlanAudioAndControllerControlsUseDocumentedSyntax(t *testing.T) {
+	base := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "pc.local",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+	}
+
+	t.Run("Embedded audio and mouse-emulation controls", func(t *testing.T) {
+		request := base
+		request.Stream = StreamOptions{
+			AudioOnHost:                  true,
+			AudioDevice:                  "hw:0,0",
+			DisableGamepadMouseEmulation: true,
+			InputDevice:                  "/dev/input/event0",
+			InputMapping:                 "/etc/moonlight/gamecontrollerdb.txt",
+		}
+		client := Client{Flavor: FlavorEmbedded, Binary: "moonlight"}
+		plan, err := BuildPlan(client, request)
+		if err != nil {
+			t.Fatalf("BuildPlan(): %v", err)
+		}
+		want := []string{"stream", "-localaudio", "-audio", "hw:0,0", "-nomouseemulation", "-input", "/dev/input/event0", "-mapping", "/etc/moonlight/gamecontrollerdb.txt", "-app", "League of Legends", "pc.local"}
+		if !reflect.DeepEqual(plan.Arguments, want) {
+			t.Fatalf("arguments = %#v, want %#v", plan.Arguments, want)
+		}
+		if err := validatePlanArguments(client, plan.Arguments); err != nil {
+			t.Fatalf("generated Embedded arguments rejected: %v", err)
+		}
+	})
+
+	qtOptions := StreamOptions{
+		AudioOnHost:            true,
+		MultiController:        true,
+		MouseButtonsSwap:       true,
+		TouchscreenTrackpad:    true,
+		MuteOnFocusLoss:        true,
+		BackgroundGamepad:      true,
+		ReverseScrollDirection: true,
+		SwapGamepadButtons:     true,
+		PerformanceOverlay:     true,
+		HDR:                    true,
+		YUV444:                 true,
+	}
+	wantQt := []string{
+		"stream", "-audio-on-host", "-multi-controller", "-mouse-buttons-swap",
+		"-touchscreen-trackpad", "-mute-on-focus-loss", "-background-gamepad",
+		"-reverse-scroll-direction", "-swap-gamepad-buttons", "-performance-overlay",
+		"-hdr", "-yuv444", "pc.local", "League of Legends",
+	}
+	for _, tt := range []struct {
+		name   string
+		client Client
+		want   []string
+	}{
+		{name: "Qt", client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"}, want: wantQt},
+		{
+			name: "Flatpak Qt",
+			client: Client{
+				Flavor: FlavorFlatpak,
+				Binary: "flatpak",
+				Prefix: []string{"run", "com.moonlight_stream.Moonlight"},
+			},
+			want: append([]string{"run", "com.moonlight_stream.Moonlight"}, wantQt...),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			request := base
+			request.Stream = qtOptions
+			plan, err := BuildPlan(tt.client, request)
+			if err != nil {
+				t.Fatalf("BuildPlan(): %v", err)
+			}
+			if !reflect.DeepEqual(plan.Arguments, tt.want) {
+				t.Fatalf("arguments = %#v, want %#v", plan.Arguments, tt.want)
+			}
+			if err := validatePlanArguments(tt.client, plan.Arguments); err != nil {
+				t.Fatalf("generated arguments rejected: %v", err)
+			}
+		})
+	}
+
+	embeddedQtControlRequest := base
+	embeddedQtControlRequest.Stream = StreamOptions{MultiController: true}
+	if _, err := BuildPlan(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, embeddedQtControlRequest); err == nil || !strings.Contains(err.Error(), "only by Moonlight Qt") {
+		t.Fatalf("Embedded Qt-control error = %v; want Qt-only rejection", err)
+	}
+	qtEmbeddedControlRequest := base
+	qtEmbeddedControlRequest.Stream = StreamOptions{DisableGamepadMouseEmulation: true}
+	if _, err := BuildPlan(Client{Flavor: FlavorQt, Binary: "moonlight-qt"}, qtEmbeddedControlRequest); err == nil || !strings.Contains(err.Error(), "only by Moonlight Embedded") {
+		t.Fatalf("Qt Embedded-control error = %v; want Embedded-only rejection", err)
+	}
+	for _, tt := range []struct {
+		name   string
+		client Client
+		args   []string
+	}{
+		{
+			name:   "Embedded rejects Qt audio flag",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-audio-on-host", "-app", "League", "pc.local"},
+		},
+		{
+			name:   "Qt rejects Embedded audio flag",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			args:   []string{"stream", "-localaudio", "pc.local", "League"},
+		},
+		{
+			name:   "Qt rejects Embedded audio device flag",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			args:   []string{"stream", "-audio", "hw:0,0", "pc.local", "League"},
+		},
+		{
+			name:   "Qt rejects Embedded input device flag",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			args:   []string{"stream", "-input", "/dev/input/event0", "pc.local", "League"},
+		},
+		{
+			name:   "Qt rejects Embedded input mapping flag",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			args:   []string{"stream", "-mapping", "/etc/moonlight/gamecontrollerdb.txt", "pc.local", "League"},
+		},
+		{
+			name:   "Qt rejects Embedded mouse-emulation flag",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			args:   []string{"stream", "-nomouseemulation", "pc.local", "League"},
+		},
+		{
+			name:   "Embedded rejects Qt controller flag",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-multi-controller", "-app", "League", "pc.local"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validatePlanArguments(tt.client, tt.args); err == nil {
+				t.Fatal("validatePlanArguments() unexpectedly accepted a client-specific option")
+			}
+		})
+	}
+}
+
+func TestBuildPlanHDRUsesDocumentedNativeSyntax(t *testing.T) {
+	base := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "pc.local",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+		Stream:                  StreamOptions{HDR: true},
+	}
+	for _, tt := range []struct {
+		name   string
+		client Client
+		want   []string
+	}{
+		{
+			name:   "Embedded",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			want:   []string{"stream", "-hdr", "-app", "League of Legends", "pc.local"},
+		},
+		{
+			name:   "Qt",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			want:   []string{"stream", "-hdr", "pc.local", "League of Legends"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := BuildPlan(tt.client, base)
+			if err != nil {
+				t.Fatalf("BuildPlan(): %v", err)
+			}
+			if !reflect.DeepEqual(plan.Arguments, tt.want) {
+				t.Fatalf("arguments = %#v, want %#v", plan.Arguments, tt.want)
+			}
+			if err := validatePlanArguments(tt.client, plan.Arguments); err != nil {
+				t.Fatalf("generated arguments rejected: %v", err)
+			}
+		})
+	}
+	if err := validatePlanArguments(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, []string{"stream", "-hdr", "-app", "League", "pc.local"}); err != nil {
+		t.Fatalf("Embedded HDR argument rejected: %v", err)
+	}
+	if err := validatePlanArguments(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, []string{"stream", "-hdr", "-hdr", "-app", "League", "pc.local"}); err == nil || !strings.Contains(err.Error(), "repeats") {
+		t.Fatalf("duplicate Embedded HDR argument error = %v; want duplicate rejection", err)
+	}
+}
+
+func TestStreamOptionsRejectHDRWithH264(t *testing.T) {
+	t.Parallel()
+	for _, codec := range []string{"h264", "H264"} {
+		err := (StreamOptions{Codec: codec, HDR: true}).Validate()
+		if err == nil || !strings.Contains(err.Error(), "HDR streaming cannot use H.264") {
+			t.Fatalf("Validate(codec=%q, hdr=true) = %v; want H.264/HDR rejection", codec, err)
+		}
+	}
+	for _, codec := range []string{"auto", "h265", "hevc", "av1"} {
+		if err := (StreamOptions{Codec: codec, HDR: true}).Validate(); err != nil {
+			t.Fatalf("Validate(codec=%q, hdr=true) = %v; want accepted codec", codec, err)
+		}
+	}
+}
+
+func TestValidatePlanArgumentsRejectsHDRWithH264(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		client Client
+		args   []string
+	}{
+		{
+			name:   "Embedded",
+			client: Client{Flavor: FlavorEmbedded, Binary: "moonlight"},
+			args:   []string{"stream", "-hdr", "-codec", "h264", "-app", "League of Legends", "pc.local"},
+		},
+		{
+			name:   "Qt",
+			client: Client{Flavor: FlavorQt, Binary: "moonlight-qt"},
+			args:   []string{"stream", "-hdr", "-video-codec", "H264", "pc.local", "League of Legends"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validatePlanArguments(test.client, test.args); err == nil || !strings.Contains(err.Error(), "cannot combine -hdr with H.264") {
+				t.Fatalf("validatePlanArguments() error = %v; want HDR/H.264 rejection", err)
+			}
+		})
+	}
+}
+
+func TestValidatePlanArgumentsRejectsSDLExclusiveDeviceSelectors(t *testing.T) {
+	client := Client{Flavor: FlavorEmbedded, Binary: "moonlight"}
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "audio device",
+			args: []string{"stream", "-platform", "sdl", "-audio", "default", "-app", "League", "pc.local"},
+			want: "cannot combine -platform sdl with -audio",
+		},
+		{
+			name: "input device",
+			args: []string{"stream", "-platform", "sdl", "-input", "/dev/input/event4", "-app", "League", "pc.local"},
+			want: "cannot combine -platform sdl with -input",
+		},
+		{
+			name: "input device before platform",
+			args: []string{"stream", "-input", "/dev/input/event4", "-platform", "SDL", "-app", "League", "pc.local"},
+			want: "cannot combine -platform sdl with -input",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validatePlanArguments(client, test.args); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validatePlanArguments() error = %v; want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestStreamOptionsRejectUnsafeEmbeddedDeviceSelectors(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		options StreamOptions
+		want    string
+	}{
+		{name: "audio option-like", options: StreamOptions{AudioDevice: "-default"}, want: "must not start"},
+		{name: "audio control character", options: StreamOptions{AudioDevice: "hw:0\n0"}, want: "control characters"},
+		{name: "audio too long", options: StreamOptions{AudioDevice: strings.Repeat("a", maxDeviceSelectorLength+1)}, want: "must not exceed"},
+		{name: "input relative", options: StreamOptions{InputDevice: "event0"}, want: "evdev path"},
+		{name: "input missing index", options: StreamOptions{InputDevice: "/dev/input/event"}, want: "evdev path"},
+		{name: "input traversal", options: StreamOptions{InputDevice: "/dev/input/event0/.."}, want: "evdev path"},
+		{name: "mapping relative", options: StreamOptions{InputMapping: "gamecontrollerdb.txt"}, want: "absolute Linux/BSD path"},
+		{name: "mapping option-like", options: StreamOptions{InputMapping: "-gamecontrollerdb.txt"}, want: "must not start"},
+		{name: "mapping too long", options: StreamOptions{InputMapping: "/" + strings.Repeat("a", maxInputMappingPathLength)}, want: "must not exceed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.options.Validate(); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %v; want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidatePlanArgumentsUnpairRequiresEmbedded(t *testing.T) {
+	args := []string{"unpair", "pc.local"}
+	if err := validatePlanArguments(Client{Flavor: FlavorQt, Binary: "moonlight-qt"}, args); err == nil || !strings.Contains(err.Error(), "only by Moonlight Embedded") {
+		t.Fatalf("Qt unpair validation error = %v; want Embedded-only rejection", err)
+	}
+	if err := validatePlanArguments(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, args); err != nil {
+		t.Fatalf("Embedded unpair validation failed: %v", err)
+	}
+}
+
 func TestBuildPlan1440UsesDocumentedClientSpecificSyntax(t *testing.T) {
 	request := Request{
 		Route:                   config.RouteWindows,
@@ -987,7 +1959,7 @@ func TestBuildPlanEmbeddedPlatformUsesDocumentedSyntax(t *testing.T) {
 		PhysicalHostConfirmed:   true,
 		AcceptUnverifiedHandoff: true,
 	}
-	for _, platform := range []string{"x11", "x11_vdpau", "sdl"} {
+	for _, platform := range []string{"x11", "x11_vdpau", "x11_vaapi", "sdl"} {
 		request := base
 		request.Stream = StreamOptions{Platform: platform}
 		client := Client{Flavor: FlavorEmbedded, Binary: "moonlight"}
@@ -1067,6 +2039,9 @@ func TestBuildPlanRejectsInvalidStreamOptions(t *testing.T) {
 		{Codec: "vp9"},
 		{AudioConfig: "2.1-surround"},
 		{NetworkMode: "internet"},
+		{FramePacing: "adaptive"},
+		{CaptureSystemKeys: "focused"},
+		{VSync: "adaptive"},
 		{Platform: "wayland"},
 		{Decoder: "vp9"},
 		{DisplayMode: "maximized"},
@@ -1082,5 +2057,163 @@ func TestBuildPlanRejectsInvalidStreamOptions(t *testing.T) {
 	request.Stream = StreamOptions{FPS: 60}
 	if _, err := BuildPlan(Client{Flavor: FlavorQt, Binary: "moonlight-qt"}, request); err == nil || !strings.Contains(err.Error(), "only valid for the stream") {
 		t.Fatalf("non-stream options error = %v; want operation rejection", err)
+	}
+}
+
+func TestBuildInputMappingPlanUsesEmbeddedLocalGrammar(t *testing.T) {
+	client := Client{Flavor: FlavorEmbedded, Binary: "/fixture/moonlight-embedded"}
+	plan, err := BuildInputMappingPlan(client, "/dev/input/event4")
+	if err != nil {
+		t.Fatalf("BuildInputMappingPlan(): %v", err)
+	}
+	if plan.Route != "" || !plan.Local || !plan.local {
+		t.Fatalf("local plan markers = route %q local=%v private=%v; want empty route and both local markers", plan.Route, plan.Local, plan.local)
+	}
+	want := []string{"map", "-input", "/dev/input/event4"}
+	if !reflect.DeepEqual(plan.Arguments, want) {
+		t.Fatalf("arguments = %#v, want %#v", plan.Arguments, want)
+	}
+	if len(plan.Warnings) != 2 || !strings.Contains(plan.Warnings[0], "does not pair") {
+		t.Fatalf("warnings = %#v, want local-action warnings", plan.Warnings)
+	}
+}
+
+func TestBuildInputMappingPlanRejectsNonEmbeddedAndUnsafeDevices(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		client Client
+		device string
+		want   string
+	}{
+		{name: "Qt", client: Client{Flavor: FlavorQt, Binary: "/fixture/moonlight-qt"}, device: "/dev/input/event0", want: "only by Moonlight Embedded"},
+		{name: "Flatpak", client: Client{Flavor: FlavorFlatpak, Binary: "/fixture/flatpak", Prefix: []string{"run", moonlightFlatpakAppID}}, device: "/dev/input/event0", want: "only by Moonlight Embedded"},
+		{name: "relative", client: Client{Flavor: FlavorEmbedded, Binary: "/fixture/moonlight"}, device: "event0", want: "evdev path"},
+		{name: "missing index", client: Client{Flavor: FlavorEmbedded, Binary: "/fixture/moonlight"}, device: "/dev/input/event", want: "evdev path"},
+		{name: "option-like", client: Client{Flavor: FlavorEmbedded, Binary: "/fixture/moonlight"}, device: "-input", want: "must not start"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := BuildInputMappingPlan(tt.client, tt.device); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("BuildInputMappingPlan(%q): %v; want %q", tt.device, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildPlanEmbeddedAllowsMultipleInputDevices(t *testing.T) {
+	request := Request{
+		Route:                   config.RouteWindows,
+		Operation:               Stream,
+		Host:                    "pc.local",
+		App:                     "League of Legends",
+		PhysicalHostConfirmed:   true,
+		AcceptUnverifiedHandoff: true,
+		Stream: StreamOptions{
+			InputDevices: []string{"/dev/input/event0", "/dev/input/event4"},
+		},
+	}
+	client := Client{Flavor: FlavorEmbedded, Binary: "moonlight"}
+	plan, err := BuildPlan(client, request)
+	if err != nil {
+		t.Fatalf("BuildPlan(): %v", err)
+	}
+	want := []string{"stream", "-input", "/dev/input/event0", "-input", "/dev/input/event4", "-app", "League of Legends", "pc.local"}
+	if !reflect.DeepEqual(plan.Arguments, want) {
+		t.Fatalf("arguments = %#v, want %#v", plan.Arguments, want)
+	}
+	if err := validatePlanArguments(client, plan.Arguments); err != nil {
+		t.Fatalf("generated multiple-input arguments rejected: %v", err)
+	}
+}
+
+func TestStreamOptionsRejectsAmbiguousOrExcessiveInputDevices(t *testing.T) {
+	if err := (StreamOptions{
+		InputDevice:  "/dev/input/event0",
+		InputDevices: []string{"/dev/input/event1"},
+	}).Validate(); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("ambiguous input selectors error = %v; want combination rejection", err)
+	}
+	tooMany := make([]string, maxEmbeddedInputDevices+1)
+	for index := range tooMany {
+		tooMany[index] = fmt.Sprintf("/dev/input/event%d", index)
+	}
+	if err := (StreamOptions{InputDevices: tooMany}).Validate(); err == nil || !strings.Contains(err.Error(), "must not exceed") {
+		t.Fatalf("excessive input selectors error = %v; want bounded-list rejection", err)
+	}
+}
+
+func TestStreamOptionsRejectsSDLExclusiveDeviceSelectors(t *testing.T) {
+	tests := []struct {
+		name    string
+		options StreamOptions
+		want    string
+	}{
+		{
+			name:    "audio device",
+			options: StreamOptions{Platform: "sdl", AudioDevice: "default"},
+			want:    "audio device cannot be used with the Embedded SDL platform",
+		},
+		{
+			name:    "single input device",
+			options: StreamOptions{Platform: "sdl", InputDevice: "/dev/input/event4"},
+			want:    "explicit input devices cannot be used with the Embedded SDL platform",
+		},
+		{
+			name:    "multiple input devices",
+			options: StreamOptions{Platform: "sdl", InputDevices: []string{"/dev/input/event0", "/dev/input/event4"}},
+			want:    "explicit input devices cannot be used with the Embedded SDL platform",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.options.Validate(); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("StreamOptions.Validate() error = %v; want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildDiscoveredInputMappingPlanRequiresDiscovery(t *testing.T) {
+	if _, err := BuildDiscoveredInputMappingPlan(Client{Flavor: FlavorEmbedded, Binary: "/fixture/moonlight"}, "/dev/input/event0"); err == nil || !strings.Contains(err.Error(), "not discovered") {
+		t.Fatalf("BuildDiscoveredInputMappingPlan() error = %v; want discovery provenance rejection", err)
+	}
+}
+
+func TestExecuteRunsDiscoveredLocalInputMappingPlan(t *testing.T) {
+	client := boundTestClient(t, FlavorEmbedded)
+	client.discoveryBinding = bindClient(client)
+	plan, err := BuildDiscoveredInputMappingPlan(client, "/dev/input/event0")
+	if err != nil {
+		t.Fatalf("BuildDiscoveredInputMappingPlan(): %v", err)
+	}
+	runner := &recordingRunner{}
+	if err := Execute(context.Background(), runner, nil, io.Discard, io.Discard, plan); err != nil {
+		t.Fatalf("Execute(): %v", err)
+	}
+	if !reflect.DeepEqual(runner.args, plan.Arguments) {
+		t.Fatalf("runner args = %#v, want %#v", runner.args, plan.Arguments)
+	}
+}
+
+func TestExecuteRejectsUnmarkedLocalInputMappingPlan(t *testing.T) {
+	client := boundTestClient(t, FlavorEmbedded)
+	client.discoveryBinding = bindClient(client)
+	plan, err := BuildDiscoveredInputMappingPlan(client, "/dev/input/event0")
+	if err != nil {
+		t.Fatalf("BuildDiscoveredInputMappingPlan(): %v", err)
+	}
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("json.Marshal(): %v", err)
+	}
+	var decoded Plan
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	runner := &recordingRunner{}
+	if err := Execute(context.Background(), runner, nil, io.Discard, io.Discard, decoded); err == nil || !strings.Contains(err.Error(), "invalid remote plan") {
+		t.Fatalf("Execute() decoded plan error = %v; want private local-marker rejection", err)
+	}
+	if runner.name != "" {
+		t.Fatalf("runner was called for a decoded local plan: %q", runner.name)
 	}
 }

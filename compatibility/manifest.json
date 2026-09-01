@@ -2,7 +2,7 @@
   "$schema": "../schemas/compatibility-manifest.schema.json",
   "schemaVersion": "1.0.0",
   "manifestId": "leaguebridge-authoritative-compatibility",
-  "asOf": "2026-08-30",
+  "asOf": "2026-09-01",
   "game": {
     "name": "League of Legends",
     "publisher": "Riot Games"
@@ -18,7 +18,7 @@
       "title": "Minimum and Recommended System Requirements (League of Legends)",
       "publisher": "Riot Games Player Support",
       "url": "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-08-31"
     },
     {
       "id": "riot-vanguard-linux",
@@ -26,7 +26,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/",
       "publishedAt": "2024-04-11",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-08-31"
     },
     {
       "id": "riot-patch-14-9",
@@ -50,14 +50,14 @@
       "publisher": "Riot Games",
       "url": "https://www.riotgames.com/en/news/vanguard-on-demand",
       "publishedAt": "2026-06-24",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-08-31"
     },
     {
       "id": "riot-vm-policy",
       "title": "Vanguard Error Codes and Solutions (VAN 138)",
       "publisher": "Riot Games Player Support",
       "url": "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-08-31"
     },
     {
       "id": "winehq-about",
@@ -71,7 +71,7 @@
       "title": "Steamworks Documentation: Proton Anti-Cheat Support",
       "publisher": "Valve Corporation",
       "url": "https://partner.steamgames.com/doc/steamhardware/proton",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-08-31"
     },
     {
       "id": "dockur-windows",
@@ -93,6 +93,35 @@
       "publisher": "LizardByte",
       "url": "https://docs.lizardbyte.dev/projects/sunshine/latest/",
       "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "sunshine-raw-input",
+      "title": "Sunshine Windows Raw Input troubleshooting",
+      "publisher": "LizardByte",
+      "url": "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2troubleshooting.html?lng=en-US",
+      "checkedAt": "2026-08-31"
+    },
+    {
+      "id": "sunshine-getting-started",
+      "title": "Sunshine Getting Started and Windows Virtual HID requirements",
+      "publisher": "LizardByte",
+      "url": "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2getting__started.html?lng=en-US",
+      "checkedAt": "2026-08-31"
+    },
+    {
+      "id": "libvirtualhid-driver-release",
+      "title": "libvirtualhid Virtual HID Driver release v2026.829.2338.54",
+      "publisher": "LizardByte",
+      "url": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.829.2338.54",
+      "checkedAt": "2026-09-01"
+    },
+    {
+      "id": "sunshine-raw-input-preview",
+      "title": "Sunshine Windows AMD64 Raw Input preview v2026.831.233010",
+      "publisher": "LizardByte",
+      "url": "https://github.com/LizardByte/Sunshine/releases/tag/v2026.831.233010",
+      "publishedAt": "2026-09-01",
+      "checkedAt": "2026-09-01"
     },
     {
       "id": "moonlight-qt",
@@ -122,6 +151,41 @@
       "publisher": "The FreeBSD Project",
       "url": "https://docs.freebsd.org/en/books/handbook/virtualization/#virtualization-host-bhyve",
       "checkedAt": "2026-08-26"
+    },
+    {
+      "id": "riot-vanguard-faq",
+      "title": "Vanguard FAQ for Third Party Applications",
+      "publisher": "Riot Games",
+      "url": "https://www.riotgames.com/en/DevRel/vanguard-faq",
+      "checkedAt": "2026-08-31"
+    },
+    {
+      "id": "pikvm-api",
+      "title": "PiKVM HTTP API reference",
+      "publisher": "PiKVM",
+      "url": "https://docs.pikvm.org/api/",
+      "checkedAt": "2026-08-31"
+    },
+    {
+      "id": "pikvm-usb",
+      "title": "PiKVM USB configuration",
+      "publisher": "PiKVM",
+      "url": "https://docs.pikvm.org/usb/",
+      "checkedAt": "2026-08-31"
+    },
+    {
+      "id": "pikvm-auth",
+      "title": "PiKVM Authentication",
+      "publisher": "PiKVM",
+      "url": "https://docs.pikvm.org/auth/",
+      "checkedAt": "2026-08-31"
+    },
+    {
+      "id": "pikvm-audio",
+      "title": "PiKVM V4 and V3 two-way audio",
+      "publisher": "PiKVM",
+      "url": "https://docs.pikvm.org/audio/",
+      "checkedAt": "2026-08-31"
     }
   ],
   "backends": [
@@ -131,7 +195,7 @@
       "kind": "native",
       "launchMode": "local",
       "hostPlatforms": ["linux"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "blocked",
       "launchVerdict": "deny",
       "authorization": "none",
@@ -149,7 +213,7 @@
       "kind": "native",
       "launchMode": "local",
       "hostPlatforms": ["freebsd", "openbsd", "netbsd", "dragonflybsd"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "blocked",
       "launchVerdict": "deny",
       "authorization": "none",
@@ -167,7 +231,7 @@
       "kind": "translation",
       "launchMode": "local",
       "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "blocked",
       "launchVerdict": "deny",
       "authorization": "none",
@@ -185,7 +249,7 @@
       "kind": "translation",
       "launchMode": "local",
       "hostPlatforms": ["linux"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "blocked",
       "launchVerdict": "deny",
       "authorization": "none",
@@ -203,7 +267,7 @@
       "kind": "virtual-machine",
       "launchMode": "local",
       "hostPlatforms": ["linux"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "blocked",
       "launchVerdict": "deny",
       "authorization": "none",
@@ -221,7 +285,7 @@
       "kind": "virtual-machine",
       "launchMode": "local",
       "hostPlatforms": ["freebsd"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "blocked",
       "launchVerdict": "deny",
       "authorization": "none",
@@ -239,16 +303,17 @@
       "kind": "remote-physical-windows",
       "launchMode": "remote",
       "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "handoff-only",
       "launchVerdict": "deny",
       "authorization": "unverified",
       "reasonCode": "REMOTE_HANDOFF_NOT_A_LOCAL_COMPATIBILITY_PATH",
       "summary": "A separately managed physical Windows computer may meet Riot's Windows requirements, but remote-control and streaming integration is not an authorized local Linux or BSD gameplay backend in this manifest.",
-      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "moonlight-qt", "moonlight-embedded"],
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "sunshine-raw-input", "sunshine-getting-started", "libvirtualhid-driver-release", "sunshine-raw-input-preview", "moonlight-qt", "moonlight-embedded"],
       "safetyNotes": [
         "The Windows machine must independently satisfy Riot's current requirements and policies.",
-        "Do not forward credentials through LeagueBridge or claim that streaming makes Linux or BSD natively supported."
+        "Do not forward credentials through LeagueBridge or claim that streaming makes Linux or BSD natively supported.",
+        "Sunshine's vendor-provided Raw Input driver is an external, unvalidated candidate; it is not Riot authorization and must not be replaced with an unapproved input tool."
       ]
     },
     {
@@ -257,7 +322,7 @@
       "kind": "remote-physical-macos",
       "launchMode": "remote",
       "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "handoff-only",
       "launchVerdict": "deny",
       "authorization": "unverified",
@@ -270,12 +335,32 @@
       ]
     },
     {
+      "id": "hardware-kvm-remote",
+      "displayName": "Hardware KVM with physical Windows or macOS host",
+      "kind": "remote-hardware-kvm",
+      "launchMode": "remote",
+      "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
+      "hostArchitectures": ["amd64", "arm64"],
+      "state": "handoff-only",
+      "launchVerdict": "deny",
+      "authorization": "unverified",
+      "reasonCode": "HARDWARE_KVM_HANDOFF_UNVALIDATED",
+      "summary": "A hardware KVM may expose a physical Windows or Mac display, HDMI audio, and USB HID path to a Linux or BSD user, but the device, host, audio path, and League/Vanguard interaction remain unvalidated.",
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "riot-vanguard-faq", "pikvm-api", "pikvm-usb", "pikvm-auth", "pikvm-audio"],
+      "safetyNotes": [
+        "The League client and Vanguard must remain on an independently supported physical Windows PC or Mac; this is not a native Linux/BSD backend.",
+        "Use the KVM's authenticated vendor UI and physical USB HID path; do not add USB/IP, software input interception, DLL overrides, or Vanguard changes.",
+        "For full audio/video validation, use a vendor-documented HDMI-audio/WebRTC-capable model and verify audio; VNC or DIY capture may omit audio.",
+        "A KVM device is only a manual candidate until route-bound video, audio, input, latency, and Practice Tool evidence exists."
+      ]
+    },
+    {
       "id": "dual-boot",
       "displayName": "Dual boot into Windows",
       "kind": "dual-boot",
       "launchMode": "handoff",
       "hostPlatforms": ["linux", "freebsd", "openbsd", "netbsd", "dragonflybsd"],
-      "hostArchitectures": ["amd64"],
+      "hostArchitectures": ["amd64", "arm64"],
       "state": "handoff-only",
       "launchVerdict": "deny",
       "authorization": "unverified",

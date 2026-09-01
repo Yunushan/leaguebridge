@@ -184,8 +184,8 @@ func validateTrustedKey(key trustedKey, policyStart, policyEnd time.Time) error 
 	if err := validateSortedScope("client_platforms", key.ClientPlatforms, supportedClientPlatforms); err != nil {
 		return err
 	}
-	if len(key.Architectures) != 1 || key.Architectures[0] != "amd64" {
-		return errors.New("architectures must be exactly [amd64]")
+	if err := validateSortedScope("architectures", key.Architectures, map[string]bool{"amd64": true, "arm64": true}); err != nil {
+		return err
 	}
 	if len(key.TestProfileIDs) != 1 || key.TestProfileIDs[0] != TestProfileRemotePlayV1 {
 		return fmt.Errorf("test_profile_ids must be exactly [%s]", TestProfileRemotePlayV1)

@@ -705,12 +705,15 @@ func TestExpectedArtifactsRejectsInvalidVersionAndCarriesTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(artifacts) != 5 {
-		t.Fatalf("artifact count = %d; want 5", len(artifacts))
+	if len(artifacts) != 9 {
+		t.Fatalf("artifact count = %d; want 9", len(artifacts))
 	}
 	wantTargets := map[string]bool{
-		"linux/amd64": true, "freebsd/amd64": true, "openbsd/amd64": true,
-		"netbsd/amd64": true, "dragonfly/amd64": true,
+		"linux/amd64": true, "linux/arm64": true,
+		"freebsd/amd64": true, "freebsd/arm64": true,
+		"openbsd/amd64": true, "openbsd/arm64": true,
+		"netbsd/amd64": true, "netbsd/arm64": true,
+		"dragonfly/amd64": true,
 	}
 	for _, item := range artifacts {
 		if item.goos == "" || item.goarch == "" || !strings.Contains(item.name, "_"+item.goos+"_"+item.goarch) {
@@ -859,6 +862,7 @@ func makeCleanRepository(t *testing.T) (string, string) {
 	runGit(t, repository, "config", "user.name", "LeagueBridge Release Test")
 	runGit(t, repository, "config", "user.email", "release-test@example.invalid")
 	runGit(t, repository, "config", "core.autocrlf", "false")
+	runGit(t, repository, "config", "core.longpaths", "true")
 	runGit(t, repository, "add", "--all")
 	runGit(t, repository, "commit", "--quiet", "--no-gpg-sign", "-m", "release fixture")
 	commit := strings.TrimSpace(runGit(t, repository, "rev-parse", "HEAD"))
@@ -981,6 +985,10 @@ func buildTestBinaryMode(t *testing.T, repository, commit string, item artifact,
 	}
 	command := exec.Command(goExecutable, arguments...)
 	command.Dir = repository
+	architectureSetting := "GOAMD64=v1"
+	if item.goarch == "arm64" {
+		architectureSetting = "GOARM64=v8.0"
+	}
 	command.Env = append(os.Environ(),
 		"CGO_ENABLED=0",
 		"GOENV=off",
@@ -990,7 +998,9 @@ func buildTestBinaryMode(t *testing.T, repository, commit string, item artifact,
 		"GOWORK=off",
 		"GOOS="+item.goos,
 		"GOARCH="+item.goarch,
-		"GOAMD64=v1",
+		"GOAMD64=",
+		"GOARM64=",
+		architectureSetting,
 	)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build %s/%s test binary: %v\n%s", item.goos, item.goarch, err, output)

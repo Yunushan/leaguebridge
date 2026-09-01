@@ -28,6 +28,7 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
 	"github.com/Yunushan/leaguebridge/internal/readiness"
 	"github.com/Yunushan/leaguebridge/internal/releaseversion"
+	"github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -179,13 +180,16 @@ func expectedArtifacts(version string) ([]artifact, error) {
 		return nil, errors.New("version must be a valid v-prefixed Semantic Version")
 	}
 	base := "leaguebridge_" + strings.TrimPrefix(version, "v")
-	return []artifact{
-		{name: base + "_linux_amd64.tar.gz", binaryName: "leaguebridge", goos: "linux", goarch: "amd64"},
-		{name: base + "_freebsd_amd64.tar.gz", binaryName: "leaguebridge", goos: "freebsd", goarch: "amd64"},
-		{name: base + "_openbsd_amd64.tar.gz", binaryName: "leaguebridge", goos: "openbsd", goarch: "amd64"},
-		{name: base + "_netbsd_amd64.tar.gz", binaryName: "leaguebridge", goos: "netbsd", goarch: "amd64"},
-		{name: base + "_dragonfly_amd64.tar.gz", binaryName: "leaguebridge", goos: "dragonfly", goarch: "amd64"},
-	}, nil
+	artifacts := make([]artifact, 0, len(target.Ordered()))
+	for _, candidate := range target.Ordered() {
+		artifacts = append(artifacts, artifact{
+			name:       base + "_" + candidate.GOOS + "_" + candidate.GOARCH + ".tar.gz",
+			binaryName: "leaguebridge",
+			goos:       candidate.GOOS,
+			goarch:     candidate.GOARCH,
+		})
+	}
+	return artifacts, nil
 }
 
 func checkDirectory(dir string, expected map[string]struct{}) error {
@@ -890,6 +894,9 @@ func checkPackageManifest(payload archivePayload, item artifact, version string,
 }
 
 func checkReleaseBinary(binaryData []byte, item artifact, version string, epoch int64, commit, tree, builderGoVersion string) error {
+	if !target.IsSupported(item.goos, item.goarch) {
+		return fmt.Errorf("unsupported release target %s/%s", item.goos, item.goarch)
+	}
 	if err := checkBinaryContainer(binaryData, item); err != nil {
 		return fmt.Errorf("container identity: %w", err)
 	}
@@ -936,10 +943,12 @@ func checkReleaseBinary(binaryData []byte, item artifact, version string, epoch 
 	default:
 		return fmt.Errorf("unsupported Go builder version %q", builderGoVersion)
 	}
-	if item.goarch != "amd64" {
-		return fmt.Errorf("unsupported release architecture %q", item.goarch)
+	switch item.goarch {
+	case "amd64":
+		wantSettings["GOAMD64"] = "v1"
+	case "arm64":
+		wantSettings["GOARM64"] = "v8.0"
 	}
-	wantSettings["GOAMD64"] = "v1"
 	for key, want := range wantSettings {
 		got, ok := settings[key]
 		if !ok {
@@ -1016,11 +1025,15 @@ func checkBinaryContainer(binaryData []byte, item artifact) error {
 		if file.ABIVersion != 0 {
 			return fmt.Errorf("ELF ABI version is %d; want 0", file.ABIVersion)
 		}
-		if item.goarch != "amd64" {
+		wantMachine := map[string]elf.Machine{
+			"amd64": elf.EM_X86_64,
+			"arm64": elf.EM_AARCH64,
+		}[item.goarch]
+		if wantMachine == 0 {
 			return fmt.Errorf("unsupported ELF release architecture %q", item.goarch)
 		}
-		if file.Machine != elf.EM_X86_64 {
-			return fmt.Errorf("ELF machine is %s; want %s for %s", file.Machine, elf.EM_X86_64, item.goarch)
+		if file.Machine != wantMachine {
+			return fmt.Errorf("ELF machine is %s; want %s for %s", file.Machine, wantMachine, item.goarch)
 		}
 		return nil
 	default:
@@ -1038,15 +1051,22 @@ func expectedBuildID(version string, item artifact, epoch int64, commit, tree, b
 		commit,
 		tree,
 		builderGoVersion,
-		architectureTuning(),
+		architectureTuning(item.goarch),
 		packageinfo.ProductionDependencyIdentity,
 	}, "|")
 	digest := sha256.Sum256([]byte(contract))
 	return "leaguebridge-build-v4-" + hex.EncodeToString(digest[:])
 }
 
-func architectureTuning() string {
-	return "goamd64=v1"
+func architectureTuning(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "goamd64=v1"
+	case "arm64":
+		return "goarm64=v8.0"
+	default:
+		return ""
+	}
 }
 
 func readGoBuildID(binaryData []byte) (string, error) {

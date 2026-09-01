@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var authorityDate = time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+var authorityDate = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
 func TestPolicyDeniesEveryEmbeddedBackend(t *testing.T) {
 	t.Parallel()
@@ -20,22 +20,28 @@ func TestPolicyDeniesEveryEmbeddedBackend(t *testing.T) {
 		backend := backend
 		t.Run(string(backend.ID), func(t *testing.T) {
 			t.Parallel()
-			verdict := policy.EvaluateAt(LaunchRequest{
-				BackendID:        backend.ID,
-				HostPlatform:     backend.HostPlatforms[0],
-				HostArchitecture: ArchitectureAMD64,
-			}, authorityDate)
-			if verdict.IsAllowed() || verdict.Decision != DecisionDeny {
-				t.Fatalf("verdict = %+v, want deny", verdict)
-			}
-			if verdict.Code != backend.ReasonCode {
-				t.Fatalf("code = %q, want %q", verdict.Code, backend.ReasonCode)
-			}
-			if verdict.ManifestAsOf != AuthoritativeAsOf || verdict.Freshness.State != FreshnessFresh {
-				t.Fatalf("missing authority metadata: %+v", verdict)
-			}
-			if len(verdict.EvidenceURLs) == 0 {
-				t.Fatal("denial has no authoritative evidence URLs")
+			for _, architecture := range allHostArchitectures() {
+				architecture := architecture
+				t.Run(string(architecture), func(t *testing.T) {
+					t.Parallel()
+					verdict := policy.EvaluateAt(LaunchRequest{
+						BackendID:        backend.ID,
+						HostPlatform:     backend.HostPlatforms[0],
+						HostArchitecture: architecture,
+					}, authorityDate)
+					if verdict.IsAllowed() || verdict.Decision != DecisionDeny {
+						t.Fatalf("verdict = %+v, want deny", verdict)
+					}
+					if verdict.Code != backend.ReasonCode {
+						t.Fatalf("code = %q, want %q", verdict.Code, backend.ReasonCode)
+					}
+					if verdict.ManifestAsOf != AuthoritativeAsOf || verdict.Freshness.State != FreshnessFresh {
+						t.Fatalf("missing authority metadata: %+v", verdict)
+					}
+					if len(verdict.EvidenceURLs) == 0 {
+						t.Fatal("denial has no authoritative evidence URLs")
+					}
+				})
 			}
 		})
 	}
@@ -56,7 +62,7 @@ func TestPolicyFailsClosedForUnknownAndMismatchedRequests(t *testing.T) {
 		{name: "unknown backend", req: LaunchRequest{BackendID: "unknown", HostPlatform: PlatformLinux, HostArchitecture: ArchitectureAMD64}, code: "UNKNOWN_BACKEND"},
 		{name: "unknown platform", req: LaunchRequest{BackendID: BackendWine, HostPlatform: "plan9", HostArchitecture: ArchitectureAMD64}, code: "UNKNOWN_HOST_PLATFORM"},
 		{name: "missing platform", req: LaunchRequest{BackendID: BackendWine, HostArchitecture: ArchitectureAMD64}, code: "UNKNOWN_HOST_PLATFORM"},
-		{name: "unknown architecture", req: LaunchRequest{BackendID: BackendWine, HostPlatform: PlatformLinux, HostArchitecture: "arm64"}, code: "UNKNOWN_HOST_ARCHITECTURE"},
+		{name: "unknown architecture", req: LaunchRequest{BackendID: BackendWine, HostPlatform: PlatformLinux, HostArchitecture: "mips64"}, code: "UNKNOWN_HOST_ARCHITECTURE"},
 		{name: "missing architecture", req: LaunchRequest{BackendID: BackendWine, HostPlatform: PlatformLinux}, code: "UNKNOWN_HOST_ARCHITECTURE"},
 		{name: "platform mismatch", req: LaunchRequest{BackendID: BackendProton, HostPlatform: PlatformFreeBSD, HostArchitecture: ArchitectureAMD64}, code: "BACKEND_PLATFORM_MISMATCH"},
 	}
@@ -164,7 +170,7 @@ func TestExternalManifestCanOnlyRestrictFutureEmbeddedAllow(t *testing.T) {
 		date string
 	}{
 		{name: "stale", date: "2026-07-01"},
-		{name: "future", date: "2026-08-31"},
+		{name: "future", date: "2026-09-02"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			external := *policy.external

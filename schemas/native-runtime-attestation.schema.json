@@ -76,10 +76,20 @@
               "runner_architecture": { "const": "X64" },
               "host_class": { "const": "virtualized" },
               "target": {
-                "properties": {
-                  "goos": { "enum": ["freebsd", "openbsd", "netbsd", "dragonfly"] },
-                  "goarch": { "const": "amd64" }
-                }
+                "oneOf": [
+                  {
+                    "properties": {
+                      "goos": { "enum": ["freebsd", "openbsd", "netbsd"] },
+                      "goarch": { "enum": ["amd64", "arm64"] }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "goos": { "const": "dragonfly" },
+                      "goarch": { "const": "amd64" }
+                    }
+                  }
+                ]
               }
             }
           }
@@ -141,7 +151,7 @@
           "required": ["goos", "goarch"],
           "properties": {
             "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"] },
-            "goarch": { "const": "amd64" }
+            "goarch": { "enum": ["amd64", "arm64"] }
           }
         }
       }

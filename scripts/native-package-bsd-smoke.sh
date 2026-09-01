@@ -23,8 +23,12 @@ version=$1
 expected_goos=$2
 family=$3
 version_checker=${4:-}
+# Keep the shell guard to the required prefix only. The repository's Go
+# semantic-version checker below (or the shipped checker binary) is
+# authoritative; duplicating SemVer grammar in a shell glob can reject valid
+# prerelease forms before that checker runs.
 case "$version" in
-  v[0-9]*.[0-9]*.[0-9]*) ;;
+  v*) ;;
   *) fail "VERSION must be a v-prefixed semantic version" ;;
 esac
 case "$expected_goos:$family" in

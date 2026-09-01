@@ -7,6 +7,161 @@ and releases use semantic versioning.
 
 ### Added
 
+- Fixed Linux/BSD client selection so the Linux-only Moonlight Flatpak cannot be
+  selected or discovered on FreeBSD, OpenBSD, NetBSD, or DragonFly BSD; BSD
+  users now receive native Qt/Embedded package guidance.
+- Added the current Moonlight Embedded `x11_vaapi` backend to the bounded
+  Linux/BSD stream selector, including client-specific argument validation,
+  X11 display preflight, and documentation. This is a decoder/backend
+  capability improvement only; it does not change the native League/Vanguard
+  support boundary.
+- Added fail-fast validation for Moonlight Embedded's SDL backend: explicit
+  audio or input-device selectors are now rejected before launch because SDL
+  owns controller discovery and does not accept those device options.
+- Normalized Moonlight client selections at the CLI and discovery boundaries,
+  so case and surrounding whitespace cannot make a valid Linux/BSD client
+  selection pass diagnostics and then fail during process discovery.
+- Fixed Linux/BSD package and archive-install smoke checks so valid
+  v-prefixed prerelease versions such as `v0.0.0-ci` reach the authoritative
+  Semantic Version checker instead of being rejected by an incomplete shell
+  pattern.
+- Raised the DragonFly BSD CI guests to the action's 6 GiB memory baseline to
+  reduce boot/SSH readiness timeouts without weakening runtime or package
+  evidence gates.
+- Fixed fully explicit hardware-KVM invocations such as `--route macos
+  --url ... --confirm-physical-host` so they do not consult or conflict with
+  an unrelated default configuration for another physical-host route.
+- Fixed fully explicit Moonlight route invocations so a Linux/BSD user can
+  switch to a physical Mac or Windows host without an unrelated default route
+  blocking the selected handoff; named `--config` files remain authoritative.
+- Fixed live stream backend selection so an `auto` Moonlight client follows an
+  explicit Embedded or Qt display selector through both preflight and process
+  discovery; conflicting selectors and incompatible explicit clients now fail
+  before a handoff can start.
+- Fixed remote application preflight to follow the selected client's lookup
+  semantics: Qt and the Qt-based Flatpak accept case-insensitive advertised
+  application names like the upstream launcher, while Moonlight Embedded keeps
+  exact-name matching.
+- Added an invocation-only `remote pair --pin` option for Moonlight Qt,
+  Moonlight Embedded, and the Qt-based Flatpak, with strict four-digit
+  validation and fail-closed rejection for dry-run output; pairing PINs are
+  never persisted.
+- Added a bounded `remote stream --qt-platform` selector for Qt/Flatpak display
+  backends (`xcb`, `wayland`, `eglfs`, and `linuxfb`), with matching Linux/BSD
+  preflight and a child-only `QT_QPA_PLATFORM` override; arbitrary environment
+  injection and unsupported client flavors are rejected.
+- Fixed the Flatpak form of that selector to place the bounded
+  `--env=QT_QPA_PLATFORM=VALUE` option before the Moonlight app ID, ensuring the
+  explicit display backend reaches the sandbox instead of relying only on
+  inherited host environment state.
+- Added a bounded Linux/BSD `remote wake` operation for sending a standard
+  Wake-on-LAN packet to an already confirmed physical host before the normal
+  remote handoff; the MAC is invocation-only and the command does not imply
+  native League/Vanguard support.
+- `remote stream` can now optionally send that Wake-on-LAN packet once and
+  wait a bounded interval before its required host-application preflight,
+  making the already-paired physical-host handoff a single invocation without
+  persisting a MAC address or weakening the unverified-handoff boundary.
+- `remote pair` and `remote list` can now use the same opt-in Wake-on-LAN
+  bootstrap before the initial Moonlight pairing or application listing, so a
+  sleeping physical host can be powered on and inspected from one Linux/BSD
+  invocation while the unverified-handoff boundary remains explicit.
+- WOL-backed `remote list` and the initial `remote stream` application
+  preflight now retry failed Moonlight listings within a bounded, configurable
+  window, improving slow physical-host boot recovery without retrying pairing,
+  relaunching League, or weakening the application-presence guard.
+- Extended the Linux/BSD remote smoke helper with optional Wake-on-LAN MAC,
+  bounded wait, IPv4 destination, and UDP-port arguments; it records only that
+  the bootstrap was used and never writes the MAC to evidence.
+- Added an explicit, shell-free `remote kvm` convenience launcher for opening
+  a clean hardware-KVM web endpoint through `xdg-open`, `gio`, or
+  `sensible-browser`; credentials, query tokens, fragments, and implicit HTTP
+  are rejected, and the command remains a manual unvalidated candidate rather
+  than a new KVM backend or readiness promotion path.
+- `remote kvm` now falls back to an installed allowlisted direct browser such as
+  Firefox or Chromium when a Linux/BSD desktop has no URL-opener helper.
+- `remote kvm` can now optionally send one Wake-on-LAN packet and wait a bounded
+  interval before opening the hardware-KVM UI, keeping the MAC invocation-only
+  and the physical-host/acknowledgement boundary explicit.
+- Added a documented hardware-KVM-over-IP fallback for Linux/BSD users whose
+  physical host rejects software-streamed mouse input; it keeps the host
+  physical and unmodified, requires manual route-bound validation, and does not
+  add a virtual-HID, USB/IP, or anti-cheat-bypass path.
+- Bound the hardware-KVM candidate to PiKVM's documented HDMI-audio/WebRTC
+  capability and clarified that full A/V validation requires an audio-capable
+  device; VNC and DIY capture paths remain insufficient for that claim.
+- Added optional credential-free KVM endpoint configuration via
+  `config init --kvm-url` and `remote kvm --config`; physical-host confirmation can be
+  reused, while the unverified-handoff acknowledgement remains per operation.
+- `remote kvm` now follows the configured or explicit Windows/macOS route and
+  verifies only that selected physical-host contract, so unrelated stale route
+  evidence cannot block the chosen hardware-KVM handoff.
+- Documented the current Sunshine Raw Input/Virtual HID Driver path as a
+  separate experimental physical-Windows-host candidate. LeagueBridge does not
+  install or license the host component, and the route remains unvalidated and
+  non-certifying for Riot/Vanguard gameplay.
+- New remote configurations now target Sunshine's exact `League of Legends`
+  entry by default, while a separately published `Desktop` or Riot Client
+  entry remains selectable with `--app` so physical-host prompts can be handled
+  explicitly.
+- Qt/Flatpak remote stream plans now explicitly request relative mouse capture
+  by default; `--absolute-mouse` remains an opt-in override for the unvalidated
+  physical-host input experiment.
+- Documented Riot's optional Windows-host Vanguard On-Demand Pre-Check boundary
+  (Windows 11 25H2, UEFI/Secure Boot, TPM 2.0, VBS/HVCI, and IOMMU) without
+  treating it as Linux/BSD, Wine, Proton, or VM support.
+- Recorded Sunshine's current Virtual HID Driver minimum (`2026.829.2338.54` or
+  newer) and active-license requirement for the experimental Raw Input handoff;
+  LeagueBridge still does not install, license, or authorize that host component.
+- Recorded the vendor version pairing boundary: the current libvirtualhid release
+  requires Sunshine `v2026.830.44125+`, while the matching public Sunshine builds
+  are prereleases; the repository's stable Sunshine asset pin remains unchanged.
+- Refreshed the separate Raw Input experiment record to the compatible
+  Sunshine `v2026.831.233010` prerelease and stable `libvirtualhid`
+  `v2026.829.2338.54` pair; it remains non-default, unvalidated, and
+  non-certifying for Riot/Vanguard gameplay.
+- Added an Embedded-only Linux/BSD `remote map` helper for Moonlight's local SDL
+  controller-mapping action. It accepts one bounded evdev device, keeps host
+  routes and stream flags out of the local plan, and live-runs only after the
+  device is confirmed as a character device.
+- Added bounded Embedded `--audio-device` and repeatable `--input-device` stream
+  selectors (up to eight evdev devices), plus the Embedded-only `remote unpair`
+  recovery operation; device values are validated before they reach Moonlight,
+  and live streams preflight every explicit evdev path as a character device.
+- Added the Embedded-only `--input-mapping` selector for existing SDL
+  gamecontroller database files, with absolute-path, fixed-argv, and live
+  regular-file/8 MiB preflight validation.
+- Added bounded Moonlight stream controls for host-side audio, Embedded
+  gamepad-to-mouse emulation, and Qt/Flatpak multi-controller, background
+  gamepad, mouse/controller mapping, diagnostics, HDR, and YUV444 behavior;
+  each option translates to the documented client syntax and rejects the
+  wrong client flavor before execution.
+- Added an opt-in, bounded `remote stream --reconnect-attempts` recovery policy
+  with a context-aware delay for transient Moonlight disconnects; retries reuse
+  the same discovered executable and fixed host/application argument vector,
+  recheck the advertised application before each retry, and never retry
+  cancellation.
+- Added `remote quit` as a bounded, route-bound Moonlight recovery operation
+  for stopping a stale application on the already-paired physical host without
+  starting a new stream.
+- Added `remote stream --quit-after`, translating Moonlight Embedded's
+  `-quitappafter` and Moonlight Qt's `-quit-after` cleanup toggles for dropped
+  Linux/BSD client sessions.
+- Prevented explicit Embedded selection from misclassifying Linux, OpenBSD, or
+  NetBSD's generic Qt-convention `moonlight` executable; the resolver and
+  client preflight now require the explicit Embedded executable on those
+  targets while retaining the FreeBSD/DragonFly package fallback.
+- Made the Linux/BSD client preflight honor the explicitly selected Moonlight
+  flavor and require the official Moonlight Flatpak app to be installed before
+  a Flatpak handoff can pass its control-plane gate; real-environment discovery
+  now repeats that app-presence check before constructing an executable plan.
+- Extended the read-only compatibility audit to identify additional container,
+  micro-VM, OpenBSD VMM, Xen, LXC/Incus, and cross-platform VM launchers while
+  keeping every discovered alternative explicitly non-certifying.
+- Aligned compatibility Flatpak discovery with the client probe by checking
+  validated colon-separated `XDG_DATA_DIRS` roots without executing Flatpak.
+- Corrected Wayland and X11 endpoint checks to join paths using the inspected
+  Linux/BSD target's separator, preserving cross-target diagnostic accuracy.
 - Cross-platform Go CLI foundation.
 - Embedded fail-closed compatibility policy and public schema.
 - Read-only Linux/BSD client and Windows host diagnostics.
@@ -122,9 +277,26 @@ and releases use semantic versioning.
 - Added bounded `remote stream --network-mode auto|lan|wan` support for
   Moonlight Embedded, mapping local/WAN choices to its documented `-remote`
   optimization values.
+- Added bounded Qt/Flatpak `remote stream --frame-pacing auto|on|off` and
+  `--keep-awake` controls for frame-pacing stability and display-sleep
+  prevention during Linux/BSD remote sessions.
+- Added bounded Qt/Flatpak `remote stream --capture-system-keys` modes for
+  controlling documented system-key capture behavior during Linux/BSD remote
+  sessions.
+- Added bounded Qt/Flatpak `remote stream --vsync auto|on|off` support for
+  explicit local display synchronization during Linux/BSD remote sessions.
+- Hardened Linux/BSD graphical-session preflight by validating display syntax
+  and checking resolvable Wayland endpoints for a Unix socket before allowing
+  a live stream; abstract X11 sockets remain explicitly runtime-validated.
+- Hardened direct SDL/Qt Linux/BSD preflight to require real DRM, framebuffer,
+  evdev, and OpenBSD WSCONS device nodes instead of accepting regular-file
+  placeholders.
 - Rechecked Riot's current Vanguard On-Demand requirements on 30 August 2026;
   the page still describes a Windows-only attestation path and adds no
   Linux/BSD, Wine, Proton, or virtual-machine exception.
+- Rechecked Riot's current Player Support and Vanguard pages on 31 August
+  2026; League remains supported only on Windows and macOS, and no authorized
+  Linux/BSD, Wine, Proton, or virtual-machine gameplay route was added.
 
 ### Security
 
@@ -143,6 +315,13 @@ and releases use semantic versioning.
 
 ### Changed
 
+- Fixed non-PR CI package smoke invocations to preserve their intended
+  multiline shell arguments and corrected the downloaded race/vet attestation
+  subject path; the workflow now exercises the same argument and artifact
+  layout that its attestation jobs consume.
+- Added an explicit `cpa.sh` availability gate after BSD VM startup so a
+  timed-out or partially initialized guest cannot trigger misleading follow-up
+  shell and evidence-sync failures.
 - Made Windows-target installation path synthesis use Windows separators even
   when cross-target probe fixtures run on Unix hosts; native Windows behavior
   remains unchanged.

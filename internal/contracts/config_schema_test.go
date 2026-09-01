@@ -65,10 +65,13 @@ func TestPublicConfigurationSchemaAcceptsMoonlightEmbeddedAlias(t *testing.T) {
 		"schema_version": 2,
 		"route_id":       "physical-windows-remote",
 		"remote_host": map[string]any{
-			"host":                    "gaming-pc.local",
+			"host":                    "[2001:db8::1]:47989",
 			"app":                     "League of Legends",
 			"client":                  "moonlight-embedded",
 			"physical_host_confirmed": true,
+		},
+		"kvm": map[string]any{
+			"endpoint": "https://kvm.lan/",
 		},
 	}
 	if err := schema.Validate(document); err != nil {
@@ -105,6 +108,10 @@ func TestPublicConfigurationSchemaRejectsSecurityRelevantShapeDrift(t *testing.T
 		{
 			name: "legacy nested unknown field",
 			body: `{"schema_version":1,"backend":"remote-physical-windows","remote_windows":{"host":"pc.local","app":"League","client":"auto","physical_host_confirmed":true,"token":"secret"}}`,
+		},
+		{
+			name: "KVM nested unknown field",
+			body: `{"schema_version":2,"route_id":"physical-windows-remote","remote_host":{"host":"pc.local","app":"League","client":"auto","physical_host_confirmed":true},"kvm":{"endpoint":"https://kvm.lan/","token":"secret"}}`,
 		},
 	}
 

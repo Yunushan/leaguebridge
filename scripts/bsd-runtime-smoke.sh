@@ -6,24 +6,28 @@ export LC_ALL=C
 umask 077
 
 usage() {
-  echo "usage: bsd-runtime-smoke.sh BINARY GOOS UNAME EVIDENCE_DIR" >&2
+  echo "usage: bsd-runtime-smoke.sh BINARY GOOS GOARCH UNAME EVIDENCE_DIR" >&2
   exit 2
 }
 
-if [ "$#" -ne 4 ]; then
+if [ "$#" -ne 5 ]; then
   usage
 fi
 
 binary=$1
 expected_goos=$2
-expected_uname=$3
-evidence_dir=$4
+expected_goarch=$3
+expected_uname=$4
+evidence_dir=$5
 
-case "$expected_goos:$expected_uname" in
-  freebsd:FreeBSD | openbsd:OpenBSD | netbsd:NetBSD | dragonfly:DragonFly)
+case "$expected_goos:$expected_goarch:$expected_uname" in
+  freebsd:amd64:FreeBSD | freebsd:arm64:FreeBSD \
+    | openbsd:amd64:OpenBSD | openbsd:arm64:OpenBSD \
+    | netbsd:amd64:NetBSD | netbsd:arm64:NetBSD \
+    | dragonfly:amd64:DragonFly)
     ;;
   *)
-    echo "bsd-runtime-smoke: unsupported GOOS/uname pair" >&2
+    echo "bsd-runtime-smoke: unsupported GOOS/GOARCH/uname combination" >&2
     exit 2
     ;;
 esac
@@ -87,7 +91,7 @@ require_json_success "$evidence_dir/readiness.json" readiness
 require_json_success "$evidence_dir/manifest-verify.json" "manifest verify"
 require_json_success "$evidence_dir/doctor.json" doctor
 require_fixed "$evidence_dir/doctor.json" "\"os\": \"$expected_goos\"" "runtime GOOS $expected_goos"
-require_fixed "$evidence_dir/doctor.json" '"architecture": "amd64"' "runtime architecture amd64"
+require_fixed "$evidence_dir/doctor.json" "\"architecture\": \"$expected_goarch\"" "runtime architecture $expected_goarch"
 
 if ! awk '
   /"id": "client.platform"/ {
@@ -113,9 +117,10 @@ fi
 
 {
   printf 'goos=%s\n' "$expected_goos"
+  printf 'goarch=%s\n' "$expected_goarch"
   printf 'doctor_exit=%s\n' "$doctor_exit"
   printf 'client.platform=pass\n'
   printf 'gameplay=not-tested\n'
 } > "$evidence_dir/result.txt"
 
-echo "BSD runtime smoke passed for $expected_uname/$expected_goos amd64"
+echo "BSD runtime smoke passed for $expected_uname/$expected_goos $expected_goarch"

@@ -14,7 +14,7 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/compat"
 )
 
-var testNow = time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+var testNow = time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
 
 func TestNewTemplate(t *testing.T) {
 	tests := []struct {
@@ -110,7 +110,8 @@ func TestNewTemplateRejectsInvalidInputs(t *testing.T) {
 		{"macOS host on Windows route", RecordHost, "darwin", "arm64", testNow},
 		{"Windows architecture", RecordHost, "windows", "arm64", testNow},
 		{"client platform", RecordClient, "windows", "amd64", testNow},
-		{"client architecture", RecordClient, "linux", "arm64", testNow},
+		{"client architecture", RecordClient, "linux", "386", testNow},
+		{"DragonFly arm64", RecordClient, "dragonfly", "arm64", testNow},
 	}
 	if _, err := NewTemplateWithRunID(RecordClient, "linux", "amd64", "dev", "machine-name", testNow); err == nil {
 		t.Fatal("invalid validation run id was accepted")
@@ -263,7 +264,7 @@ func TestValidateRejectsCriticalMutations(t *testing.T) {
 		{"tool version", func(r *Record) { r.ToolVersion = " " }, "tool_version"},
 		{"subject role", func(r *Record) { r.Subject.Role = RecordClient }, "subject.role"},
 		{"subject platform", func(r *Record) { r.Subject.Platform = "windows" }, "platform"},
-		{"subject architecture", func(r *Record) { r.Subject.Architecture = "arm64" }, "architecture"},
+		{"subject architecture", func(r *Record) { r.Subject.Architecture = "386" }, "client/session evidence platform"},
 		{"subject environment", func(r *Record) { r.Subject.Environment = "" }, "environment"},
 		{"attestation level", func(r *Record) { r.Attestation.Level = "trusted" }, "attestation"},
 		{"reviewer missing", func(r *Record) { r.Attestation.Reviewer = "" }, "reviewer"},

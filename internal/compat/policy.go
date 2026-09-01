@@ -105,7 +105,7 @@ func (p *Policy) EvaluateAt(request LaunchRequest, at time.Time) Verdict {
 	if !knownPlatform(request.HostPlatform) {
 		return p.denial("UNKNOWN_HOST_PLATFORM", fmt.Sprintf("Host platform %q is not recognized.", request.HostPlatform), request.BackendID, Freshness{})
 	}
-	if request.HostArchitecture != ArchitectureAMD64 {
+	if !knownArchitecture(request.HostArchitecture) {
 		return p.denial("UNKNOWN_HOST_ARCHITECTURE", fmt.Sprintf("Host architecture %q is not supported by this manifest.", request.HostArchitecture), request.BackendID, Freshness{})
 	}
 	backend, ok := findBackend(p.authoritative, request.BackendID)

@@ -1,7 +1,7 @@
 # Release packaging contract
 
-LeagueBridge publishes exactly five target-native executable archives: Linux,
-FreeBSD, OpenBSD, NetBSD, and DragonFly BSD, all on amd64. Each release is a
+LeagueBridge publishes exactly nine target-native executable archives: Linux,
+FreeBSD, OpenBSD, and NetBSD on amd64 and arm64, plus DragonFly BSD on amd64. Each release is a
 portable tarball with an unprivileged staging interface; releases are not
 represented as distribution-owned Debian, RPM, FreeBSD ports, OpenBSD ports,
 pkgsrc, or dports packages.
@@ -33,7 +33,7 @@ fields are checked independently of Go build information.
 ## Optional native package staging
 
 The repository now provides a deterministic staging boundary for native package
-builders without changing the five-archive release contract. The command
+builders without changing the nine-archive release contract. The command
 `tools/nativepackagestage` accepts one Unix release tarball after its embedded
 package manifest and payload have been checked, then creates a new directory
 containing:
@@ -114,7 +114,7 @@ into a package-manager signature.
 The hermetic release builder exercises all six target/family combinations in
 its private work directory after `tools/releasecheck` succeeds. This catches
 mapping drift during release smoke tests while leaving `dist/` limited to the
-five executable archives and `checksums.txt`.
+nine executable archives and `checksums.txt`.
 
 ## Reproducible production builder
 

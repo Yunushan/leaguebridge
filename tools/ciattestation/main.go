@@ -27,6 +27,7 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/exactjson"
 	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/releaseversion"
+	targetcontract "github.com/Yunushan/leaguebridge/internal/target"
 )
 
 const (
@@ -556,13 +557,11 @@ func verifyReleaseSet(input verifyRequest) error {
 
 func releaseArchiveNames(version string) []string {
 	base := "leaguebridge_" + strings.TrimPrefix(version, "v")
-	return []string{
-		base + "_linux_amd64.tar.gz",
-		base + "_freebsd_amd64.tar.gz",
-		base + "_openbsd_amd64.tar.gz",
-		base + "_netbsd_amd64.tar.gz",
-		base + "_dragonfly_amd64.tar.gz",
+	names := make([]string, 0, len(targetcontract.Ordered()))
+	for _, candidate := range targetcontract.Ordered() {
+		names = append(names, base+"_"+candidate.GOOS+"_"+candidate.GOARCH+".tar.gz")
 	}
+	return names
 }
 
 func maxReleaseSizeFor(name string) int64 {
@@ -693,9 +692,9 @@ func validateSetShape(kind string, values []loadedDocument) error {
 		return nil
 	}
 
-	expected := map[string]struct{}{
-		"linux/amd64": {}, "freebsd/amd64": {}, "openbsd/amd64": {},
-		"netbsd/amd64": {}, "dragonfly/amd64": {},
+	expected := make(map[string]struct{}, len(targetcontract.Ordered()))
+	for _, candidate := range targetcontract.Ordered() {
+		expected[candidate.GOOS+"/"+candidate.GOARCH] = struct{}{}
 	}
 	if len(values) != len(expected) {
 		return fmt.Errorf("cross-build verification requires exactly %d subjects, got %d", len(expected), len(values))
@@ -1067,22 +1066,16 @@ func digestBytes(data []byte) string {
 }
 
 func validateTarget(kind, goos, goarch string) error {
-	if goarch != "amd64" {
-		return fmt.Errorf("unsupported target architecture %q", goarch)
-	}
 	switch goos {
 	case "linux", "freebsd", "openbsd", "netbsd", "dragonfly":
 	default:
 		return fmt.Errorf("unsupported target operating system %q", goos)
 	}
+	if !targetcontract.IsSupported(goos, goarch) {
+		return fmt.Errorf("unsupported target %s/%s", goos, goarch)
+	}
 	if kind == "race-vet" && (goos != "linux" || goarch != "amd64") {
 		return errors.New("race-vet target must be linux/amd64")
-	}
-	if kind == "cross-build" {
-		valid := goarch == "amd64" && (goos == "linux" || goos == "freebsd" || goos == "openbsd" || goos == "netbsd" || goos == "dragonfly")
-		if !valid {
-			return fmt.Errorf("unsupported cross-build target %s/%s", goos, goarch)
-		}
 	}
 	return nil
 }

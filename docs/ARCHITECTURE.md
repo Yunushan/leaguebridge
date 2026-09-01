@@ -51,6 +51,10 @@ but cannot be replayed or redirected as launch authority.
 - `internal/config`: strict, bounded, credential-free JSON configuration.
 - `internal/probe`: read-only host and client capability checks.
 - `internal/remote`: Moonlight discovery, handoff planning, and execution.
+- `internal/wol`: bounded, shell-free Wake-on-LAN packet planning and sending
+  for an already configured physical-host handoff.
+- `internal/kvm`: allowlisted, shell-free opening of a hardware-KVM web UI;
+  it does not implement KVM video, HID, authentication, or host integration.
 - `internal/evidence`: immutable schema-v1 host/client/session records,
   freshness evaluation, and exact-file/artifact verification.
 - `internal/evidencev2`: strict set-level payload/envelope parsing, scoped
@@ -64,7 +68,12 @@ but cannot be replayed or redirected as launch authority.
 
 There is no daemon and no privileged helper. A normal diagnostic command must
 never launch Wine, Proton, Docker, QEMU, bhyve, Riot software, or arbitrary
-commands.
+commands. The explicit `remote kvm` convenience command may launch only an
+allowlisted desktop URL opener for a user-supplied hardware-KVM endpoint after
+the required physical-host and unverified-handoff acknowledgements; `remote
+wake` may send one validated IPv4 magic packet under the same route-bound
+acknowledgements. Neither operation performs KVM protocol operations or claims
+League/Vanguard compatibility.
 
 ## Release dependency boundary
 
@@ -121,9 +130,13 @@ old Windows-only schema v1 only to normalize it in memory.
 
 Before a live stream process is started, the controller runs a bounded
 Moonlight application-list operation with the same discovered client and
-requires the exact final launch application to be advertised by the host. A
-missing entry stops the stream; `--dry-run` remains a local argument-vector
-check and does not contact the host.
+requires the final launch application to be advertised by the host using the
+selected Moonlight client's lookup semantics. Qt uses case-insensitive
+application matching and Embedded uses exact matching. A missing entry stops
+the stream; `--dry-run` remains a local argument-vector check and does not
+contact the host. The same route-bound control-plane
+adapter also exposes `remote quit` so a client can terminate a stale host
+application after a dropped session, without starting another stream.
 
 The `macos-host` doctor profile is host-side, read-only, and non-certifying. It
 exists only for the optional external-host handoff and never establishes a
@@ -140,7 +153,9 @@ VirtualBox, VMware, WinBoat, and bhyve paths), and other layers such as Darling
 and Waydroid. It exists to make attempted alternatives explicit, not to create
 another execution backend: discovery checks PATH and known system/user Flatpak
 app directories, never starts a launcher, and the profile always retains the
-native Vanguard block. Its serialized report is schema v2.
+native Vanguard block. The official Moonlight Flatpak is Linux-only; BSD
+discovery and preflight therefore use native Qt/Embedded packages and reject
+Flatpak as a client fallback. Its serialized report is schema v2.
 
 ## Future authorized runtime
 

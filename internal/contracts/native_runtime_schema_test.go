@@ -53,4 +53,27 @@ func TestNativeRuntimeAttestationSchemaIsScoreFreeAndHostClassBound(t *testing.T
 			}
 		})
 	}
+
+	data, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bsd := decodeJSONBytes(t, data).(map[string]any)
+	bsd["kind"] = "bsd-runtime"
+	bsdExecution := bsd["execution"].(map[string]any)
+	bsdExecution["job"] = "bsd-runtime"
+	bsdExecution["host_class"] = "virtualized"
+	bsdTarget := bsdExecution["target"].(map[string]any)
+	bsdTarget["goos"] = "freebsd"
+	bsdTarget["goarch"] = "arm64"
+	bsdSubjects := bsd["subjects"].([]any)
+	bsdSubjects[0].(map[string]any)["path"] = "bsd-ci/leaguebridge-freebsd-arm64"
+	bsdSubjects[1].(map[string]any)["path"] = "bsd-evidence/freebsd/arm64/result.txt"
+	if err := schema.Validate(bsd); err != nil {
+		t.Fatalf("valid FreeBSD arm64 native runtime subject rejected: %v", err)
+	}
+	bsdTarget["goos"] = "dragonfly"
+	if err := schema.Validate(bsd); err == nil {
+		t.Fatal("schema accepted DragonFly arm64 native runtime subject")
+	}
 }

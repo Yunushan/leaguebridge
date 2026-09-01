@@ -15,8 +15,8 @@ func TestFreshnessAtBoundaries(t *testing.T) {
 		want    FreshnessState
 		ageDays int
 	}{
-		{name: "future", at: "2026-08-25", want: FreshnessFuture, ageDays: -1},
-		{name: "as of", at: "2026-08-30", want: FreshnessFresh, ageDays: 4},
+		{name: "future", at: "2026-08-31", want: FreshnessFuture, ageDays: 5},
+		{name: "as of", at: "2026-09-01", want: FreshnessFresh, ageDays: 6},
 		{name: "last fresh day", at: "2026-09-25", want: FreshnessFresh, ageDays: 30},
 		{name: "first stale day", at: "2026-09-26", want: FreshnessStale, ageDays: 31},
 	}

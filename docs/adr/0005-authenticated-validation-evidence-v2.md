@@ -23,7 +23,7 @@ LeagueBridge defines a deliberately bounded authenticated-evidence foundation:
 - `validation-evidence-v2.schema.json` is one flat, score-free set payload. It
   binds a `physical-windows-remote` or `physical-macos-remote` /
   `remote-play-v1` run, its exact route-matching Windows `amd64` or macOS
-  `amd64`/`arm64` host and Linux/BSD `amd64` client cell, the compatibility
+  `amd64`/`arm64` host and Linux/BSD `amd64`/`arm64` client cell, the compatibility
   manifest, three raw schema-v1 record SHA-256 digests, and one trust-policy ID.
 - `evidence-signature-envelope.schema.json` carries those exact payload bytes as
   canonical RFC 4648 base64url without padding and two to eight Ed25519

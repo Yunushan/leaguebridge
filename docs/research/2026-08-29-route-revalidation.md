@@ -37,6 +37,24 @@ anti-cheat cannot reliably attest. The implementation and scorecard therefore
 remain unchanged: native Linux/BSD gameplay is blocked, while physical
 Windows or macOS hosts are external handoff routes only.
 
+## 2026-08-31 official support recheck
+
+Riot's current Player Support requirements article was rechecked on 31 August
+2026. It still describes League support for Windows and macOS only and
+explicitly excludes Linux, SteamOS, Bazzite, and other operating systems from
+Riot support. The article also continues to describe native macOS support as a
+separate platform requirement; it does not authorize a Linux compatibility
+layer to run the Mac client.
+
+Riot's Vanguard material was checked alongside that article. The Linux FAQ
+still says the Lutris/Wine implementation cannot satisfy Vanguard's driver
+requirements, while the current Vanguard On-Demand article describes added
+Windows security prerequisites rather than a Linux, BSD, Wine, Proton, or VM
+exception. No authoritative change therefore supports installing copied DLLs,
+drivers, an anti-cheat package, or a virtualized Windows guest. LeagueBridge
+continues to keep native Linux/BSD gameplay denied and the physical-host
+Moonlight path explicitly external and unvalidated.
+
 | Route | Current primary-source finding | LeagueBridge decision |
 | --- | --- | --- |
 | Wine, WineHQ, Lutris, or another Wine frontend | Riot says Linux has never been officially supported and that the current Lutris/Wine implementation cannot satisfy Vanguard's driver requirements. | Keep local Linux/BSD gameplay denied. |
@@ -57,7 +75,7 @@ does not change the decision above:
 
 | Provider class | Current primary-source finding | LeagueBridge decision |
 | --- | --- | --- |
-| NVIDIA GeForce NOW | NVIDIA currently documents a Linux client and Linux system requirements, but its official Vanguard-era announcement says League was removed from GeForce NOW because Vanguard does not support its virtual machines. The current Linux-client documentation does not reverse that League-specific removal. | Do not advertise or automate GeForce NOW as a League route; a Linux cloud client is not evidence that League is available there. |
+| NVIDIA GeForce NOW | NVIDIA's current pages document a native Linux client and its general games catalog still displays League, but NVIDIA's League-specific support answer still says League is unavailable because Vanguard does not support GeForce NOW virtual machines. The catalog and generic Linux-client pages do not state that this League-specific restriction was lifted. | Keep GeForce NOW denied for League. Do not advertise or automate it as a League route until NVIDIA publishes a current League-specific restoration statement and a real session is independently validated. |
 | Shadow PC | Shadow's current incompatibility list says League cannot be played on Shadow because Riot Vanguard is incompatible with its virtual machines. | Reject Shadow and equivalent hosted VM services for certification. |
 | Other hosted cloud PCs | This audit found no provider documentation granting a Riot/Vanguard exception or proving a physical, non-VM host. Marketing claims about device coverage are not gameplay authorization. | Require provider-specific primary evidence and Riot authorization before considering integration. |
 
@@ -65,13 +83,24 @@ Cloud clients can still be useful as ordinary viewers, but the hosted machine
 must satisfy Riot's own runtime requirements. A browser, Linux client, or
 streaming protocol does not change the anti-cheat boundary.
 
+## 2026-08-31 cloud-status addendum
+
 The current NVIDIA documentation is an important distinction: the GeForce NOW
-download and system-requirements pages now describe a Linux beta client, while
-the company's Vanguard announcement says League was taken off GeForce NOW after
-the Vanguard rollout because the service uses virtual machines. The current
-release-highlights page documents Linux-client improvements but does not state
-that League was restored. This is therefore a provider-specific blocked route,
-not a missing Linux frontend that LeagueBridge should install or automate.
+download and system-requirements pages now describe a native Linux client, and
+the general supported-games catalog still displays League. However, NVIDIA's
+League-specific support answer remains explicit that League is unavailable on
+GeForce NOW because Vanguard does not support its virtual machines. The current
+release-highlights page documents Linux-client improvements and references
+League in historical product notes, but it does not state that the League
+restriction was lifted. This unresolved source conflict is not sufficient to
+create a launch authorization or a reproducible Linux/BSD gameplay route, so
+LeagueBridge keeps the provider-specific route blocked rather than guessing
+from a generic catalog entry.
+
+The current Linux client is also narrower than the project target: NVIDIA's
+published requirements name Ubuntu 24.04 LTS, not FreeBSD, OpenBSD, NetBSD, or
+DragonFly BSD. A browser or Linux cloud client therefore cannot be treated as
+BSD support, and it cannot promote the separate native Linux/BSD hard gate.
 
 ## 2026-08-30 upstream runtime addendum
 
@@ -102,11 +131,17 @@ Windows/macOS LeagueBridge product target.
 The same index still contains Vanguard issue `#70`, an open report that the
 mouse stops controlling the cursor after League starts through Moonlight/Sunshine
 streaming. It has no assignee or linked development work. Sunshine's current
-input documentation only exposes ordinary keyboard and mouse enablement, and
-Moonlight Qt's documented absolute-mouse toggle is a client preference rather
-than a Riot fix. LeagueBridge must not add input interception, driver injection,
-or an anti-cheat bypass; until Riot and the streaming stack resolve this on a
-real host, remote gameplay remains unvalidated rather than a guaranteed path.
+documentation now also describes a vendor-provided, driver-backed Raw Input
+keyboard and relative-mouse path on Windows, requiring Virtual HID Driver
+`2026.829.2338.54` or newer and an active license. That is a new experimental
+host-side candidate worth testing,
+but the Sunshine documentation is not Riot authorization and does not prove
+that Vanguard accepts the device. Absolute positioning still uses Windows input
+injection, so LeagueBridge must keep its remote-client preference in relative
+pointer mode for this experiment. LeagueBridge must not add input interception,
+driver injection, or an anti-cheat bypass; until Riot and the streaming stack
+resolve this on a real host, remote gameplay remains unvalidated rather than a
+guaranteed path.
 
 The scan also checked the public `RiotVanguard/Vanguard` repository because its
 name and README present it as Vanguard source. Its checked source is a
@@ -222,11 +257,129 @@ input only for Qt/Flatpak and fails closed for Embedded. This permits an
 explicit software-decoder choice on Linux/BSD graphics stacks without claiming
 that the resulting stream, input path, Vanguard, or League session is working.
 
-The official Sunshine release page was also checked on 2026-08-29. Its latest
+The official Sunshine release page was also checked on 2026-08-29. Its stable
 release remains `v2026.516.143833`, matching the repository's pinned Windows
-AMD64 release tag; no asset pin change is justified by this check. The pinned
-asset digests remain content values from the lock file and were not refreshed by
-an unverified download.
+AMD64 release tag; no stable asset pin change is justified by this check. The
+current public release list additionally shows `v2026.830.223700` and
+`v2026.830.165455` as prereleases. The latest `libvirtualhid` release,
+`v2026.829.2338.54`, requires Sunshine `v2026.830.44125` or newer, so the
+driver-backed Raw Input candidate currently needs an explicitly accepted,
+signature-verified compatible prerelease rather than the repository's stable
+Sunshine pin. The pinned asset digests remain content values from the lock file
+and were not refreshed by an unverified download. The official Windows AMD64 MSI
+metadata for the matching `v2026.830.223700` prerelease is now recorded
+separately in
+[`compatibility/sunshine-windows-amd64-raw-input-preview.lock.json`](../../compatibility/sunshine-windows-amd64-raw-input-preview.lock.json)
+with SHA-256
+`00edf5f37c2a6351d9cd0e114565ef26710d14baafc43fa6c6b8fc671ef5953d`.
+This preview lock is an operator-reviewed reproducibility record only; it is
+not consumed by the stable inspector, does not authorize installation, and
+does not change the unvalidated route state.
+
+## 2026-08-31 remote-input addendum
+
+Parsec's current support article, updated 30 March 2026, explicitly names
+League of Legends and VALORANT as examples of multiplayer games whose Vanguard
+anti-cheat can block Parsec's mouse and keyboard input. Parsec therefore does
+not provide a demonstrated replacement for Moonlight, even though it has a
+Linux client and Windows/macOS host support. LeagueBridge does not add a
+Parsec backend or recommend its Virtual USB driver as a workaround.
+
+The remaining non-invasive route worth documenting is a hardware KVM-over-IP
+device. PiKVM's current handbook describes a device attached to the target
+computer that presents keyboard and mouse USB devices while exposing the
+captured display through a web UI. This can avoid the software streamer's
+`SendInput` path, but PiKVM is not Riot authorization and its behavior with the
+current Vanguard build is not established by these sources. It remains a
+manual, route-bound candidate requiring a physical host and a Practice Tool
+validation. Unapproved virtual-HID drivers, USB/IP forwarding, input
+interception, VM concealment, and Riot component modification remain
+unacceptable. Current Sunshine documentation describes its own official,
+separately licensed Raw Input candidate; that path is recorded in
+`docs/REMOTE_PLAY.md`, remains unvalidated, and must not be confused with a
+Riot-approved anti-cheat bypass.
+
+The project consequently keeps the Moonlight handoff as the only automated
+streaming route and treats hardware KVM as an external operational fallback,
+not as a new compatibility backend or a readiness promotion path. The detailed
+operator and security procedure is in [`docs/HARDWARE_KVM.md`](../HARDWARE_KVM.md).
+
+## 2026-09-01 upstream input-path recheck
+
+The official Sunshine release page still identifies `v2026.516.143833` as the
+latest stable release while `v2026.830.223700` remains a prerelease. The latter
+is the operator-reviewed preview recorded in the repository's separate raw-input
+lock file; no compatible stable release was found to replace the stable pin.
+
+Sunshine's current Windows troubleshooting guidance describes the separately
+installed Virtual HID Driver as the path that delivers keyboard transitions and
+relative mouse events through Raw Input, while stating that an unavailable
+driver, broker, or license falls back to `SendInput`. This makes the preview a
+concrete physical-Windows input experiment worth retaining, but it does not
+establish Riot authorization, native Linux/BSD support, or successful League
+gameplay. The project must continue to stop on Riot/Vanguard errors and must not
+copy the driver, alter Vanguard, or treat a moving desktop cursor as proof of
+in-game input.
+
+The current recheck therefore changes no compatibility verdict: native Linux/BSD
+remains blocked, the Sunshine route remains an unvalidated physical-host
+handoff, and hardware KVM remains the separate manual fallback.
+
+The same current Moonlight Embedded source audit found one client-side backend
+gap that can be handled without changing the League/Vanguard boundary:
+`platform.c` recognizes the `x11_vaapi` selector, and the current CMake file
+enables it when the X11 VA-API dependencies are available. LeagueBridge now
+accepts that bounded selector, forwards it as `-platform x11_vaapi`, and
+preflights the matching X11 display endpoint. This improves Linux/BSD decoder
+selection where the installed Embedded package was built with VA-API support;
+it remains a local client capability hint and is not evidence of Riot
+authorization, remote input acceptance, or League gameplay.
+
+## 2026-09-01 driver-preview update
+
+LizardByte published a newer signed `libvirtualhid` Windows AMD64 driver
+preview, `v2026.901.116.32`, on 1 September 2026. Its official release
+metadata lists the driver MSI and digest
+`f48a6d7632b6d86ab0ad9f8dc98e12e4367552f4b058e62eaff74e20fd0b69b5`; the
+release remains a prerelease and still requires an active machine license.
+The existing Sunshine Raw Input preview remains the separately pinned
+`v2026.830.223700` MSI, whose digest is unchanged. The combined lock file now
+records both official assets and the vendor's minimum Sunshine version.
+
+This is a fresher reproducibility candidate for the physical-Windows Raw Input
+experiment, not a Linux/BSD runtime or Riot authorization. LeagueBridge still
+does not download, install, bundle, or alter the driver, and the route remains
+unvalidated until a current physical Practice Tool run demonstrates stable
+League input.
+
+## 2026-09-01 compatible-pair refresh
+
+The official release APIs were rechecked again on 1 September 2026. Sunshine's
+current compatible candidate is the Windows AMD64 prerelease
+`v2026.831.233010`; the stable `libvirtualhid` Windows AMD64 driver release is
+`v2026.829.2338.54`. The driver requires Sunshine `v2026.830.44125` or newer,
+so this pair satisfies the vendor version boundary, but the host component is
+still a prerelease and the route remains an operator-approved experiment.
+
+The separate raw-input lock file now records the exact official MSI URLs,
+sizes, and release digests for this pair. The older Sunshine
+`v2026.830.223700` and libvirtualhid preview records are superseded. This does
+not change the compatibility verdict: LeagueBridge does not install, license,
+bundle, or modify either Windows component; no Riot authorization or physical
+League gameplay evidence exists; and the candidate cannot promote native
+Linux/BSD support.
+
+## 2026-09-01 native pairing-option recheck
+
+The current Moonlight Embedded parser was rechecked after the command-reference
+comparison above. Its `long_options` table includes `pin` for a four-digit
+predefined pairing code, and the parser accepts it for the `pair` action. The
+current Qt parser exposes the same `pair --pin PIN HOST` shape. LeagueBridge now
+forwards a validated, invocation-only `--pin` to either native client (or the
+Qt-based Flatpak), while still rejecting dry-run use and never persisting the
+code. This improves first-pairing usability on BSD packages that install
+Moonlight Embedded, but it does not authenticate a host, alter Vanguard, or
+provide League gameplay support.
 
 ## Primary sources
 
@@ -234,10 +387,14 @@ an unverified download.
 - [Riot Player Support — minimum and recommended system requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
 - [Riot — Patch 25.S1.2 notes and Embedded Vanguard on Mac](https://www.leagueoflegends.com/en-us/news/game-updates/patch-25-s1-2-notes/)
 - [Riot — Vanguard On-Demand](https://www.riotgames.com/en/news/vanguard-on-demand)
+- [Riot — Vanguard FAQ for third-party applications](https://www.riotgames.com/en/DevRel/vanguard-faq)
 - [Riot Player Support — Vanguard error codes](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes)
 - [Valve — Steam Hardware and Proton](https://partner.steamgames.com/doc/steamhardware/proton)
 - [Moonlight Qt — current command-line parser](https://raw.githubusercontent.com/moonlight-stream/moonlight-qt/master/app/cli/commandlineparser.cpp)
 - [Moonlight Embedded — current command-line documentation](https://github.com/moonlight-stream/moonlight-embedded/blob/master/docs/README.pod)
+- [Moonlight Embedded — current option parser](https://raw.githubusercontent.com/moonlight-stream/moonlight-embedded/master/src/config.c)
+- [Moonlight Embedded — current platform selector](https://raw.githubusercontent.com/moonlight-stream/moonlight-embedded/master/src/platform.c)
+- [Moonlight Embedded — current backend detection/build options](https://raw.githubusercontent.com/moonlight-stream/moonlight-embedded/master/CMakeLists.txt)
 - [FreeBSD ports — Moonlight Qt package recipe](https://cgit.freebsd.org/ports/tree/games/moonlight-qt/Makefile)
 - [DragonFly DPorts — Moonlight Qt package recipe](https://github.com/DragonFlyBSD/DPorts/blob/master/games/moonlight-qt/Makefile)
 - [dockur/windows — README](https://github.com/dockur/windows/blob/master/readme.md)
@@ -252,14 +409,24 @@ an unverified download.
 - [RiotVanguard/Vanguard issue #70 — Moonlight/Sunshine mouse report](https://github.com/RiotVanguard/Vanguard/issues/70)
 - [RiotVanguard/Vanguard — live public issue index](https://github.com/RiotVanguard/Vanguard/issues)
 - [Sunshine — current input configuration](https://github.com/LizardByte/Sunshine/blob/master/docs/configuration.md)
+- [Sunshine — current Windows Raw Input troubleshooting](https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2troubleshooting.html?lng=en-US)
+- [LizardByte — libvirtualhid and Virtual HID Driver announcement](https://app.lizardbyte.dev/2026-08-16-introducing-libvirtualhid-and-virtual-hid-driver/)
+- [LizardByte — libvirtualhid capabilities and license boundary](https://github.com/LizardByte/libvirtualhid)
+- [LizardByte — current Sunshine release list](https://github.com/LizardByte/Sunshine/releases)
+- [Sunshine — current Windows Raw Input troubleshooting](https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2troubleshooting.html?lng=en-US)
+- [Parsec — anti-cheat input limitations](https://support.parsec.app/hc/en-us/articles/32381827815188-Mouse-and-Keyboard-Isn-t-Working-Correctly-When-Connected)
+- [PiKVM — USB configuration](https://docs.pikvm.org/usb/)
 - [nicolasdesenv/valorant-linux-compatibility — research repository](https://github.com/nicolasdesenv/valorant-linux-compatibility)
 - [Darling — current upstream runtime](https://github.com/darlinghq/darling)
 - [Darling — known non-functional software](https://docs.darlinghq.org/known-nonfunctional-software.html)
 - [Darling — League of Legends issue #1467](https://github.com/darlinghq/darling/issues/1467)
 - [Sunshine — current system requirements](https://docs.lizardbyte.dev/projects/sunshine/latest/)
+- [Sunshine — current public releases](https://github.com/LizardByte/Sunshine/releases)
+- [LizardByte — libvirtualhid release v2026.829.2338.54](https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.829.2338.54)
 - [NVIDIA — Is League of Legends available on GeForce NOW?](https://nvidia.custhelp.com/app/answers/detail/a_id/5539/kw/surround%20setup)
 - [NVIDIA — GeForce NOW download and Linux client](https://www.nvidia.com/en-us/geforce-now/download/)
 - [NVIDIA — GeForce NOW system requirements](https://www.nvidia.com/en-us/geforce-now/system-reqs/)
+- [NVIDIA — GeForce NOW supported games](https://www.nvidia.com/en-in/geforce/products/geforce-now/supported-games/)
 - [NVIDIA — current GeForce NOW release highlights](https://www.nvidia.com/en-us/geforce-now/release-highlights/)
 - [NVIDIA — Vanguard removal announcement for GeForce NOW](https://blogs.nvidia.com/blog/geforce-now-thursday-may-games-list/)
 - [Shadow — Games incompatible with Shadow PC](https://support.shadow.tech/hc/en-us/articles/32731823908625-Games-Incompatible-with-Shadow-PC)

@@ -39,11 +39,21 @@ virtualization.
    works before adding streaming.
 3. Install Sunshine from its
    [official project](https://github.com/LizardByte/Sunshine), bind its management
-   interface safely, and add a `League of Legends` application entry. If you use
-   Sunshine's built-in `Desktop` entry instead, set `--app Desktop` when
-   initializing the client configuration.
+   interface safely, and publish an application with the exact name `League of
+   Legends`. New LeagueBridge configurations target that game entry by default,
+   so a stream cannot silently open Sunshine's generic `Desktop` entry. Use
+   `--app` when the host intentionally publishes another exact application name
+   for Riot Client/Vanguard setup.
 4. Keep the host on a trusted LAN or private VPN. Do not expose Sunshine's web UI
    directly to the public internet.
+
+Riot's June 2026 [Vanguard On-Demand update](https://www.riotgames.com/en/news/vanguard-on-demand)
+describes an optional Windows-host Pre-Check, not a Linux/BSD or Wine exception.
+If the physical host operator chooses that mode, Riot currently names Windows 11
+25H2, UEFI/Secure Boot, TPM 2.0, VBS/HVCI, and IOMMU as its prerequisites.
+Enable or review those settings only through the host's own vendor and Riot
+instructions; LeagueBridge never changes them and a passing Pre-Check would
+still not prove remote input or League gameplay acceptance.
 
 Complete Riot/Vanguard's own per-machine checks and a local Practice Tool session
 on the physical host before adding streaming. LeagueBridge does not ship a
@@ -63,14 +73,81 @@ inventory-only check: every such path remains non-certifying because it cannot
 provide Riot's required physical Vanguard host, and LeagueBridge never launches
 or modifies any of those tools.
 
+### Experimental Sunshine Raw Input candidate
+
+Current Sunshine documentation describes a separately installed LizardByte
+Virtual HID Driver/libvirtualhid path that can expose keyboard and relative
+mouse events through a host-side Raw Input device. This is a potentially useful
+candidate for the known League/Vanguard mouse failure in software streaming,
+but it is not a Riot authorization or a LeagueBridge-supported backend. The
+current Sunshine documentation requires Virtual HID Driver
+`2026.829.2338.54` or newer together with an active machine license for the
+driver-backed input path. Keep Sunshine and the driver on the vendor-supported
+version pair, and follow the vendor's current release and licensing
+instructions rather than copying a driver into this repository.
+
+The matching stable `libvirtualhid` release `v2026.829.2338.54` requires
+Sunshine `v2026.830.44125` or newer. The current compatible candidate is
+Sunshine `v2026.831.233010`, but that host release is still a prerelease; the
+stable Sunshine release pinned by this repository, `v2026.516.143833`, is not
+new enough for the driver. Therefore the overall Raw Input candidate remains
+prerelease, unvalidated, and explicitly operator-accepted only. Evaluate it
+only with an official, signature-verified compatible pair, or wait for a
+compatible stable Sunshine release. If no compatible pair is installed, treat
+the driver-backed path as unavailable and do not count Sunshine's `SendInput`
+fallback as a League-capable result.
+
+The separately pinned
+[`sunshine-windows-amd64-raw-input-preview.lock.json`](../compatibility/sunshine-windows-amd64-raw-input-preview.lock.json)
+records the official Windows AMD64 MSI metadata for the compatible Sunshine
+prerelease `v2026.831.233010` and the stable `libvirtualhid` release
+`v2026.829.2338.54`. This is a reproducibility record for an operator-approved
+experiment only: it is not used by the stable inspector, does not authorize
+download or installation, and does not promote the remote route.
+
+If this candidate is evaluated, do it only on the physical Windows host:
+
+1. Install Sunshine and the Virtual HID Driver only from the official LizardByte
+   distribution, and verify the driver/broker/license state in Sunshine's own
+   UI. Do not use a development build, an untrusted mirror, USB/IP, or another
+   virtual-input product as a substitute.
+2. Confirm that Sunshine reports the driver-backed Raw Input keyboard and mouse
+   path. If it falls back to `SendInput`, treat the candidate as failed for
+   League testing; a moving Windows desktop cursor is not proof that League
+   receives the events. If the host is headless, keep a physical mouse attached
+   during the experiment: Sunshine's current Raw Input troubleshooting reports
+   that Raw Input games can fail when no physical mouse is present.
+3. Keep Moonlight in relative pointer-capture mode. Do not select the Qt
+   `--absolute-mouse` mode for this experiment, because Sunshine documents
+   absolute positioning as an input-injection path. The Linux/BSD client can
+   make the preference explicit with `--no-absolute-mouse`.
+4. Test only Practice Tool or a custom game with a non-valuable account. Stop
+   immediately on a Vanguard, Riot Client, or League error, unexpected input,
+   or an account restriction. Record the exact Sunshine build, driver version,
+   license state, host patch, client target, and input result without recording
+   credentials or tokens.
+
+LeagueBridge does not install, configure, license, or inspect this Windows
+driver, and it does not claim that Vanguard accepts it. The vendor documents a
+Raw Input delivery mechanism, not Riot permission. Until a current physical
+run demonstrates stable League input and an appropriate authorization basis,
+keep this route `unvalidated`; the hardware-KVM procedure in
+[`HARDWARE_KVM.md`](HARDWARE_KVM.md) remains the separate fallback.
+
 ### Read-only Sunshine inspection
 
 The repository pins the official Windows AMD64 asset metadata checked on 29
 August 2026 in
 [`compatibility/sunshine-windows-amd64.lock.json`](../compatibility/sunshine-windows-amd64.lock.json).
 The official Sunshine release API and release page were rechecked on that date
-and still report the pinned `v2026.516.143833` tag and locked asset metadata;
-this does not re-download or independently rehash the locked assets.
+and still report the pinned stable `v2026.516.143833` tag and locked asset
+metadata; the public release page now also lists newer prereleases, which are
+deliberately not added to this stable inspector lock without a separate asset
+review. This does not re-download or independently rehash the locked assets.
+The current Raw Input candidate pair reviewed on 1 September 2026 is recorded
+separately in
+[`compatibility/sunshine-windows-amd64-raw-input-preview.lock.json`](../compatibility/sunshine-windows-amd64-raw-input-preview.lock.json);
+the inspector intentionally does not consume that prerelease lock.
 The supported inspector path is the MSI that Sunshine documents as its preferred
 Windows package. The portable ZIP is recorded only as an integrity reference;
 Sunshine describes that package as a reduced-performance, unsupported lite
@@ -198,6 +275,11 @@ gameplay.
   or [`games/moonlight-embedded`](https://github.com/DragonFlyBSD/DPorts/tree/master/games/moonlight-embedded)
   from DPorts.
 
+The official Moonlight Flatpak is a Linux-only runtime. Do not use a Flatpak
+installation as a BSD client fallback: LeagueBridge rejects that selection on
+FreeBSD, OpenBSD, NetBSD, and DragonFly BSD, where a native signed Qt or
+Embedded package is required.
+
 The BSD package-source links and package names above were checked on 30 August
 2026. None of these entries is a completed LeagueBridge native runtime
 validation, so they are availability evidence—not support or gameplay claims.
@@ -208,6 +290,23 @@ Moonlight executable is present; it does not prove decoder, display, audio,
 input, latency, or League/Vanguard behavior. Package names and availability can
 change with the OS release, so use the package manager's signature and
 repository policy and do not pipe an unverified download into a shell.
+
+The client doctor can mirror a live stream's selected backend before any host
+operation starts. Use `--client moonlight-qt` or `--client flatpak` with
+`--qt-platform auto|xcb|wayland|eglfs|linuxfb`, or use
+`--client moonlight-embedded` with
+`--platform auto|x11|x11_vdpau|x11_vaapi|sdl`:
+
+```sh
+leaguebridge doctor --profile client --client moonlight-qt --qt-platform xcb
+leaguebridge doctor --profile client --client moonlight-embedded --platform sdl
+```
+
+The backend flags are mutually exclusive and require the matching client
+flavor; `--client auto` is narrowed to the matching flavor when one of these
+flags is present. The checks remain local endpoint indicators and do not prove
+Moonlight decoding, network quality, remote input acceptance, or League/Vanguard
+gameplay.
 
 LeagueBridge discovery uses `LookPath` only and never starts a candidate client.
 The executable path is normalized and checked as a regular executable, and the
@@ -221,12 +320,23 @@ hand-built or replayed JSON plans cannot substitute a launcher.
 `auto` treats a generic `moonlight` executable as Embedded on FreeBSD and
 DragonFly BSD, and as Qt elsewhere. Explicitly set `client` to
 `moonlight-embedded` (or its backwards-compatible `moonlight` alias) for
-Moonlight Embedded; the resolver accepts either the `moonlight-embedded`
-executable name or the generic `moonlight` name. Select `moonlight-qt` when a
-downstream Qt package uses the generic binary name. When only the trusted Flatpak launcher is
+Moonlight Embedded. Linux, OpenBSD, and NetBSD require the explicit
+`moonlight-embedded` executable for that selection; FreeBSD and DragonFly also
+accept the generic `moonlight` name because their package convention identifies
+it as Embedded. Use the legacy `moonlight` selection only when a trusted
+Embedded package deliberately installs its executable under that generic name.
+Select `moonlight-qt` when a downstream Qt package uses the generic binary name.
+When only the trusted Linux Flatpak launcher is
 available, set `client` to `flatpak`; LeagueBridge uses the fixed
 `flatpak run com.moonlight_stream.Moonlight` prefix and does not execute a
-shell.
+shell. The client preflight honors this selection rather than accepting any
+other installed Moonlight flavor: a Flatpak route requires both a
+PATH-resolvable `flatpak` launcher and the installed
+`com.moonlight_stream.Moonlight` app before pairing or listing can proceed.
+The real-environment resolver repeats the app-presence check before constructing
+an executable plan, so a launcher-only installation fails before handoff rather
+than after Flatpak starts. On BSD, discovery skips Flatpak entirely and reports
+the native package requirement instead.
 
 For a real Linux/BSD desktop, the repository includes a manual client-side
 smoke helper. It requires an already-created credential-free configuration and
@@ -240,10 +350,30 @@ sh scripts/linux-bsd-remote-smoke.sh \
 ```
 
 The fourth argument is optional. When supplied, the helper requires the
-physical host to advertise that exact application as well as the configured
-stream application; it must match the configured application. Even without
-the fourth argument, the helper always checks the configured application before
-recording a passing remote-list check.
+physical host to advertise that application as well as the configured stream
+application; it must match the configured application under the selected
+Moonlight client's name-matching rules. Even without the fourth argument, the
+helper always checks the configured application before recording a passing
+remote-list check.
+
+When the already-paired physical host is sleeping, pass its Wake-on-LAN MAC as
+the fifth argument and optionally a bounded wait in seconds as the sixth
+argument (15 by default, capped at 300). The optional seventh and eighth
+arguments select a directed/unicast IPv4 destination and UDP port; they default
+to `255.255.255.255` and `9`:
+
+```sh
+sh scripts/linux-bsd-remote-smoke.sh \
+  ./leaguebridge ./remote-evidence "$HOME/.config/leaguebridge/config.json" \
+  "League of Legends" 00:11:22:33:44:55 30
+```
+
+The helper sends one magic packet before `remote list`; it does not pair or
+start League. The MAC is used only for that invocation and is not written to
+the evidence directory. Use `""` as the fourth argument when wake support is
+needed without requiring an exact application-name check. Wake-on-LAN only
+wakes a physical host and does not establish Riot/Vanguard support. Include the
+wait argument before a custom destination or port.
 
 The helper requires the client preflight to pass, records the Linux/BSD client
 readiness and kernel identity, exercises `remote list` on the configured
@@ -254,8 +384,34 @@ validate a local Practice Tool session on the physical host. The helper writes
 prove Riot/Vanguard behavior, streamed input, latency, reconnects, or ordinary
 match play.
 
+The client doctor validates `DISPLAY` syntax and, when `WAYLAND_DISPLAY` can be
+resolved through a safe `XDG_RUNTIME_DIR`, checks that the Wayland endpoint is
+a Unix socket. A missing or stale Wayland socket blocks a live stream; X11
+abstract sockets and authentication still require runtime validation.
+
+For an explicit Embedded `--platform` selection, live preflight checks that
+backend's endpoint: X11/VDPAU and X11/VA-API require a valid `DISPLAY`, SDL
+honors `SDL_VIDEODRIVER`, and SDL KMS/DRM requires a real display device.
+NetBSD's unsupported SDL KMS/DRM combination is rejected before Moonlight
+starts, so a different available desktop session cannot mask a bad backend
+selection.
+
 Create a credential-free schema-v2 config for the intended host route, set the
 host, and confirm `physical_host_confirmed` only when it truly is physical.
+The default application is `League of Legends`; use `--app` or an exact custom
+application name only when that entry is published by the host.
+
+For an ad-hoc route switch, a Moonlight operation can be self-contained when
+the command line supplies `--route`, `--host`, `--client`, and
+`--confirm-physical-host`; a stream must also supply `--app`. In that case an
+unrelated default configuration is not consulted. A named `--config` always
+remains authoritative and its route must agree with `--route`:
+
+```sh
+leaguebridge remote stream --route macos --host gaming-mac.local \
+  --client moonlight-qt --app "League of Legends" \
+  --confirm-physical-host --acknowledge-unverified-handoff
+```
 
 ```sh
 # Choose one route. Record physicality only after checking the named machine.
@@ -267,6 +423,33 @@ leaguebridge config init --route windows --host gaming-pc.local --confirm-physic
 leaguebridge config example --route macos
 leaguebridge config init --route macos --host gaming-mac.local --confirm-physical-host
 ```
+
+The host field accepts DNS names, IPv4 literals, bare IPv6 literals, and
+Moonlight endpoint forms `HOST:PORT` for DNS/IPv4 or `[IPv6]:PORT` for an
+explicit non-default port. For example, use
+`leaguebridge config init --host gaming-pc.local:47989` or
+`leaguebridge config init --host '[2001:db8::10]:47989'`. Qt receives the
+endpoint directly; Embedded receives the bare address plus its documented
+separate `-port` argument. Quote bracketed endpoints in a POSIX shell. For a
+link-local interface zone, URL-escape the zone delimiter inside the brackets,
+for example `[fe80::10%25em0]:47989`; Embedded receives `fe80::10%em0`.
+
+For a first pairing where the host-side flow requires a known four-digit code,
+Moonlight Qt, Moonlight Embedded, and the official Qt-based Flatpak accept an
+invocation-only predefined PIN:
+
+```sh
+leaguebridge remote pair --client moonlight-qt --host gaming-pc.local --pin 0427 --confirm-physical-host
+```
+
+The PIN must be exactly four ASCII digits and is forwarded to the selected
+native client as `-pin`. It is never persisted or included in JSON dry-run
+output; `--pin` is rejected for dry runs. The current Embedded parser accepts
+the same action/options/host form even though the generated command reference
+does not list it; see the [current Embedded parser](https://raw.githubusercontent.com/moonlight-stream/moonlight-embedded/master/src/config.c).
+If omitted, the selected client uses its normal pairing flow. Treat the code
+as short-lived pairing material and do not place it in evidence or support
+records.
 
 For a stream, the controller exposes only bounded common Moonlight quality
 settings; arbitrary client flags are rejected at the execution boundary. For
@@ -302,15 +485,70 @@ its corresponding codec name. These spellings are based on [Moonlight Qt's
 current stream parser](https://raw.githubusercontent.com/moonlight-stream/moonlight-qt/master/app/cli/commandlineparser.cpp)
 and [Moonlight Embedded's command reference](https://github.com/moonlight-stream/moonlight-embedded/blob/master/docs/README.pod).
 
+`--audio-on-host` keeps stream audio on the physical host. Embedded receives
+its documented `-localaudio` flag, while Qt/Flatpak receives `-audio-on-host`.
+This is useful when the host should retain local sound; it does not change the
+client's own audio-device requirements.
+
+With `--client moonlight-embedded`, `--audio-device` selects a bounded ALSA
+output name such as `sysdefault` or `hw:0,0` and maps to Embedded's documented
+`-audio` option. `--input-device` selects a documented evdev path such as
+`/dev/input/event0` and maps to Embedded's `-input` option; repeat it to attach
+multiple controllers, up to eight devices. The paths are restricted to the
+`/dev/input/eventN` family. Both are stream-only, Embedded-only device
+selectors; leaving them unset preserves Moonlight's normal device discovery,
+and neither option injects events or grants device permissions. A live stream
+checks every explicit input path resolves to a character device and can be
+opened read-only by the current user, using a nonblocking open before
+Moonlight starts; dry runs only validate path shape. On Linux this commonly
+means granting the session access through the `input` group. BSD systems may
+require their normal devfs/device permission rules. `--input-mapping` selects
+an absolute local SDL gamecontroller database file and maps to Embedded's
+documented `-mapping` option. The file
+must already exist as a regular file on the Linux/BSD client, be no larger than
+8 MiB, and is checked by LeagueBridge before a live stream starts. It is opened
+by Moonlight; LeagueBridge does not execute, copy, or modify it. Dry runs only
+validate the path shape. Leave all selectors unset to keep Moonlight's default
+device discovery and mapping.
+
 `--preserve-host-settings` asks the chosen client not to apply its game/settings
 optimization path. It maps to Embedded's documented `-nosops` or Qt/Flatpak's
 `-no-game-optimization` option. This can keep the physical host's League display
 configuration stable, but it is only a client hint and is not gameplay evidence.
+The optional `--quit-after` control asks Moonlight to request that the host
+application stop when the streaming session ends. It maps to Embedded's
+`-quitappafter` and Qt/Flatpak's `-quit-after` forms. This is useful after a
+dropped session, but remains an opt-in cleanup hint and does not prove that the
+host accepted the request.
+When a transient network interruption makes Moonlight exit, the controller can
+make bounded recovery attempts with `--reconnect-attempts N` and
+`--reconnect-delay SECONDS`. `N` is the number of additional attempts and is
+limited to five; the delay is context-aware and limited to 0–60 seconds. The
+application-list guard runs before the first attempt and again before every
+retry. Every attempt reuses the same discovered executable and fixed host/app
+argument vector, and cancellation never retries. A retry may cause the
+physical host to launch the application again, so this is a recovery aid only;
+it does not preserve game state or prove that input, Riot/Vanguard behavior, or
+ordinary gameplay survived a disconnect.
 `--network-mode` accepts `auto`, `lan`, or `wan` and is supported only by
 Moonlight Embedded. LeagueBridge maps these values to Embedded's documented
 `-remote auto`, `-remote no`, and `-remote yes` forms. Use `lan` for a local
 network or `wan` across a routed path; this is a transport hint, not proof of
 latency, packet delivery, or League gameplay.
+The optional `--frame-pacing auto|on|off` and `--keep-awake` controls are
+supported only by Moonlight Qt/Flatpak. They map to Qt's `-frame-pacing`,
+`-no-frame-pacing`, and `-keep-awake` toggles; the latter prevents the Linux/BSD
+display from sleeping during a stream. These are session-stability hints, not
+evidence of frame delivery, input, or League gameplay.
+The optional `--vsync auto|on|off` control is also Qt/Flatpak-only and maps
+non-`auto` values to Qt's `-vsync` or `-no-vsync` toggle. It can reduce local
+display tearing, but the correct setting depends on the Linux/BSD compositor
+and display refresh rate; it does not prove remote frame delivery.
+The optional `--capture-system-keys auto|never|fullscreen|always` control is
+also Qt/Flatpak-only. Non-`auto` values map to Qt's documented
+`-capture-system-keys` mode. `always` can help deliver League modifier-key
+shortcuts, but it can capture local window-management shortcuts too; it is an
+input hint, not evidence that the physical host receives keyboard events.
 
 The optional `--decoder` control accepts `auto`, `software`, or `hardware` and
 is supported only by Moonlight Qt and the official Flatpak. It maps to Qt's
@@ -325,31 +563,75 @@ The optional `--display-mode` control accepts `fullscreen`, `windowed`, or
 default, but does not support `borderless`. The setting controls the local
 Moonlight window; it does not change the physical host's League window.
 
-Moonlight Embedded also accepts `--platform auto|x11|x11_vdpau|sdl`. LeagueBridge
-maps non-`auto` values to Embedded's documented `-platform` option, selecting
-the local audio, video, and input backend. `auto` keeps the package default;
-`sdl` can be useful when a Linux/BSD package provides SDL for the desktop
-backend. This remains a selection hint: LeagueBridge does not claim that the
-backend was compiled in or that it can decode video or deliver gameplay input.
+Qt and Flatpak also expose bounded controls for `--multi-controller`,
+`--background-gamepad`, `--mouse-buttons-swap`, `--touchscreen-trackpad`,
+`--reverse-scroll-direction`, `--swap-gamepad-buttons`,
+`--mute-on-focus-loss`, `--performance-overlay`, `--hdr`, and `--yuv444`.
+They map to Moonlight Qt's documented toggles for multiple controllers,
+background gamepad delivery, common mouse/controller mappings, diagnostics,
+and optional display formats. Embedded instead exposes
+`--disable-gamepad-mouse-emulation`, mapped to `-nomouseemulation`, to stop a
+gamepad from unexpectedly emulating a local mouse. These are client controls,
+not injected input or an anti-cheat workaround; unsupported flavor combinations
+are rejected before execution.
+
+Moonlight Embedded also accepts
+`--platform auto|x11|x11_vdpau|x11_vaapi|sdl`. LeagueBridge maps non-`auto`
+values to Embedded's documented `-platform` option, selecting the local audio,
+video, and input backend. `auto` keeps the package default; `x11_vaapi` can
+select Embedded's current X11/VA-API backend when the installed package was
+built with VA-API support, and `sdl` can be useful when a Linux/BSD package
+provides SDL for the desktop backend. This remains a selection hint:
+LeagueBridge does not claim that the backend was compiled in or that it can
+decode video or deliver gameplay input.
 Qt and Flatpak reject this Embedded-only option rather than silently ignoring
 it.
 
 The example above intentionally uses only options shared by Qt and Embedded,
 so it works with the default flavor on every supported Linux/BSD target. Add
-`--client moonlight-embedded` (or the `moonlight` alias on BSD) before using
-`--platform`; add `--client moonlight-qt` or `--client flatpak` before using
-the Qt-only `--decoder`, `--display-mode borderless`, or mouse-mode controls.
-Clients reject unsupported controls rather than silently ignoring them.
+`--platform` automatically narrows `--client auto` to Moonlight Embedded, and
+`--qt-platform` automatically narrows it to Moonlight Qt. The same narrowing
+applies to options that belong to only one flavor: Embedded-only controls
+select Embedded, while Qt/Flatpak-only controls select Qt. `--hdr` is supported
+by both current native surfaces and does not force a client flavor. Mixed
+backend-specific options are rejected before discovery. Explicitly selecting
+an incompatible client is also rejected, and the two backend selectors cannot
+be combined. You may explicitly add `--client moonlight-embedded` (or the
+`moonlight` alias on BSD) before using `--platform`, or select
+`--client moonlight-qt`/`--client flatpak` to force the Qt route. Clients reject
+unsupported controls rather than silently ignoring them.
+
+For a live stream with `--client auto`, if the preferred local native Moonlight
+choice fails the display/input preflight, LeagueBridge retries the other
+installed native choices in its fixed order: Qt, Embedded, generic Moonlight,
+then the official Flatpak on Linux. Flatpak is never considered on BSD. A
+candidate is selected only after it passes local preflight and passive
+discovery. This recovery stays within native Moonlight clients; it never falls
+through to Wine, Proton, a VM, or another compatibility-layer route. Dry-run
+remains a plan check and does not probe alternate live endpoints. The fallback
+improves client selection but does not prove decoder behavior, remote input, or
+League/Vanguard gameplay.
 
 Moonlight Qt also exposes `--absolute-mouse` and `--no-absolute-mouse` for its
-remote-desktop optimized mouse mode. LeagueBridge exposes these as the bounded
-`remote stream --absolute-mouse` and `remote stream --no-absolute-mouse`
-controls for Qt and Flatpak clients; Embedded clients reject them because that
-client does not document the same options. Try the mode that matches the
-physical host and desktop, but treat it only as an input-mode choice: it does
-not fix Riot/Vanguard compatibility or turn a remote handoff into local
+remote-desktop optimized mouse mode. LeagueBridge explicitly selects relative
+pointer capture (`-no-absolute-mouse`) for Qt and Flatpak stream plans by
+default, because that is the mode required for the documented physical-host
+Raw Input experiment. `remote stream --absolute-mouse` opts into absolute mode,
+while `remote stream --no-absolute-mouse` makes the default explicit. Embedded
+clients reject both Qt-only controls. Treat this only as an input-mode choice:
+it does not fix Riot/Vanguard compatibility or turn a remote handoff into local
 Linux/BSD support. The option names are based on [Moonlight Qt's current
 stream parser](https://raw.githubusercontent.com/moonlight-stream/moonlight-qt/master/app/cli/commandlineparser.cpp).
+
+`--hdr` is the exception to the client-specific control split: current
+Moonlight Embedded accepts `-hdr`, and Qt/Flatpak accept Qt's `-hdr`. The
+request selects the stream format only; actual HDR output still depends on the
+host codec, client decoder, display, and graphics driver. LeagueBridge does not
+claim that HDR or any other stream option proves League/Vanguard gameplay. Do
+not combine `--hdr` with `--codec h264`; LeagueBridge rejects that combination
+because HDR requires a 10-bit HEVC or AV1-capable negotiation. Leave the codec
+on `auto` or choose `hevc`/`av1` only when the host and Linux/BSD display stack
+support it.
 
 Known limitation: Riot's [open Moonlight/Sunshine mouse issue](https://github.com/RiotVanguard/Vanguard/issues/70)
 still reports cursor-control failure after League starts. The Qt toggle cannot
@@ -357,6 +639,138 @@ repair Vanguard's host-side input filtering. If the physical host does not
 accept input, stop the session or use input physically attached to that host;
 do not use USB/IP, injected input, kernel interception, or another claimed
 anti-cheat bypass.
+
+If Linux/BSD must remain the active client while the physical host supplies the
+League display and input, the separately managed hardware-KVM candidate is
+described in [`HARDWARE_KVM.md`](HARDWARE_KVM.md). It requires HDMI capture and
+USB HID hardware attached to the physical host, remains unvalidated, and is not
+an authorized gameplay backend; the manifest records it as a deny/handoff-only
+candidate until device-specific evidence exists.
+
+LeagueBridge can open the KVM's web UI through an allowlisted desktop URL
+opener or direct browser. This is a convenience launcher, not a KVM protocol
+implementation:
+
+```sh
+leaguebridge remote kvm --url https://kvm.lan/ \
+  --confirm-physical-host --acknowledge-unverified-handoff
+```
+
+For a KVM attached to a physical Mac, select the Mac handoff contract:
+
+```sh
+leaguebridge remote kvm --route macos --url https://kvm.lan/ \
+  --confirm-physical-host --acknowledge-unverified-handoff
+```
+
+The endpoint can instead be stored without credentials in the normal
+configuration:
+
+```sh
+leaguebridge config init --host gaming-pc.local \
+  --kvm-url https://kvm.lan/ --confirm-physical-host
+leaguebridge remote kvm --config ~/.config/leaguebridge/config.json \
+  --acknowledge-unverified-handoff
+```
+
+`remote kvm --config` may reuse the stored endpoint and physical-host
+confirmation, but the unverified-handoff acknowledgement is never persisted
+and must be supplied for each operation. A direct `--url` or
+`--confirm-physical-host=false` overrides the corresponding configured value.
+The KVM route defaults to the configuration's `route_id`, then Windows. An
+explicit `--route windows|macos` must agree with a supplied configuration and
+selects which fresh physical-host handoff contract is checked.
+
+### Optional Wake-on-LAN bootstrap
+
+When the physical host's firmware, NIC, and LAN support Wake-on-LAN, the
+Linux/BSD client can wake it before the normal Moonlight handoff:
+
+```sh
+leaguebridge remote wake --config ~/.config/leaguebridge/config.json \
+  --mac 00:11:22:33:44:55 \
+  --confirm-physical-host --acknowledge-unverified-handoff
+leaguebridge remote pair
+leaguebridge remote stream --acknowledge-unverified-handoff
+```
+
+The two steps can be combined when the host is already paired. `remote stream`
+will send the packet once, wait for the bounded `--wake-wait` interval, and only
+then run its normal host-application preflight. If the physical host or
+Sunshine is still starting, the preflight can make up to three additional list
+attempts by default, waiting five seconds between attempts:
+
+```sh
+leaguebridge remote stream --acknowledge-unverified-handoff \
+  --wake-mac 00:11:22:33:44:55 --wake-wait 30
+```
+
+Tune that bounded startup recovery with `--wake-retries 0-5` and
+`--wake-retry-delay 0-60`. The retry window applies to `remote list` and the
+initial application-list preflight for `remote stream`; it retries only a
+failed Moonlight list operation. A successful listing that does not advertise
+the requested application fails closed without another attempt, and pairing
+remains one normal Moonlight operation after the wake wait:
+
+```sh
+leaguebridge remote stream --acknowledge-unverified-handoff \
+  --wake-mac 00:11:22:33:44:55 --wake-wait 15 \
+  --wake-retries 5 --wake-retry-delay 10
+```
+
+For an initial Moonlight pairing after the physical host has powered off, use
+the same opt-in bootstrap with `remote pair`:
+
+```sh
+leaguebridge remote pair --acknowledge-unverified-handoff \
+  --wake-mac 00:11:22:33:44:55 --wake-wait 30
+```
+
+The packet is sent once and the normal pairing operation starts only after the
+bounded wait. Physical-host confirmation still comes from the route
+configuration or `--confirm-physical-host`; the unverified-handoff
+acknowledgement is required for this combined operation. The MAC is
+invocation-only. `--dry-run --json` includes both normalized plans without
+network or Moonlight I/O.
+
+The same flags can be used with `remote list` to wake the physical host before
+checking its published applications:
+
+```sh
+leaguebridge remote list --acknowledge-unverified-handoff \
+  --wake-mac 00:11:22:33:44:55 --wake-wait 30
+```
+
+Use `--wake-broadcast` and `--wake-port` with `--wake-mac` when the local
+network needs a directed broadcast, unicast destination, or non-default UDP
+port. The wait defaults to 15 seconds and is limited to 300 seconds. It is
+performed only before the first host preflight; stream reconnect attempts do
+not repeatedly wake the machine. The default three additional list attempts
+and five-second retry delay are independently bounded; set
+`--wake-retries 0` to disable startup list recovery. `--dry-run --json`
+includes the normalized Wake-on-LAN and retry plans and never sends a packet.
+
+The command sends one standard 102-byte magic packet to the default IPv4
+limited broadcast `255.255.255.255:9`. Use `--broadcast` for a directed
+broadcast or unicast destination and `--port` for a different UDP port. The
+MAC is invocation-only; LeagueBridge does not store credentials or host wake
+secrets. `--dry-run --json` validates the normalized MAC, destination, port,
+and handoff contract without sending a packet.
+
+Wake-on-LAN only powers or wakes the physical host. It does not start League,
+authenticate to Riot, inspect Vanguard, establish gameplay evidence, or make
+a Windows VM acceptable. Wait for the physical host to boot, then use the
+normal pair/list/stream or hardware-KVM procedure.
+
+The endpoint must be a clean HTTPS URL with no embedded credentials, query
+parameters, or fragments. `--allow-http` is required for an unencrypted HTTP
+bootstrap and should be limited to a trusted LAN. `--browser auto` selects the
+first available `xdg-open`, `gio`, `sensible-browser`, or allowlisted direct
+browser; an explicit launcher such as `--browser firefox` can be selected when
+needed. `--dry-run --json` prints the fixed argument vector without opening
+anything. LeagueBridge does not authenticate to or validate the KVM device,
+and this command does not change the hardware-KVM
+candidate's unvalidated status or readiness score.
 
 [Configuration schema v2](../schemas/config.schema.json) stores one exact
 `route_id` and one `remote_host`; it has no parallel Windows/macOS target
@@ -366,10 +780,45 @@ security authority for duplicate keys, byte limits, host syntax, and safe file
 handling.
 
 ```sh
+leaguebridge remote map --client moonlight-embedded --input-device /dev/input/event4
 leaguebridge remote pair
 leaguebridge remote list
 leaguebridge remote stream --acknowledge-unverified-handoff
 ```
+
+`remote map` is a local Linux/BSD controller-setup action for Moonlight
+Embedded. It forwards the documented `map -input /dev/input/eventN` form, so
+Moonlight reads one local evdev device and prints an SDL mapping; it does not
+pair, contact, or start League on the physical host. Save the printed mapping
+as a user-owned SDL gamecontroller database file and pass its absolute path to
+`remote stream --input-mapping` later. The live action requires the selected
+path to resolve to a character device; `--dry-run --json` is available for
+inspecting the fixed argv without opening the device. Qt and Flatpak do not
+expose this Embedded action, and no input injection, permissions change, or
+anti-cheat workaround is performed.
+
+If an Embedded client has a stale local pairing, remove that host record and
+pair again:
+
+```sh
+leaguebridge remote unpair --client moonlight-embedded
+leaguebridge remote pair --client moonlight-embedded
+```
+
+`remote unpair` forwards Embedded's documented `unpair HOST` operation. It is
+not available through Moonlight Qt or the official Flatpak, and it does not
+modify the physical host or uninstall any software.
+
+If a previous host application is left running after a dropped session, use
+the bounded recovery operation:
+
+```sh
+leaguebridge remote quit
+```
+
+This forwards Moonlight's `quit HOST` operation to the already-paired physical
+host. It does not kill a local Linux/BSD process, handle credentials, or alter
+Riot/Vanguard state.
 
 To verify the host has published the exact application before starting a
 stream, add the bounded expectation to the live list operation:
@@ -379,8 +828,10 @@ leaguebridge remote list --require-app "League of Legends"
 ```
 
 The listing is still forwarded to the terminal; the check only looks for the
-validated application name in Moonlight's text response. It is a configuration
-guard, not proof that League or Vanguard will accept streamed input.
+validated application name in Moonlight's text response. Qt treats application
+names case-insensitively, matching its CLI launch behavior, while Embedded
+keeps its exact-name lookup. It is a configuration guard, not proof that League
+or Vanguard will accept streamed input.
 
 To bind the check directly to the application that the current configuration
 will launch, use:
@@ -407,15 +858,32 @@ stream check. The check is live and cannot be used with `--dry-run`. This
 remains a physical-host handoff and does not validate streamed input, latency,
 or Riot/Vanguard gameplay behavior.
 
-`remote pair` and `remote list` are finite control-plane operations and have a
-60-second execution deadline. `remote stream --dry-run` uses only those
+`remote pair`, `remote unpair`, `remote list`, and `remote quit` are finite control-plane
+operations and have a 60-second execution deadline. `remote map` remains attached
+to the caller because Moonlight may wait for controller input. `remote stream --dry-run` uses only those
 control-plane prerequisites, so its fixed argv can be inspected from a
 headless SSH session without contacting the host or starting Moonlight. A live
 `remote stream` additionally requires an X11 or Wayland endpoint, or an
 explicitly selected direct SDL/Qt backend with its device node, plus an
 input-path indicator. For direct SDL KMS/DRM use, set
 `SDL_VIDEODRIVER=kmsdrm`; for a Qt direct-display setup, set the appropriate
-`QT_QPA_PLATFORM` value such as `eglfs` or `linuxfb`. A headless live stream is
+`QT_QPA_PLATFORM` value such as `eglfs` or `linuxfb`, or pass
+`--qt-platform auto|xcb|wayland|eglfs|linuxfb` to select the bounded value
+and apply it only to the Moonlight child. For the official Flatpak, a concrete
+value is placed before the app ID as
+`flatpak run --env=QT_QPA_PLATFORM=VALUE com.moonlight_stream.Moonlight ...`,
+so the sandbox receives the explicit selector rather than relying only on
+inherited environment state. `auto` preserves the inherited environment, but
+when Qt is selected the client preflight also inspects `QT_QPA_PLATFORM` so a
+known headless or unsupported ambient backend cannot pass the live-stream
+gate. The other values likewise select the matching desktop endpoint and
+prevent a stale alternate display variable from winning.
+Embedded's SDL backend discovers controllers and owns its audio path, so
+`--platform sdl` cannot be combined with `--input-device` (including repeated
+uses) or `--audio-device`; choose an X11/VA-API/VDPAU backend when a specific
+device must be selected. LeagueBridge rejects those combinations before
+Moonlight starts.
+A headless live stream is
 intentionally blocked. These checks are only local endpoint indicators and do
 not prove input delivery or gameplay. The stream keeps the caller's lifetime
 and ends when Moonlight exits or the caller sends its normal interrupt/cancel
@@ -429,8 +897,10 @@ video endpoint is normally `/dev/drm*`; other supported KMSDRM targets commonly
 expose `/dev/dri/card*`. On OpenBSD, SDL's WSCONS input backend uses
 `/dev/wskbd*` and `/dev/wsmouse`, and LeagueBridge recognizes those devices for
 direct SDL preflight when the session can access them. FreeBSD and DragonFly
-use their SDL evdev input path, so the preflight looks for `/dev/input/event*`
-there.
+use their SDL evdev input path, so the preflight checks character devices under
+`/dev/input/event*` there and, on a real system, performs a read-only
+nonblocking open to verify session access. Regular files and directories at
+those paths or at the DRM/framebuffer paths are rejected.
 See [SDL's KMSDRM/*BSD notes](https://github.com/libsdl-org/SDL/blob/main/docs/README-kmsbsd.md).
 
 Stop immediately if Riot Client, Vanguard (on Windows), or other Riot software

@@ -21,8 +21,11 @@ fi
 
 version=$1
 archive=$2
+# Keep the shell guard to the required prefix only. The repository's Go
+# semantic-version checker below is authoritative; duplicating SemVer grammar
+# in a shell glob can reject valid prerelease forms before that checker runs.
 case "$version" in
-  v[0-9]*.[0-9]*.[0-9]*) ;;
+  v*) ;;
   *) fail "VERSION must be a v-prefixed semantic version" ;;
 esac
 if [[ "$archive" == /* || "$archive" == *$'\n'* || "$archive" == *$'\r'* ]]; then

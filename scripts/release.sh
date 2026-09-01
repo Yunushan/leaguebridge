@@ -24,6 +24,7 @@ export GOVCS='*:off'
 export GOPRIVATE=
 export CGO_ENABLED=0
 export GOAMD64=v1
+export GOARM64=v8.0
 unset GODEBUG
 umask 022
 
@@ -202,9 +203,13 @@ release_staging_dir="$(mktemp -d "$repository_root/.dist-staging.XXXXXX")"
 
 targets=(
   linux/amd64
+  linux/arm64
   freebsd/amd64
+  freebsd/arm64
   openbsd/amd64
+  openbsd/arm64
   netbsd/amd64
+  netbsd/arm64
   dragonfly/amd64
 )
 
@@ -217,7 +222,11 @@ for target in "${targets[@]}"; do
   binary_name=leaguebridge
   binary="$pack_stage/$binary_name"
 
-  target_tuning=goamd64=v1
+  if [[ "$goarch" == "amd64" ]]; then
+    target_tuning=goamd64=v1
+  else
+    target_tuning=goarm64=v8.0
+  fi
   release_identity="leaguebridge-release:$VERSION:$goos:$goarch"
   release_contract="leaguebridge-release-contract-v4|$VERSION|$goos|$goarch|$SOURCE_DATE_EPOCH|$commit|$tree|$builder_go_version|$target_tuning|filippo.io/edwards25519@v1.2.0#h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo="
   contract_hash="$(printf '%s' "$release_contract" | sha256sum)"
@@ -307,4 +316,4 @@ if [[ -n "$release_backup_parent" && -e "$release_backup_parent" && ! -L "$relea
   release_backup_parent=""
 fi
 
-printf '%s\n' "created and verified five Linux/BSD release archives for $VERSION from commit $commit tree $tree"
+printf '%s\n' "created and verified nine Linux/BSD release archives for $VERSION from commit $commit tree $tree"

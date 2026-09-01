@@ -30,7 +30,7 @@ promote a scorecard row by itself.
 Non-PR CI runs also execute this verifier in the `Verify signed CI attestations`
 job after the test and cross-build matrices complete. That job downloads the
 retained subjects and binaries, arranges the exact one-run set, and verifies
-the Linux race/vet subject and all five Linux/BSD cross-build targets with the same
+the Linux race/vet subject and all nine Linux/BSD cross-build targets with the same
 repository, commit, tree, ref, exact workflow revision, exact run ID and
 attempt, certificate, and post-verification digest checks described above.
 
@@ -38,8 +38,9 @@ The workflow also emits `leaguebridge.native-runtime-attestation.v2` subjects
 for the native Linux/BSD runtime jobs. `tools/nativeattestation` inventories
 the exact runtime executable and every smoke/install evidence file, records
 their size and SHA-256, and keeps the document score-free. The Linux amd64 job
-is a hosted runner; the four BSD jobs run in explicitly `virtualized` BSD
-guests on a hosted runner. The native verifier requires the
+is a hosted runner; seven BSD target jobs run in explicitly `virtualized` BSD
+guests on a hosted runner: amd64 and arm64 for FreeBSD, OpenBSD, and NetBSD,
+plus amd64 for DragonFly BSD. The native verifier requires the
 complete target set, the exact commit/tree/workflow revision/run identity, and
 the same GitHub artifact-attestation check for each JSON subject and listed
 runtime file. A virtualized BSD result is not physical-BSD evidence and none
@@ -72,7 +73,7 @@ attestation before the native-package or install-smoke rows can receive
 credit.
 
 Release publication uses the same executable verifier in `-kind release` mode.
-It derives exactly six subjects from the v-prefixed release version: the five
+It derives exactly ten subjects from the v-prefixed release version: the nine
 Linux/BSD target archives and `checksums.txt`. It rejects extra or missing files,
 recomputes every archive digest, checks the canonical binary-mode checksum
 manifest, and verifies each subject's GitHub/Sigstore certificate against the
@@ -115,7 +116,7 @@ go run -mod=vendor ./tools/ciattestation \
   -verify-subject ci-attestation/race-vet-linux.json
 ```
 
-The cross-build invocation takes the five `ci-attestation/cross-build-*.json`
+The cross-build invocation takes the nine `ci-attestation/cross-build-*.json`
 subjects from one workflow run. It also verifies the binary named inside every
 subject, so the JSON cannot be detached from the artifact it describes. The
 command contacts GitHub through the locally installed `gh` executable; it
