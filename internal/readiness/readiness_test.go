@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var readinessTestNow = time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
+var readinessTestNow = time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
 
 func validTestScorecard(t *testing.T) Scorecard {
 	t.Helper()
@@ -252,9 +252,9 @@ func TestValidityAndParserBoundsFailClosed(t *testing.T) {
 			document["assessed_at"] = readinessTestNow.Add(MaximumFutureSkew + time.Second).Format(time.RFC3339)
 			document["expires_at"] = readinessTestNow.Add(24 * time.Hour).Format(time.RFC3339)
 		}), now: readinessTestNow},
-		{name: "expired", data: embedded, now: time.Date(2026, time.September, 29, 0, 0, 1, 0, time.UTC)},
+		{name: "expired", data: embedded, now: time.Date(2026, time.October, 3, 0, 0, 1, 0, time.UTC)},
 		{name: "validity over maximum", data: mutateEmbeddedDocument(t, func(document map[string]any) {
-			document["expires_at"] = time.Date(2026, time.September, 29, 0, 0, 1, 0, time.UTC).Format(time.RFC3339Nano)
+			document["expires_at"] = time.Date(2026, time.October, 4, 0, 0, 1, 0, time.UTC).Format(time.RFC3339Nano)
 		}), now: readinessTestNow},
 		{name: "zero validity", data: mutateEmbeddedDocument(t, func(document map[string]any) {
 			document["expires_at"] = document["assessed_at"]
