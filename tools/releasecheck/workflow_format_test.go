@@ -268,14 +268,14 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 		"native-package-evidence/",
 		"scripts/native-package-linux-smoke.sh",
 		"scripts/native-package-bsd-smoke.sh",
-		"Build guest version validator for ${{ matrix.goos }}/amd64",
-		"-o \"bsd-ci/versioncheck-${{ matrix.goos }}-amd64\"",
-		"bsd-ci/versioncheck-${{ matrix.goos }}-amd64\"",
+		"Build guest version validator for ${{ matrix.goos }}/${{ matrix.goarch }}",
+		"-o \"bsd-ci/versioncheck-${{ matrix.goos }}-${{ matrix.goarch }}\"",
+		"bsd-ci/versioncheck-${{ matrix.goos }}-${{ matrix.goarch }}\"",
 		"apt-get install --yes --no-install-recommends rpm",
-		"native-package-bsd-${{ matrix.goos }}",
+		"native-package-bsd-${{ matrix.goos }}-${{ matrix.goarch }}",
 		"native-package-evidence/debian/install.txt",
 		"native-package-evidence/rpm/install.txt",
-		"native-package-evidence/${{ matrix.family }}/install.txt",
+		"native-package-evidence/${{ matrix.family }}/${{ matrix.goarch }}/install.txt",
 		"verify-native-package-attestations:",
 		"needs: [bsd-runtime, dragonfly-runtime]",
 	} {
@@ -286,7 +286,7 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 	if count := strings.Count(workflow, "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"); count != 7 {
 		t.Fatalf("ci.yml has %d attestation action references; want Linux/BSD race/vet, cross-build, runtime, and package references including DragonFly", count)
 	}
-	if count := strings.Count(workflow, "-verify-subject native-package-evidence/"); count != 6 {
+	if count := strings.Count(workflow, "-verify-subject native-package-evidence/"); count != 9 {
 		t.Fatalf("ci.yml verifies %d native package subjects; want the complete Linux/BSD package set", count)
 	}
 }
@@ -336,7 +336,7 @@ func TestCIWorkflowKeepsSmokeArgumentsAndVMHelperGuardsIntact(t *testing.T) {
 	workflow := string(data)
 	for _, required := range []string{
 		"run: |\n          set -euo pipefail\n          bash scripts/native-package-linux-smoke.sh \\\n            v0.0.0-ci \\\n            dist/leaguebridge_0.0.0-ci_linux_amd64.tar.gz",
-		"run: |\n          set -eu\n          sh scripts/native-package-bsd-smoke.sh \\\n            v0.0.0-ci \"${{ matrix.goos }}\" \"${{ matrix.family }}\" \\\n            \"bsd-ci/versioncheck-${{ matrix.goos }}-amd64\"",
+		"run: |\n          set -eu\n          sh scripts/native-package-bsd-smoke.sh \\\n            v0.0.0-ci \"${{ matrix.goos }}\" \"${{ matrix.family }}\" \\\n            \"bsd-ci/versioncheck-${{ matrix.goos }}-${{ matrix.goarch }}\"",
 		"run: |\n          set -eu\n          sh scripts/native-package-bsd-smoke.sh \\\n            v0.0.0-ci dragonfly dports \\\n            bsd-ci/versioncheck-dragonfly-amd64",
 		"cp ci-attestation-input/ci-attestation-race-vet-ubuntu-24.04/race-vet.json",
 		"id: cpa-ready",
@@ -394,8 +394,8 @@ func TestCINativePackageFilenamesMatchSmokeScripts(t *testing.T) {
 	bsdScript := string(bsdData)
 	for _, required := range []string{
 		`package_name="leaguebridge-$package_version"`,
-		`package="$package_dir/$package_name-$expected_goos.pkg"`,
-		`package="$package_dir/$package_name-$expected_goos.tgz"`,
+		`package="$package_dir/$package_name-$expected_goos-$expected_goarch.pkg"`,
+		`package="$package_dir/$package_name-$expected_goos-$expected_goarch.tgz"`,
 	} {
 		if !strings.Contains(bsdScript, required) {
 			t.Errorf("BSD package smoke script is missing filename contract fragment %q", required)
@@ -406,10 +406,13 @@ func TestCINativePackageFilenamesMatchSmokeScripts(t *testing.T) {
 	for _, required := range []string{
 		"native-package-output/debian/leaguebridge_0.0.0~ci_amd64.deb",
 		"native-package-output/rpm/leaguebridge-0.0.0-1.ci.x86_64.rpm",
-		"package_file: leaguebridge-0.0.0-ci-freebsd.pkg",
-		"package_file: leaguebridge-0.0.0-ci-openbsd.tgz",
-		"package_file: leaguebridge-0.0.0-ci-netbsd.tgz",
-		"native-package-output/dports/leaguebridge-0.0.0-ci-dragonfly.pkg",
+		"package_file: leaguebridge-0.0.0-ci-freebsd-amd64.pkg",
+		"package_file: leaguebridge-0.0.0-ci-freebsd-arm64.pkg",
+		"package_file: leaguebridge-0.0.0-ci-openbsd-amd64.tgz",
+		"package_file: leaguebridge-0.0.0-ci-openbsd-arm64.tgz",
+		"package_file: leaguebridge-0.0.0-ci-netbsd-amd64.tgz",
+		"package_file: leaguebridge-0.0.0-ci-netbsd-arm64.tgz",
+		"native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("ci.yml is missing native package filename %q", required)
@@ -494,10 +497,13 @@ func TestCIWorkflowVerifiesCompleteAttestationSets(t *testing.T) {
 		"ci-attestation/cross-build-dragonfly-amd64.json",
 		"native-package-evidence/debian/native-package.json",
 		"native-package-evidence/rpm/native-package.json",
-		"native-package-evidence/freebsd-pkg/native-package.json",
-		"native-package-evidence/openbsd-pkg/native-package.json",
-		"native-package-evidence/pkgsrc/native-package.json",
-		"native-package-evidence/dports/native-package.json",
+		"native-package-evidence/freebsd-pkg/amd64/native-package.json",
+		"native-package-evidence/freebsd-pkg/arm64/native-package.json",
+		"native-package-evidence/openbsd-pkg/amd64/native-package.json",
+		"native-package-evidence/openbsd-pkg/arm64/native-package.json",
+		"native-package-evidence/pkgsrc/amd64/native-package.json",
+		"native-package-evidence/pkgsrc/arm64/native-package.json",
+		"native-package-evidence/dports/amd64/native-package.json",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("ci.yml is missing complete-attestation verification fragment %q", required)

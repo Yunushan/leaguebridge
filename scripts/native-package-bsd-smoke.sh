@@ -40,9 +40,30 @@ case "$(uname -s):$expected_goos" in
   FreeBSD:freebsd|OpenBSD:openbsd|NetBSD:netbsd|DragonFly:dragonfly) ;;
   *) fail "package smoke is running on the wrong BSD kernel" ;;
 esac
-case "$(uname -m)" in
-  amd64|x86_64) ;;
-  *) fail "package smoke requires an amd64 guest" ;;
+runtime_machine=$(uname -m)
+case "$runtime_machine" in
+  amd64|x86_64) expected_goarch=amd64 ;;
+  aarch64|arm64) expected_goarch=arm64 ;;
+  *)
+    runtime_machine_arch=
+    if command -v sysctl >/dev/null 2>&1; then
+      runtime_machine_arch=$(sysctl -n hw.machine_arch 2>/dev/null || :)
+    fi
+    if [ -z "$runtime_machine_arch" ] || [ "$runtime_machine_arch" = "$runtime_machine" ]; then
+      runtime_machine_arch=$(uname -p 2>/dev/null || :)
+    fi
+    case "$runtime_machine_arch" in
+      amd64|x86_64) expected_goarch=amd64 ;;
+      aarch64|arm64) expected_goarch=arm64 ;;
+      *) fail "machine architecture is not amd64 or arm64: uname -m=$runtime_machine uname -p=$runtime_machine_arch" ;;
+    esac
+    ;;
+esac
+case "$expected_goos:$expected_goarch" in
+  freebsd:amd64|openbsd:amd64|netbsd:amd64|dragonfly:amd64) package_architecture=amd64 ;;
+  freebsd:arm64|netbsd:arm64) package_architecture=aarch64 ;;
+  openbsd:arm64) package_architecture=arm64 ;;
+  *) fail "native package smoke does not support $expected_goos/$expected_goarch" ;;
 esac
 if [ -n "$version_checker" ]; then
   if [ -L "$version_checker" ] || [ ! -f "$version_checker" ]; then
@@ -62,9 +83,12 @@ fi
 package_version=${version#v}
 package_name="leaguebridge-$package_version"
 installed_package_name=$package_name
-staging="native-package-staging/$family"
-package_dir="native-package-output/$family"
-evidence_dir="native-package-evidence/$family"
+staging_parent="native-package-staging/$family"
+package_parent="native-package-output/$family"
+evidence_parent="native-package-evidence/$family"
+staging="$staging_parent/$expected_goarch"
+package_dir="$package_parent/$expected_goarch"
+evidence_dir="$evidence_parent/$expected_goarch"
 
 ensure_directory() {
   directory=$1
@@ -80,18 +104,23 @@ ensure_directory() {
 ensure_directory native-package-staging
 ensure_directory native-package-output
 ensure_directory native-package-evidence
+ensure_directory "$package_parent"
+ensure_directory "$evidence_parent"
 ensure_directory "$package_dir"
 ensure_directory "$evidence_dir"
+if [ -L "$staging_parent" ] || [ ! -d "$staging_parent" ]; then
+  fail "staging directory is not a real directory: $staging_parent"
+fi
 if [ -L "$staging" ] || [ ! -d "$staging" ]; then
   fail "staging directory is not a real directory: $staging"
 fi
 
 case "$expected_goos" in
   freebsd|dragonfly)
-    package="$package_dir/$package_name-$expected_goos.pkg"
+    package="$package_dir/$package_name-$expected_goos-$expected_goarch.pkg"
     ;;
   openbsd|netbsd)
-    package="$package_dir/$package_name-$expected_goos.tgz"
+    package="$package_dir/$package_name-$expected_goos-$expected_goarch.tgz"
     ;;
 esac
 evidence="$evidence_dir/install.txt"
@@ -234,7 +263,7 @@ case "$expected_goos" in
     # OpenBSD derives the installed package name from the output filename when
     # the packing list does not contain @name. Keep the name used by pkg_info
     # and pkg_delete bound to that derived identity.
-    installed_package_name="$package_name-$expected_goos"
+    installed_package_name="$package_name-$expected_goos-$expected_goarch"
     ;;
 esac
 
@@ -297,7 +326,7 @@ case "$expected_goos" in
     packlist="$temporary_root/packing-list"
     description="$temporary_root/description"
     printf '%s\n' \
-      '@arch amd64' \
+      "@arch $package_architecture" \
       '@cwd /usr/local' \
       '@mode 0755' \
       'bin/leaguebridge' \
@@ -309,7 +338,7 @@ case "$expected_goos" in
       'share/doc/leaguebridge/SBOM.spdx.json' \
       'share/doc/leaguebridge/PACKAGE-MANIFEST.json' > "$packlist"
     printf '%s\n' 'A bounded, read-only compatibility and remote handoff controller.' > "$description"
-    pkg_create -A amd64 -B "$staging/root" -p /usr/local \
+    pkg_create -A "$package_architecture" -B "$staging/root" -p /usr/local \
       -f "$packlist" -d "$description" \
       -D COMMENT='LeagueBridge remote handoff controller' \
       -D FULLPKGPATH=sysutils/leaguebridge "$package"
@@ -388,7 +417,7 @@ case "$expected_goos" in
       echo "package=$family"
       echo "version=$version"
       echo "filename=$(basename "$package")"
-      echo "target=$expected_goos/amd64"
+      echo "target=$expected_goos/$expected_goarch"
       uname -a
       "$pkg_command" -v
       "$pkg_command" info -e "$package_name" || :
@@ -413,7 +442,7 @@ case "$expected_goos" in
       echo "package=$family"
       echo "version=$version"
       echo "filename=$(basename "$package")"
-      echo "target=$expected_goos/amd64"
+      echo "target=$expected_goos/$expected_goarch"
       uname -a
       pkg_add -V
       package_installed=1
@@ -438,7 +467,7 @@ case "$expected_goos" in
       echo "package=$family"
       echo "version=$version"
       echo "filename=$(basename "$package")"
-      echo "target=$expected_goos/amd64"
+      echo "target=$expected_goos/$expected_goarch"
       uname -a
       pkg_add -V
       package_installed=1

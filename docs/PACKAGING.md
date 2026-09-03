@@ -43,15 +43,20 @@ containing:
 - `NATIVE-PACKAGE-MANIFEST.json`, a content-addressed staging inventory; and
 - no portable installer or uninstaller scripts.
 
-The supported family-to-target mapping is deliberately explicit:
+The supported family-to-target mapping is deliberately explicit. Linux native
+packages remain amd64-only; the three BSD package families also cover the
+arm64 release archives.
 
 | Family | Target | Package root |
 | --- | --- | --- |
 | `debian` | Linux amd64 | `/` (`/usr/local` is rewritten to `/usr`) |
 | `rpm` | Linux amd64 | `/` (`/usr/local` is rewritten to `/usr`) |
 | `freebsd-pkg` | FreeBSD amd64 | `/usr/local` |
+| `freebsd-pkg` | FreeBSD arm64 (`aarch64` package architecture) | `/usr/local` |
 | `openbsd-pkg` | OpenBSD amd64 | `/usr/local` |
+| `openbsd-pkg` | OpenBSD arm64 | `/usr/local` |
 | `pkgsrc` | NetBSD amd64 | `/usr/local` |
+| `pkgsrc` | NetBSD arm64 (`aarch64` package architecture) | `/usr/local` |
 | `dports` | DragonFly BSD amd64 | `/usr/local` |
 
 For example:
@@ -112,10 +117,10 @@ version, package-filename, target, install-pass, and uninstall-pass marker,
 matching the subject; this semantic check does not turn a self-authored log
 into a package-manager signature.
 
-The hermetic release builder exercises all six target/family combinations in
-its private work directory after `tools/releasecheck` succeeds. This catches
-mapping drift during release smoke tests while leaving `dist/` limited to the
-nine executable archives and `checksums.txt`.
+The hermetic release builder exercises all nine target/architecture-family
+mappings in its private work directory after `tools/releasecheck` succeeds.
+This catches mapping drift during release smoke tests while leaving `dist/`
+limited to the nine executable archives and `checksums.txt`.
 
 ## Reproducible production builder
 

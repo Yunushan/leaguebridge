@@ -276,7 +276,10 @@ native_stage_families=(
   debian
   rpm
   freebsd-pkg
+  freebsd-pkg
   openbsd-pkg
+  openbsd-pkg
+  pkgsrc
   pkgsrc
   dports
 )
@@ -284,8 +287,11 @@ native_stage_archives=(
   "leaguebridge_${VERSION#v}_linux_amd64.tar.gz"
   "leaguebridge_${VERSION#v}_linux_amd64.tar.gz"
   "leaguebridge_${VERSION#v}_freebsd_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_freebsd_arm64.tar.gz"
   "leaguebridge_${VERSION#v}_openbsd_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_openbsd_arm64.tar.gz"
   "leaguebridge_${VERSION#v}_netbsd_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_netbsd_arm64.tar.gz"
   "leaguebridge_${VERSION#v}_dragonfly_amd64.tar.gz"
 )
 for index in "${!native_stage_families[@]}"; do

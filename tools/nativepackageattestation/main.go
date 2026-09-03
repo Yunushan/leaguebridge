@@ -642,9 +642,15 @@ func validateInstallEvidence(path, family, version, filename string, targetValue
 
 func validateSetShape(values []loadedDocument) error {
 	expected := map[string]string{
-		"debian": "linux/amd64", "rpm": "linux/amd64",
-		"freebsd-pkg": "freebsd/amd64", "openbsd-pkg": "openbsd/amd64",
-		"pkgsrc": "netbsd/amd64", "dports": "dragonfly/amd64",
+		"debian/linux/amd64":        "linux/amd64",
+		"rpm/linux/amd64":           "linux/amd64",
+		"freebsd-pkg/freebsd/amd64": "freebsd/amd64",
+		"freebsd-pkg/freebsd/arm64": "freebsd/arm64",
+		"openbsd-pkg/openbsd/amd64": "openbsd/amd64",
+		"openbsd-pkg/openbsd/arm64": "openbsd/arm64",
+		"pkgsrc/netbsd/amd64":       "netbsd/amd64",
+		"pkgsrc/netbsd/arm64":       "netbsd/arm64",
+		"dports/dragonfly/amd64":    "dragonfly/amd64",
 	}
 	if len(values) != len(expected) {
 		return fmt.Errorf("native package verification requires exactly %d subjects, got %d", len(expected), len(values))
@@ -653,17 +659,14 @@ func validateSetShape(values []loadedDocument) error {
 	version := ""
 	for _, value := range values {
 		artifact := value.Value.Execution.Package
-		key := string(artifact.Family)
-		want, ok := expected[key]
-		if !ok {
-			return fmt.Errorf("subject %q has unexpected package family %q", value.Path, artifact.Family)
-		}
 		got := value.Value.Execution.Target.GOOS + "/" + value.Value.Execution.Target.GOARCH
-		if got != want {
-			return fmt.Errorf("subject %q has target %q; want %q", value.Path, got, want)
+		key := string(artifact.Family) + "/" + got
+		_, ok := expected[key]
+		if !ok {
+			return fmt.Errorf("subject %q has unexpected package family/target %q", value.Path, key)
 		}
 		if _, duplicate := seen[key]; duplicate {
-			return fmt.Errorf("package family %q is duplicated", key)
+			return fmt.Errorf("package family/target %q is duplicated", key)
 		}
 		seen[key] = struct{}{}
 		job, runner, arch, host := expectedExecution(value.Value.Execution.Target, artifact.Family)
@@ -678,7 +681,7 @@ func validateSetShape(values []loadedDocument) error {
 	}
 	for key := range expected {
 		if _, ok := seen[key]; !ok {
-			return fmt.Errorf("native package set is missing family %q", key)
+			return fmt.Errorf("native package set is missing family/target %q", key)
 		}
 	}
 	return nil

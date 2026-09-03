@@ -29,8 +29,8 @@ non-symlink files, payload sizes, hashes, and POSIX modes when the host
 filesystem exposes them. It remains a staging-integrity check; the package
 builder still owns package metadata, signing, installation, and runtime tests.
 
-The non-PR CI workflow includes reference smoke builders for the six supported
-package mappings. The Linux and BSD scripts under `scripts/` build temporary
+The non-PR CI workflow includes reference smoke builders for the nine supported
+target/architecture-family mappings. The Linux and BSD scripts under `scripts/` build temporary
 package-manager artifacts and test install/uninstall on the target runner or
 guest. These artifacts are unsigned CI outputs and are not published
 release packages; the workflow retains them only as inputs to the score-free
@@ -49,8 +49,9 @@ go run -mod=vendor ./tools/nativepackageattestation \
   -command 'package build; package-manager install; native install smoke'
 ```
 
-The subject hashes the package bytes, all six staging files, and the install
-log. Its verifier requires the complete six-package Linux/BSD set and GitHub
+The subject hashes the package bytes, the staging manifest and all seven staged
+payload files, and the install log. Its verifier requires the complete
+nine-package Linux/BSD set and GitHub
 artifact attestations; it does not add package-manager signatures or publish
 packages.
 

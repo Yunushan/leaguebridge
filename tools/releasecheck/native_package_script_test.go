@@ -240,6 +240,9 @@ func TestBSDPackageSmokeHandlesGuestToolingVariants(t *testing.T) {
 		"as_root \"$pkg_command\" delete -y \"$package_name\"",
 		"native-package-bsd-smoke: command output before failure:",
 		"if command -v pkg_create >/dev/null 2>&1; then",
+		"runtime_machine=$(uname -m)",
+		"aarch64|arm64) expected_goarch=arm64 ;;",
+		"package_architecture=aarch64",
 		"package_root=\"$temporary_root/netbsd-package-root\"",
 		"tar -czf \"$package_path_absolute\" \\",
 		"+CONTENTS +COMMENT +DESC \\",
@@ -258,7 +261,7 @@ func TestBSDPackageSmokeHandlesGuestToolingVariants(t *testing.T) {
 	}
 	for _, required := range []string{
 		"installed_package_name=$package_name",
-		"installed_package_name=\"$package_name-$expected_goos\"",
+		"installed_package_name=\"$package_name-$expected_goos-$expected_goarch\"",
 		"pkg_info -e \"$installed_package_name\"",
 		"as_root pkg_delete -I \"$installed_package_name\"",
 	} {

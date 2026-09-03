@@ -646,22 +646,35 @@ func validateSourcePayload(source packageinfo.Manifest) error {
 }
 
 func familySpecFor(family Family, goos, goarch string) (familySpec, error) {
-	specs := map[Family]familySpec{
-		FamilyDebian:  {family: FamilyDebian, goos: "linux", goarch: "amd64", architecture: "amd64", installRoot: "/"},
-		FamilyRPM:     {family: FamilyRPM, goos: "linux", goarch: "amd64", architecture: "x86_64", installRoot: "/"},
-		FamilyFreeBSD: {family: FamilyFreeBSD, goos: "freebsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
-		FamilyOpenBSD: {family: FamilyOpenBSD, goos: "openbsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
-		FamilyPkgsrc:  {family: FamilyPkgsrc, goos: "netbsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
-		FamilyDPorts:  {family: FamilyDPorts, goos: "dragonfly", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
+	specs := []familySpec{
+		{family: FamilyDebian, goos: "linux", goarch: "amd64", architecture: "amd64", installRoot: "/"},
+		{family: FamilyRPM, goos: "linux", goarch: "amd64", architecture: "x86_64", installRoot: "/"},
+		{family: FamilyFreeBSD, goos: "freebsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
+		{family: FamilyFreeBSD, goos: "freebsd", goarch: "arm64", architecture: "aarch64", installRoot: "/usr/local"},
+		{family: FamilyOpenBSD, goos: "openbsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
+		{family: FamilyOpenBSD, goos: "openbsd", goarch: "arm64", architecture: "arm64", installRoot: "/usr/local"},
+		{family: FamilyPkgsrc, goos: "netbsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
+		{family: FamilyPkgsrc, goos: "netbsd", goarch: "arm64", architecture: "aarch64", installRoot: "/usr/local"},
+		{family: FamilyDPorts, goos: "dragonfly", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
 	}
-	spec, ok := specs[family]
-	if !ok {
+	for _, spec := range specs {
+		if family == spec.family && goos == spec.goos && goarch == spec.goarch {
+			return spec, nil
+		}
+	}
+	if !containsFamily(family) {
 		return familySpec{}, fmt.Errorf("unsupported native package family %q", family)
 	}
-	if goos != spec.goos || (spec.goarch != "" && goarch != spec.goarch) {
-		return familySpec{}, fmt.Errorf("native package family %q does not support %s/%s", family, goos, goarch)
+	return familySpec{}, fmt.Errorf("native package family %q does not support %s/%s", family, goos, goarch)
+}
+
+func containsFamily(family Family) bool {
+	for _, supported := range SupportedFamilies() {
+		if family == supported {
+			return true
+		}
 	}
-	return spec, nil
+	return false
 }
 
 func sourceFilename(version, goos, goarch string) string {

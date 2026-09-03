@@ -23,13 +23,16 @@ func TestBuildMapsPortablePathsForEveryNativeFamily(t *testing.T) {
 		{goos: "linux", goarch: "amd64", family: FamilyDebian, root: "/", architecture: "amd64"},
 		{goos: "linux", goarch: "amd64", family: FamilyRPM, root: "/", architecture: "x86_64"},
 		{goos: "freebsd", goarch: "amd64", family: FamilyFreeBSD, root: "/usr/local", architecture: "amd64"},
+		{goos: "freebsd", goarch: "arm64", family: FamilyFreeBSD, root: "/usr/local", architecture: "aarch64"},
 		{goos: "openbsd", goarch: "amd64", family: FamilyOpenBSD, root: "/usr/local", architecture: "amd64"},
+		{goos: "openbsd", goarch: "arm64", family: FamilyOpenBSD, root: "/usr/local", architecture: "arm64"},
 		{goos: "netbsd", goarch: "amd64", family: FamilyPkgsrc, root: "/usr/local", architecture: "amd64"},
+		{goos: "netbsd", goarch: "arm64", family: FamilyPkgsrc, root: "/usr/local", architecture: "aarch64"},
 		{goos: "dragonfly", goarch: "amd64", family: FamilyDPorts, root: "/usr/local", architecture: "amd64"},
 	}
 	for _, test := range tests {
 		test := test
-		t.Run(string(test.family), func(t *testing.T) {
+		t.Run(test.goos+"_"+test.goarch+"_"+string(test.family), func(t *testing.T) {
 			source, sourceData := sourceManifest(t, test.goos, test.goarch)
 			manifest, err := Build(source, sourceData, strings.Repeat("a", 64), test.family)
 			if err != nil {
@@ -107,6 +110,21 @@ func TestMarshalIsCanonicalAndValidatesIdentity(t *testing.T) {
 func TestPackageFamiliesForTargetAreStable(t *testing.T) {
 	if got := PackageFamiliesForTarget("linux", "amd64"); !sameFamilies(got, []Family{FamilyDebian, FamilyRPM}) {
 		t.Fatalf("Linux families = %v", got)
+	}
+	for _, test := range []struct {
+		goos string
+		want []Family
+	}{
+		{goos: "freebsd", want: []Family{FamilyFreeBSD}},
+		{goos: "openbsd", want: []Family{FamilyOpenBSD}},
+		{goos: "netbsd", want: []Family{FamilyPkgsrc}},
+	} {
+		if got := PackageFamiliesForTarget(test.goos, "arm64"); !sameFamilies(got, test.want) {
+			t.Fatalf("%s/arm64 families = %v; want %v", test.goos, got, test.want)
+		}
+	}
+	if got := PackageFamiliesForTarget("linux", "arm64"); len(got) != 0 {
+		t.Fatalf("Linux/arm64 families = %v; want none", got)
 	}
 }
 

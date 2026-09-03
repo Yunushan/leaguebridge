@@ -85,8 +85,8 @@ func TestLoadDocumentRejectsPackagePromotionFields(t *testing.T) {
 }
 
 func TestValidateSetShapeRequiresCompleteNativePackageSet(t *testing.T) {
-	if err := validateSetShape(nil); err == nil || !strings.Contains(err.Error(), "exactly 6") {
-		t.Fatalf("incomplete package set error = %v; want exact six-subject requirement", err)
+	if err := validateSetShape(nil); err == nil || !strings.Contains(err.Error(), "exactly 9") {
+		t.Fatalf("incomplete package set error = %v; want exact nine-subject requirement", err)
 	}
 }
 
@@ -139,8 +139,11 @@ func TestVerifySetAuthenticatesAndRehashesCompleteNativePackageSet(t *testing.T)
 		{"debian", "linux", "amd64", nativepackage.FamilyDebian, "deb"},
 		{"rpm", "linux", "amd64", nativepackage.FamilyRPM, "rpm"},
 		{"freebsd", "freebsd", "amd64", nativepackage.FamilyFreeBSD, "pkg"},
+		{"freebsd-arm64", "freebsd", "arm64", nativepackage.FamilyFreeBSD, "pkg"},
 		{"openbsd", "openbsd", "amd64", nativepackage.FamilyOpenBSD, "pkg"},
+		{"openbsd-arm64", "openbsd", "arm64", nativepackage.FamilyOpenBSD, "pkg"},
 		{"pkgsrc", "netbsd", "amd64", nativepackage.FamilyPkgsrc, "pkg"},
+		{"pkgsrc-arm64", "netbsd", "arm64", nativepackage.FamilyPkgsrc, "pkg"},
 		{"dports", "dragonfly", "amd64", nativepackage.FamilyDPorts, "pkg"},
 	}
 	if err := os.MkdirAll("subjects", 0o755); err != nil {

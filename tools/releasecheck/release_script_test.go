@@ -256,7 +256,7 @@ func TestNativePackageSmokeUsesTargetPackageManagerContracts(t *testing.T) {
 		`"$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n`,
 		`as_root "$pkg_command" add -f "$package"`,
 		`as_root "$pkg_command" delete -y "$package_name"`,
-		`pkg_create -A amd64 -B "$staging/root" -p /usr/local \`,
+		`pkg_create -A "$package_architecture" -B "$staging/root" -p /usr/local \`,
 		`-f "$packlist" -d "$description" \`,
 		`as_root pkg_add -D unsigned -I "$package"`,
 		`as_root pkg_delete -I "$installed_package_name"`,

@@ -1118,24 +1118,54 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: FreeBSD 15.1
+          - label: FreeBSD 15.1 amd64
             goos: freebsd
             family: freebsd-pkg
             guest_os: freebsd
             guest_version: "15.1"
-            package_file: leaguebridge-0.0.0-ci-freebsd.pkg
-          - label: OpenBSD 7.9
+            goarch: amd64
+            cpa_architecture: x86-64
+            package_file: leaguebridge-0.0.0-ci-freebsd-amd64.pkg
+          - label: FreeBSD 15.1 arm64
+            goos: freebsd
+            family: freebsd-pkg
+            guest_os: freebsd
+            guest_version: "15.1"
+            goarch: arm64
+            cpa_architecture: arm64
+            package_file: leaguebridge-0.0.0-ci-freebsd-arm64.pkg
+          - label: OpenBSD 7.9 amd64
             goos: openbsd
             family: openbsd-pkg
             guest_os: openbsd
             guest_version: "7.9"
-            package_file: leaguebridge-0.0.0-ci-openbsd.tgz
-          - label: NetBSD 11.0
+            goarch: amd64
+            cpa_architecture: x86-64
+            package_file: leaguebridge-0.0.0-ci-openbsd-amd64.tgz
+          - label: OpenBSD 7.9 arm64
+            goos: openbsd
+            family: openbsd-pkg
+            guest_os: openbsd
+            guest_version: "7.9"
+            goarch: arm64
+            cpa_architecture: arm64
+            package_file: leaguebridge-0.0.0-ci-openbsd-arm64.tgz
+          - label: NetBSD 11.0 amd64
             goos: netbsd
             family: pkgsrc
             guest_os: netbsd
             guest_version: "11.0"
-            package_file: leaguebridge-0.0.0-ci-netbsd.tgz
+            goarch: amd64
+            cpa_architecture: x86-64
+            package_file: leaguebridge-0.0.0-ci-netbsd-amd64.tgz
+          - label: NetBSD 11.0 arm64
+            goos: netbsd
+            family: pkgsrc
+            guest_os: netbsd
+            guest_version: "11.0"
+            goarch: arm64
+            cpa_architecture: arm64
+            package_file: leaguebridge-0.0.0-ci-netbsd-arm64.tgz
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1157,17 +1187,17 @@ jobs:
           set -euo pipefail
           mkdir -p native-package-staging
           go run -mod=vendor ./tools/nativepackagestage \
-            -archive "dist/leaguebridge_0.0.0-ci_${{ matrix.goos }}_amd64.tar.gz" \
+            -archive "dist/leaguebridge_0.0.0-ci_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" \
             -family "${{ matrix.family }}" \
-            -output "native-package-staging/${{ matrix.family }}"
+            -output "native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}"
           go run -mod=vendor ./tools/nativepackagecheck \
-            -staging "native-package-staging/${{ matrix.family }}"
-      - name: Build guest version validator for ${{ matrix.goos }}/amd64
+            -staging "native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}"
+      - name: Build guest version validator for ${{ matrix.goos }}/${{ matrix.goarch }}
         shell: bash
         env:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
-          GOARCH: amd64
+          GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
           if [[ -L bsd-ci || ( -e bsd-ci && ! -d bsd-ci ) ]]; then
@@ -1176,14 +1206,14 @@ jobs:
           fi
           mkdir -p bsd-ci
           go build -mod=vendor -trimpath -buildvcs=true \
-            -o "bsd-ci/versioncheck-${{ matrix.goos }}-amd64" \
+            -o "bsd-ci/versioncheck-${{ matrix.goos }}-${{ matrix.goarch }}" \
             ./tools/versioncheck
       - name: Boot ${{ matrix.label }} guest
         id: start-vm
         uses: cross-platform-actions/action@faa0c6197e94aacf1c5956460152c8380d3560a5 # v1.5.0
         with:
           operating_system: ${{ matrix.guest_os }}
-          architecture: x86-64
+          architecture: ${{ matrix.cpa_architecture }}
           version: ${{ matrix.guest_version }}
           shell: sh
           memory: 4G
@@ -1205,7 +1235,7 @@ jobs:
           set -eu
           sh scripts/native-package-bsd-smoke.sh \
             v0.0.0-ci "${{ matrix.goos }}" "${{ matrix.family }}" \
-            "bsd-ci/versioncheck-${{ matrix.goos }}-amd64"
+            "bsd-ci/versioncheck-${{ matrix.goos }}-${{ matrix.goarch }}"
       - name: Synchronize BSD package evidence to the runner
         if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
         run: cpa.sh --sync-files vm-to-runner
@@ -1221,34 +1251,34 @@ jobs:
           fi
           export CI_ATTESTATION_TREE="$(git rev-parse HEAD^{tree})"
           go run -mod=vendor ./tools/nativepackageattestation \
-            -target-goos "${{ matrix.goos }}" -target-goarch amd64 \
+            -target-goos "${{ matrix.goos }}" -target-goarch "${{ matrix.goarch }}" \
             -family "${{ matrix.family }}" -format pkg \
-            -package "native-package-output/${{ matrix.family }}/${{ matrix.package_file }}" \
-            -staging-dir "native-package-staging/${{ matrix.family }}" \
-            -install-evidence "native-package-evidence/${{ matrix.family }}/install.txt" \
-            -output "native-package-evidence/${{ matrix.family }}/native-package.json" \
+            -package "native-package-output/${{ matrix.family }}/${{ matrix.goarch }}/${{ matrix.package_file }}" \
+            -staging-dir "native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}" \
+            -install-evidence "native-package-evidence/${{ matrix.family }}/${{ matrix.goarch }}/install.txt" \
+            -output "native-package-evidence/${{ matrix.family }}/${{ matrix.goarch }}/native-package.json" \
             -command 'BSD native package build; package-manager install and uninstall; native install smoke'
       - name: Attest native BSD package subject
         if: success() && github.event_name != 'pull_request'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            native-package-evidence/${{ matrix.family }}/native-package.json
-            native-package-output/${{ matrix.family }}/${{ matrix.package_file }}
-            native-package-staging/${{ matrix.family }}/NATIVE-PACKAGE-MANIFEST.json
-            native-package-staging/${{ matrix.family }}/root/usr/local/bin/leaguebridge
-            native-package-staging/${{ matrix.family }}/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
-            native-package-staging/${{ matrix.family }}/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
-            native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/LICENSE
-            native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
-            native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/README.md
-            native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json
-            native-package-evidence/${{ matrix.family }}/install.txt
+            native-package-evidence/${{ matrix.family }}/${{ matrix.goarch }}/native-package.json
+            native-package-output/${{ matrix.family }}/${{ matrix.goarch }}/${{ matrix.package_file }}
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/NATIVE-PACKAGE-MANIFEST.json
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/bin/leaguebridge
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/share/doc/leaguebridge/LICENSE
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/share/doc/leaguebridge/README.md
+            native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json
+            native-package-evidence/${{ matrix.family }}/${{ matrix.goarch }}/install.txt
       - name: Retain native BSD package evidence
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: native-package-bsd-${{ matrix.goos }}
+          name: native-package-bsd-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
             native-package-output/
             native-package-staging/
@@ -1289,9 +1319,9 @@ jobs:
           go run -mod=vendor ./tools/nativepackagestage \
             -archive dist/leaguebridge_0.0.0-ci_dragonfly_amd64.tar.gz \
             -family dports \
-            -output native-package-staging/dports
+            -output native-package-staging/dports/amd64
           go run -mod=vendor ./tools/nativepackagecheck \
-            -staging native-package-staging/dports
+            -staging native-package-staging/dports/amd64
       - name: Build DragonFly guest version validator
         shell: bash
         env:
@@ -1340,8 +1370,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f native-package-output/dports/leaguebridge-0.0.0-ci-dragonfly.pkg
-          test -f native-package-evidence/dports/install.txt
+          test -f native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg
+          test -f native-package-evidence/dports/amd64/install.txt
       - name: Create signed DragonFly native package subject
         if: success() && steps.start-dragonfly-vm.outcome == 'success' && steps.dragonfly-ready.outcome == 'success' && github.event_name != 'pull_request'
         shell: bash
@@ -1356,27 +1386,27 @@ jobs:
           go run -mod=vendor ./tools/nativepackageattestation \
             -target-goos dragonfly -target-goarch amd64 \
             -family dports -format pkg \
-            -package native-package-output/dports/leaguebridge-0.0.0-ci-dragonfly.pkg \
-            -staging-dir native-package-staging/dports \
-            -install-evidence native-package-evidence/dports/install.txt \
-            -output native-package-evidence/dports/native-package.json \
+            -package native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg \
+            -staging-dir native-package-staging/dports/amd64 \
+            -install-evidence native-package-evidence/dports/amd64/install.txt \
+            -output native-package-evidence/dports/amd64/native-package.json \
             -command 'DragonFly BSD native package build; package-manager install and uninstall; native install smoke'
       - name: Attest DragonFly native package subject
         if: success() && github.event_name != 'pull_request'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            native-package-evidence/dports/native-package.json
-            native-package-output/dports/leaguebridge-0.0.0-ci-dragonfly.pkg
-            native-package-staging/dports/NATIVE-PACKAGE-MANIFEST.json
-            native-package-staging/dports/root/usr/local/bin/leaguebridge
-            native-package-staging/dports/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
-            native-package-staging/dports/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
-            native-package-staging/dports/root/usr/local/share/doc/leaguebridge/LICENSE
-            native-package-staging/dports/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
-            native-package-staging/dports/root/usr/local/share/doc/leaguebridge/README.md
-            native-package-staging/dports/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json
-            native-package-evidence/dports/install.txt
+            native-package-evidence/dports/amd64/native-package.json
+            native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg
+            native-package-staging/dports/amd64/NATIVE-PACKAGE-MANIFEST.json
+            native-package-staging/dports/amd64/root/usr/local/bin/leaguebridge
+            native-package-staging/dports/amd64/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-staging/dports/amd64/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
+            native-package-staging/dports/amd64/root/usr/local/share/doc/leaguebridge/LICENSE
+            native-package-staging/dports/amd64/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
+            native-package-staging/dports/amd64/root/usr/local/share/doc/leaguebridge/README.md
+            native-package-staging/dports/amd64/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json
+            native-package-evidence/dports/amd64/install.txt
       - name: Retain DragonFly native package evidence
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1428,18 +1458,25 @@ jobs:
             cp -a "native-package-input/linux/native-package-staging/$family" native-package-staging/
             cp -a "native-package-input/linux/native-package-evidence/$family" native-package-evidence/
           done
-          for target in freebsd openbsd netbsd dragonfly; do
+          for target in freebsd openbsd netbsd; do
             case "$target" in
               freebsd) family=freebsd-pkg ;;
               openbsd) family=openbsd-pkg ;;
               netbsd) family=pkgsrc ;;
-              dragonfly) family=dports ;;
             esac
-            source_root="native-package-input/bsd/native-package-bsd-$target"
-            cp -a "$source_root/native-package-output/$family" native-package-output/
-            cp -a "$source_root/native-package-staging/$family" native-package-staging/
-            cp -a "$source_root/native-package-evidence/$family" native-package-evidence/
+            for arch in amd64 arm64; do
+              source_root="native-package-input/bsd/native-package-bsd-$target-$arch"
+              mkdir -p "native-package-output/$family" "native-package-staging/$family" "native-package-evidence/$family"
+              cp -a "$source_root/native-package-output/$family/$arch" "native-package-output/$family/"
+              cp -a "$source_root/native-package-staging/$family/$arch" "native-package-staging/$family/"
+              cp -a "$source_root/native-package-evidence/$family/$arch" "native-package-evidence/$family/"
+            done
           done
+          source_root=native-package-input/bsd/native-package-bsd-dragonfly
+          mkdir -p native-package-output/dports native-package-staging/dports native-package-evidence/dports
+          cp -a "$source_root/native-package-output/dports/amd64" native-package-output/dports/
+          cp -a "$source_root/native-package-staging/dports/amd64" native-package-staging/dports/
+          cp -a "$source_root/native-package-evidence/dports/amd64" native-package-evidence/dports/
       - name: Verify signed native package attestations
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1467,7 +1504,10 @@ jobs:
             -run-attempt "$EXPECTED_RUN_ATTEMPT" \
             -verify-subject native-package-evidence/debian/native-package.json \
             -verify-subject native-package-evidence/rpm/native-package.json \
-            -verify-subject native-package-evidence/freebsd-pkg/native-package.json \
-            -verify-subject native-package-evidence/openbsd-pkg/native-package.json \
-            -verify-subject native-package-evidence/pkgsrc/native-package.json \
-            -verify-subject native-package-evidence/dports/native-package.json
+            -verify-subject native-package-evidence/freebsd-pkg/amd64/native-package.json \
+            -verify-subject native-package-evidence/freebsd-pkg/arm64/native-package.json \
+            -verify-subject native-package-evidence/openbsd-pkg/amd64/native-package.json \
+            -verify-subject native-package-evidence/openbsd-pkg/arm64/native-package.json \
+            -verify-subject native-package-evidence/pkgsrc/amd64/native-package.json \
+            -verify-subject native-package-evidence/pkgsrc/arm64/native-package.json \
+            -verify-subject native-package-evidence/dports/amd64/native-package.json

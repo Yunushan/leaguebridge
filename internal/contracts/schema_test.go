@@ -204,7 +204,8 @@ func TestGeneratedNativePackageStagingManifestsConformToPublicSchema(t *testing.
 	schema := compileOffline(t, "schemas/native-package-staging.schema.json", nativePackageSchemaID)
 	targets := []struct{ goos, goarch string }{
 		{"linux", "amd64"}, {"freebsd", "amd64"}, {"openbsd", "amd64"},
-		{"netbsd", "amd64"},
+		{"netbsd", "amd64"}, {"freebsd", "arm64"}, {"openbsd", "arm64"},
+		{"netbsd", "arm64"},
 		{"dragonfly", "amd64"},
 	}
 	for _, target := range targets {

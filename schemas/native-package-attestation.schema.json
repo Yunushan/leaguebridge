@@ -55,15 +55,15 @@
     },
     {
       "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "freebsd-pkg" } } } } } } },
-      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" } } } } } } }
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "freebsd" }, "goarch": { "enum": ["amd64", "arm64"] } } } } } } }
     },
     {
       "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "openbsd-pkg" } } } } } } },
-      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" } } } } } } }
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "openbsd" }, "goarch": { "enum": ["amd64", "arm64"] } } } } } } }
     },
     {
       "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "pkgsrc" } } } } } } },
-      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" } } } } } } }
+      "then": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "netbsd" }, "goarch": { "enum": ["amd64", "arm64"] } } } } } } }
     },
     {
       "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "dports" } } } } } } },
@@ -93,13 +93,13 @@
       "required": ["goos", "goarch"],
       "properties": {
         "goos": { "enum": ["linux", "freebsd", "openbsd", "netbsd", "dragonfly"] },
-        "goarch": { "const": "amd64" }
+        "goarch": { "enum": ["amd64", "arm64"] }
       },
       "oneOf": [
         { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
-        { "properties": { "goos": { "const": "freebsd" }, "goarch": { "const": "amd64" } } },
-        { "properties": { "goos": { "const": "openbsd" }, "goarch": { "const": "amd64" } } },
-        { "properties": { "goos": { "const": "netbsd" }, "goarch": { "const": "amd64" } } },
+        { "properties": { "goos": { "const": "freebsd" }, "goarch": { "enum": ["amd64", "arm64"] } } },
+        { "properties": { "goos": { "const": "openbsd" }, "goarch": { "enum": ["amd64", "arm64"] } } },
+        { "properties": { "goos": { "const": "netbsd" }, "goarch": { "enum": ["amd64", "arm64"] } } },
         { "properties": { "goos": { "const": "dragonfly" }, "goarch": { "const": "amd64" } } }
       ]
     },

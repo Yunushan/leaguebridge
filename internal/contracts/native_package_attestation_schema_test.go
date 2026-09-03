@@ -51,6 +51,29 @@ func TestNativePackageAttestationSchemaIsScoreFreeAndTargetBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	freebsdArm64 := decodeJSONBytes(t, data).(map[string]any)
+	freebsdArm64Execution := freebsdArm64["execution"].(map[string]any)
+	freebsdArm64Execution["job"] = "native-package-bsd"
+	freebsdArm64Execution["host_class"] = "virtualized"
+	freebsdArm64Target := freebsdArm64Execution["target"].(map[string]any)
+	freebsdArm64Target["goos"] = "freebsd"
+	freebsdArm64Target["goarch"] = "arm64"
+	freebsdArm64Package := freebsdArm64Execution["package"].(map[string]any)
+	freebsdArm64Package["family"] = "freebsd-pkg"
+	freebsdArm64Package["format"] = "pkg"
+	freebsdArm64Package["filename"] = "leaguebridge-1.2.3-freebsd-arm64.pkg"
+	freebsdArm64Package["staging_manifest_path"] = "staging/freebsd-pkg/arm64/NATIVE-PACKAGE-MANIFEST.json"
+	freebsdArm64Package["install_evidence_path"] = "package-evidence/freebsd-pkg/arm64/install.txt"
+	freebsdArm64Subjects := freebsdArm64["subjects"].([]any)
+	freebsdArm64Subjects[0].(map[string]any)["path"] = "package-evidence/freebsd-pkg/arm64/install.txt"
+	freebsdArm64Subjects[1].(map[string]any)["path"] = "packages/freebsd-pkg/arm64/leaguebridge-1.2.3-freebsd-arm64.pkg"
+	freebsdArm64Subjects[2].(map[string]any)["path"] = "staging/freebsd-pkg/arm64/NATIVE-PACKAGE-MANIFEST.json"
+	for index := 3; index < len(freebsdArm64Subjects); index++ {
+		freebsdArm64Subjects[index].(map[string]any)["path"] = "staging/freebsd-pkg/arm64/payload-" + string(rune('a'+index))
+	}
+	if err := schema.Validate(freebsdArm64); err != nil {
+		t.Fatalf("valid FreeBSD arm64 native package subject rejected: %v", err)
+	}
 	dragonfly := decodeJSONBytes(t, data).(map[string]any)
 	dragonflyExecution := dragonfly["execution"].(map[string]any)
 	dragonflyExecution["job"] = "dragonfly-native-package"
