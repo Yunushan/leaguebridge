@@ -16,14 +16,14 @@
     "execution": { "$ref": "#/$defs/execution" },
     "subjects": {
       "type": "array",
-      "minItems": 8,
-      "maxItems": 8,
+      "minItems": 10,
+      "maxItems": 10,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/subject" },
       "allOf": [
         { "contains": { "properties": { "role": { "const": "package" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "role": { "const": "staging-manifest" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 },
-        { "contains": { "properties": { "role": { "const": "staging-payload" } }, "required": ["role"] }, "minContains": 5, "maxContains": 5 },
+        { "contains": { "properties": { "role": { "const": "staging-payload" } }, "required": ["role"] }, "minContains": 7, "maxContains": 7 },
         { "contains": { "properties": { "role": { "const": "package-install-evidence" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 }
       ]
     }
@@ -34,8 +34,12 @@
       "then": { "properties": { "execution": { "properties": { "job": { "const": "native-package-linux" }, "runner_os": { "const": "Linux" }, "runner_architecture": { "const": "X64" }, "host_class": { "const": "hosted" } } } } }
     },
     {
-      "if": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "enum": ["freebsd", "openbsd", "netbsd", "dragonfly"] } } } } } } },
+      "if": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "enum": ["freebsd", "openbsd", "netbsd"] } } } } } } },
       "then": { "properties": { "execution": { "properties": { "job": { "const": "native-package-bsd" }, "runner_os": { "const": "Linux" }, "runner_architecture": { "const": "X64" }, "host_class": { "const": "virtualized" } } } } }
+    },
+    {
+      "if": { "properties": { "execution": { "properties": { "target": { "properties": { "goos": { "const": "dragonfly" } } } } } } },
+      "then": { "properties": { "execution": { "properties": { "job": { "const": "dragonfly-native-package" }, "runner_os": { "const": "Linux" }, "runner_architecture": { "const": "X64" }, "host_class": { "const": "virtualized" } } } } }
     },
     {
       "if": { "properties": { "execution": { "properties": { "package": { "properties": { "family": { "const": "debian" } } } } } } },
@@ -107,7 +111,7 @@
         "family": { "enum": ["debian", "rpm", "freebsd-pkg", "openbsd-pkg", "pkgsrc", "dports"] },
         "format": { "enum": ["deb", "rpm", "pkg"] },
         "version": { "type": "string", "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" },
-        "filename": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.+_-]{0,240}\\.(?:deb|rpm|pkg|txz|tgz)$" },
+        "filename": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.+_~-]{0,240}\\.(?:deb|rpm|pkg|txz|tgz)$" },
         "staging_manifest_path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" },
         "install_evidence_path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" }
       }
@@ -132,7 +136,7 @@
       "additionalProperties": false,
       "required": ["path", "role", "size_bytes", "sha256"],
       "properties": {
-        "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" },
+        "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/~+-]{0,255}$" },
         "role": { "enum": ["package", "staging-manifest", "staging-payload", "package-install-evidence"] },
         "size_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }

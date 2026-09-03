@@ -7,6 +7,73 @@ and releases use semantic versioning.
 
 ### Added
 
+- Hardened BSD native-package smoke jobs by invoking the discovered FreeBSD/
+  DragonFly package tool through its absolute path (including `pkg-static`) and
+  by tracking OpenBSD's filename-derived installed package identity; this
+  prevents `sudo` secure-path failures and duplicate-name cleanup errors in
+  hosted guests.
+- Extended the hosted Linux runtime/install smoke and score-free native-runtime
+  attestation matrix to execute and verify both Linux amd64 and arm64 runners;
+  the verifier now rejects an incomplete two-architecture Linux evidence set.
+- Added a host-free `linux-bsd-client-smoke.sh` helper that validates the
+  Linux/BSD client preflight and fixed League remote plan without pairing,
+  contacting a host, or claiming gameplay evidence; it is shipped in portable
+  archives and native package payloads.
+- Added `remote play`, a first-class Linux/BSD CLI shortcut for the guarded
+  physical-host League handoff. It reuses the stream application's exact
+  preflight and acknowledgement gates while providing the packaged helper's
+  1080p/60 FPS/H.264 defaults; it does not create a local League runtime.
+- Added an explicitly opt-in Linux/BSD live-session helper that validates the
+  credential-free configuration, performs a fixed League application preflight,
+  and starts a bounded 1080p/60 FPS/H.264 physical-host stream only after the
+  caller supplies `--start`; it is now carried by portable and native package
+  payloads, remains non-certifying, and never records gameplay evidence.
+- Automatic Moonlight recovery now preserves the platform convention for a
+  generic `moonlight` executable: Qt on Linux/OpenBSD/NetBSD and Embedded on
+  FreeBSD/DragonFly, while the explicit legacy `--client moonlight` alias is
+  unchanged.
+- Added Qt `linuxfb` preflight coverage for both the conventional `/dev/fb0`
+  device and Qt's `/dev/graphics/fb0` fallback path; the live gate now also
+  requires read/write access because Qt opens and maps the framebuffer.
+- Fixed Linux/BSD device-permission preflight to match Moonlight Embedded's
+  read/write opens for live evdev and WSCONS input, plus direct DRM devices;
+  explicit Embedded X11 modes now require an accessible evdev endpoint, direct
+  DragonFly SDL KMS/DRM now fails closed for non-root processes, and `remote
+  map` also checks the initial read/write device setup performed by the upstream
+  mapping action.
+- Added an early live-stream guard for Moonlight Embedded's current non-SDL
+  `gamecontrollerdb.txt` requirement. Package data, an explicit
+  `--input-mapping`, `SDL_GAMECONTROLLERCONFIG`, and the SDL backend are
+  recognized before launch, with actionable guidance when no mapping is found.
+- Fixed automatic stream-client selection for `--display-mode fullscreen`;
+  Moonlight Embedded can satisfy fullscreen through its documented default,
+  while Qt-only `borderless` selection remains unchanged.
+- Fixed automatic Qt-only stream selection so a Linux installation with the
+  official Moonlight Flatpak but no native Qt executable can still use decoder,
+  display, and other Qt-surface options; incompatible Embedded candidates are
+  filtered out before launch.
+- Added one bounded automatic native-client recovery attempt to `remote pair`
+  and `remote quit` after control preflight or process/transport failure;
+  explicit selections, cancellation, and Embedded-only `remote unpair` remain
+  fail-closed.
+- Fixed automatic `remote map` selection so `--client auto` resolves to
+  Moonlight Embedded, the only client surface that exposes local controller
+  mapping.
+- Fixed automatic `remote unpair` selection so the default `auto` client uses
+  Moonlight Embedded, the only supported surface for that operation, instead
+  of discovering Qt first and failing during plan construction.
+- Added one bounded automatic Moonlight recovery attempt for a live stream
+  whose initially selected native client cannot complete the host
+  application-list handshake; another installed client is tried only before
+  streaming, while explicit client choices and missing-app results remain
+  fail-closed.
+- Extended that live-stream recovery to a failed application-list guard before
+  a bounded reconnect attempt, while retaining one total fallback, explicit
+  client selection, cancellation, and missing-app fail-closed behavior.
+- Added the same bounded automatic-client recovery to `remote list`: a failed
+  application-list process or transport operation can retry once with another
+  supported client, while successful missing-app results and explicit client
+  choices remain fail-closed.
 - Fixed Linux/BSD client selection so the Linux-only Moonlight Flatpak cannot be
   selected or discovered on FreeBSD, OpenBSD, NetBSD, or DragonFly BSD; BSD
   users now receive native Qt/Embedded package guidance.
@@ -125,7 +192,8 @@ and releases use semantic versioning.
   routes and stream flags out of the local plan, and live-runs only after the
   device is confirmed as a character device.
 - Added bounded Embedded `--audio-device` and repeatable `--input-device` stream
-  selectors (up to eight evdev devices), plus the Embedded-only `remote unpair`
+  selectors (up to six evdev devices, matching Moonlight Embedded's current
+  parser limit), plus the Embedded-only `remote unpair`
   recovery operation; device values are validated before they reach Moonlight,
   and live streams preflight every explicit evdev path as a character device.
 - Added the Embedded-only `--input-mapping` selector for existing SDL
@@ -187,8 +255,9 @@ and releases use semantic versioning.
   host-handoff surfaces.
 - Read-only, non-certifying physical-macOS host inventory for the optional
   external handoff; native macOS release and lifecycle jobs are out of scope.
-- Hosted Linux amd64 runtime and shipped-archive install-lifecycle smoke
-  evidence, with an explicit headless-client block rather than a gameplay claim.
+- Hosted Linux amd64 and arm64 runtime and shipped-archive install-lifecycle
+  smoke evidence, with an explicit headless-client block rather than a gameplay
+  claim.
 - A dated 27 August 2026 primary-source support check confirming that current
   Riot, Proton, VM, and cloud-gaming constraints have not opened a local
   Linux/BSD League route.

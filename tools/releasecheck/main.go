@@ -786,9 +786,9 @@ func (zeroWriter) Write(data []byte) (int, error) {
 }
 
 func expectedMemberNames(binaryName string, includeLifecycle bool) []string {
-	names := []string{"LICENSE", packageinfo.ManifestName, "README.md", "SBOM.spdx.json", binaryName}
+	names := []string{"LICENSE", packageinfo.ManifestName, "README.md", "SBOM.spdx.json", binaryName, "linux-bsd-client-smoke.sh"}
 	if includeLifecycle {
-		names = append(names, "install.sh", "uninstall.sh")
+		names = append(names, "install.sh", "linux-bsd-remote-session.sh", "uninstall.sh")
 	}
 	sort.Strings(names)
 	return names
@@ -818,7 +818,9 @@ func expectedMemberMode(name, binaryName string, includeLifecycle bool) (os.File
 		return 0o644, true
 	case binaryName:
 		return 0o755, true
-	case "install.sh", "uninstall.sh":
+	case "linux-bsd-client-smoke.sh":
+		return 0o755, true
+	case "install.sh", "linux-bsd-remote-session.sh", "uninstall.sh":
 		return 0o755, includeLifecycle
 	default:
 		return 0, false

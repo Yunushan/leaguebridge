@@ -86,6 +86,52 @@ func TestBSDRuntimeSmokeBindsSupportedArchitectureToTheGuest(t *testing.T) {
 	}
 }
 
+func TestRuntimeSmokeProtectsEvidenceOutputs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		label string
+	}{
+		{name: "linux-runtime-smoke.sh", label: "linux-runtime-smoke"},
+		{name: "bsd-runtime-smoke.sh", label: "bsd-runtime-smoke"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join("..", "..", "scripts", tc.name)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := string(data)
+			for _, required := range []string{
+				"if [ -L \"$evidence_dir\" ] || { [ -e \"$evidence_dir\" ] && [ ! -d \"$evidence_dir\" ]; }; then",
+				"if [ -L \"$evidence_dir\" ] || [ ! -d \"$evidence_dir\" ]; then",
+				"for output in",
+				"kernel.txt",
+				"version.json",
+				"status.json",
+				"readiness.json",
+				"manifest-verify.json",
+				"doctor.json",
+				"result.txt; do",
+				"if [ -e \"$evidence_dir/$output\" ] || [ -L \"$evidence_dir/$output\" ]; then",
+				"refusing to overwrite existing evidence output",
+			} {
+				if !strings.Contains(script, required) {
+					t.Errorf("%s is missing evidence-integrity fragment %q", tc.name, required)
+				}
+			}
+			guardIndex := strings.Index(script, "if [ -L \"$evidence_dir\" ]")
+			mkdirIndex := strings.Index(script, "mkdir -p \"$evidence_dir\"")
+			writeIndex := strings.Index(script, "> \"$evidence_dir/kernel.txt\"")
+			if guardIndex < 0 || mkdirIndex < 0 || writeIndex < 0 || guardIndex > mkdirIndex || mkdirIndex > writeIndex {
+				t.Fatalf("%s must validate evidence paths before creating or writing evidence", tc.label)
+			}
+		})
+	}
+}
+
 func TestLinuxBSDRemoteSmokeSupportsOptionalWakeBootstrap(t *testing.T) {
 	path := filepath.Join("..", "..", "scripts", "linux-bsd-remote-smoke.sh")
 	data, err := os.ReadFile(path)
@@ -211,7 +257,7 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 		"-target-goarch \"${{ matrix.goarch }}\"",
 		"-subject \"ci-build/leaguebridge-${{ matrix.goos }}-${{ matrix.goarch }}\"",
 		"-evidence-dir \"bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}\"",
-		"actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26",
+		"actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
 		"subject-path: ci-attestation-input/race-vet.json",
 		"ci-attestation/cross-build.json",
 		"native-package-linux:",
@@ -237,7 +283,7 @@ func TestCIWorkflowEmitsBoundAttestationSubjects(t *testing.T) {
 			t.Errorf("ci.yml is missing attestation contract fragment %q", required)
 		}
 	}
-	if count := strings.Count(workflow, "actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26"); count != 7 {
+	if count := strings.Count(workflow, "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"); count != 7 {
 		t.Fatalf("ci.yml has %d attestation action references; want Linux/BSD race/vet, cross-build, runtime, and package references including DragonFly", count)
 	}
 	if count := strings.Count(workflow, "-verify-subject native-package-evidence/"); count != 6 {
@@ -295,6 +341,10 @@ func TestCIWorkflowKeepsSmokeArgumentsAndVMHelperGuardsIntact(t *testing.T) {
 		"cp ci-attestation-input/ci-attestation-race-vet-ubuntu-24.04/race-vet.json",
 		"id: cpa-ready",
 		"command -v cpa.sh >/dev/null 2>&1",
+		"evidence_file=\"bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}/install-lifecycle.txt\"",
+		"cat \"$evidence_file\" >&2",
+		"evidence_file=bsd-evidence/dragonfly/amd64/install-lifecycle.txt",
+		"evidence_file=linux-evidence/${{ matrix.goarch }}/install-lifecycle.txt",
 		"if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'\n        shell: cpa.sh {0}",
 		"if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'\n        run: cpa.sh --sync-files vm-to-runner",
 	} {
@@ -310,6 +360,91 @@ func TestCIWorkflowKeepsSmokeArgumentsAndVMHelperGuardsIntact(t *testing.T) {
 	}
 	if count := strings.Count(workflow, "if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'"); count != 3 {
 		t.Fatalf("ci.yml has %d guarded always-steps; want install and sync coverage", count)
+	}
+}
+
+func TestCINativePackageFilenamesMatchSmokeScripts(t *testing.T) {
+	workflowData, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	linuxData, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-linux-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bsdData, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-bsd-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linuxScript := string(linuxData)
+	for _, required := range []string{
+		"package_version=${version#v}",
+		"package_version=${package_version%%+*}",
+		`deb_version=$(printf '%s' "$package_version" | tr '-' '~')`,
+		"rpm_release=1",
+		`debian_package="native-package-output/debian/leaguebridge_${deb_version}_amd64.deb"`,
+		`rpm_package="native-package-output/rpm/leaguebridge-${rpm_version}-${rpm_release}.x86_64.rpm"`,
+	} {
+		if !strings.Contains(linuxScript, required) {
+			t.Errorf("Linux package smoke script is missing filename contract fragment %q", required)
+		}
+	}
+
+	bsdScript := string(bsdData)
+	for _, required := range []string{
+		`package_name="leaguebridge-$package_version"`,
+		`package="$package_dir/$package_name-$expected_goos.pkg"`,
+		`package="$package_dir/$package_name-$expected_goos.tgz"`,
+	} {
+		if !strings.Contains(bsdScript, required) {
+			t.Errorf("BSD package smoke script is missing filename contract fragment %q", required)
+		}
+	}
+
+	workflow := string(workflowData)
+	for _, required := range []string{
+		"native-package-output/debian/leaguebridge_0.0.0~ci_amd64.deb",
+		"native-package-output/rpm/leaguebridge-0.0.0-1.ci.x86_64.rpm",
+		"package_file: leaguebridge-0.0.0-ci-freebsd.pkg",
+		"package_file: leaguebridge-0.0.0-ci-openbsd.tgz",
+		"package_file: leaguebridge-0.0.0-ci-netbsd.tgz",
+		"native-package-output/dports/leaguebridge-0.0.0-ci-dragonfly.pkg",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("ci.yml is missing native package filename %q", required)
+		}
+	}
+}
+
+func TestRuntimeSmokeBuildsEmbedVerifiedRepositoryEvidence(t *testing.T) {
+	path := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	const markerStep = "- name: Resolve verified repository-evidence marker"
+	const markerOutput = "REPOSITORY_EVIDENCE_VERIFICATION: ${{ steps.repository-evidence.outputs.value }}"
+	const markerLdflag = "-ldflags \"-X github.com/Yunushan/leaguebridge/internal/version.RepositoryEvidenceVerification=$REPOSITORY_EVIDENCE_VERIFICATION\""
+	if count := strings.Count(workflow, markerStep); count != 3 {
+		t.Fatalf("ci.yml resolves the repository-evidence marker %d times; want Linux, BSD, and DragonFly runtime jobs", count)
+	}
+	if count := strings.Count(workflow, markerOutput); count != 3 {
+		t.Fatalf("ci.yml injects the repository-evidence output %d times; want Linux, BSD, and DragonFly runtime jobs", count)
+	}
+	if count := strings.Count(workflow, markerLdflag); count != 3 {
+		t.Fatalf("ci.yml injects the repository-evidence ldflag %d times; want Linux, BSD, and DragonFly runtime builds", count)
+	}
+	for _, required := range []string{
+		"go run -mod=vendor ./tools/readinesscheck -root .",
+		"scorecard_sha256=\"$(sha256sum readiness/scorecard.json | awk '{print $1}')\"",
+		"=~ ^[0-9a-f]{64}$",
+		"printf 'value=leaguebridge-repository-evidence-v1:%s\\n' \"$scorecard_sha256\" >> \"$GITHUB_OUTPUT\"",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("ci.yml is missing repository-evidence marker fragment %q", required)
+		}
 	}
 }
 
@@ -366,6 +501,29 @@ func TestCIWorkflowVerifiesCompleteAttestationSets(t *testing.T) {
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("ci.yml is missing complete-attestation verification fragment %q", required)
+		}
+	}
+}
+
+func TestLinuxRuntimeWorkflowCoversBothHostedArchitectures(t *testing.T) {
+	path := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	for _, required := range []string{
+		"name: Hosted Linux runtime (${{ matrix.goarch }})",
+		"runner: ubuntu-24.04",
+		"runner: ubuntu-24.04-arm",
+		"name: linux-runtime-${{ matrix.goarch }}",
+		"pattern: linux-runtime-*",
+		"linux-evidence/amd64/native-runtime.json",
+		"linux-evidence/arm64/native-runtime.json",
+		"ci-bin/leaguebridge-linux-${{ matrix.goarch }}",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("ci.yml is missing Linux multi-architecture runtime fragment %q", required)
 		}
 	}
 }

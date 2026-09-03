@@ -336,7 +336,7 @@ func (options StreamOptions) Validate() error {
 		switch strings.ToLower(strings.TrimSpace(options.Codec)) {
 		case "auto", "h264", "h265", "hevc", "av1":
 		default:
-			return fmt.Errorf("codec must be auto, h264, hevc, or av1, got %q", options.Codec)
+			return fmt.Errorf("codec must be auto, h264, h265, hevc, or av1, got %q", options.Codec)
 		}
 		if options.HDR && strings.EqualFold(strings.TrimSpace(options.Codec), "h264") {
 			return errors.New("HDR streaming cannot use H.264; choose HEVC or AV1, or omit --codec")
@@ -980,6 +980,37 @@ func AutomaticClientSelections(goos string) []string {
 	return selections
 }
 
+// CanonicalAutomaticClientSelection resolves the ambiguous generic candidate
+// according to the target platform's package convention. Automatic recovery
+// must use the same flavor as the initial auto resolver: generic moonlight is
+// Embedded on FreeBSD and DragonFly, and Qt on the other supported targets.
+// Explicit "moonlight" selections intentionally remain Embedded aliases.
+func CanonicalAutomaticClientSelection(goos, selection string) string {
+	selection = strings.ToLower(strings.TrimSpace(selection))
+	if selection == "moonlight" && !genericMoonlightIsEmbedded(goos) {
+		return "moonlight-qt"
+	}
+	return selection
+}
+
+// DiscoverAutomaticClientForPlatform resolves one candidate from automatic
+// recovery while preserving the platform-specific meaning of a generic
+// executable. It deliberately does not alter explicit "moonlight" discovery,
+// which remains the backwards-compatible Embedded alias.
+func DiscoverAutomaticClientForPlatform(ctx context.Context, env Environment, selection, goos string) (Client, error) {
+	selection = strings.ToLower(strings.TrimSpace(selection))
+	if selection == "moonlight" && CanonicalAutomaticClientSelection(goos, selection) == "moonlight-qt" {
+		client, err := DiscoverForPlatform(ctx, env, selection, goos)
+		if err != nil {
+			return Client{}, err
+		}
+		client.Flavor = FlavorQt
+		client.discoveryBinding = bindClient(client)
+		return client, nil
+	}
+	return DiscoverForPlatform(ctx, env, selection, goos)
+}
+
 // DiscoverForPlatform locates a known Moonlight client for the supplied target
 // operating system without starting it. The application uses this entry point
 // so discovery follows its target platform identity rather than the controller
@@ -1119,6 +1150,7 @@ func defaultMoonlightFlavorFor(goos string) Flavor {
 }
 
 func genericMoonlightIsEmbedded(goos string) bool {
+	goos = strings.ToLower(strings.TrimSpace(goos))
 	return goos == "freebsd" || goos == "dragonfly"
 }
 
@@ -2036,8 +2068,11 @@ func streamOptionFlavor(flavor Flavor) Flavor {
 }
 
 const (
-	maxDeviceSelectorLength   = 128
-	maxEmbeddedInputDevices   = 8
+	maxDeviceSelectorLength = 128
+	// Moonlight Embedded's current upstream config.h defines MAX_INPUTS as 6.
+	// Keep the controller's bound at or below that parser limit so a valid
+	// LeagueBridge request cannot be rejected only after Moonlight starts.
+	maxEmbeddedInputDevices   = 6
 	maxInputMappingPathLength = 4096
 )
 

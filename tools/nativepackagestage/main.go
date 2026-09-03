@@ -33,13 +33,15 @@ const (
 )
 
 var archiveMembers = map[string]struct{}{
-	"LICENSE":               {},
-	"PACKAGE-MANIFEST.json": {},
-	"README.md":             {},
-	"SBOM.spdx.json":        {},
-	"install.sh":            {},
-	"leaguebridge":          {},
-	"uninstall.sh":          {},
+	"LICENSE":                     {},
+	"PACKAGE-MANIFEST.json":       {},
+	"README.md":                   {},
+	"SBOM.spdx.json":              {},
+	"install.sh":                  {},
+	"leaguebridge":                {},
+	"linux-bsd-client-smoke.sh":   {},
+	"linux-bsd-remote-session.sh": {},
+	"uninstall.sh":                {},
 }
 
 var canonicalUnixArchiveOrder = []string{
@@ -49,6 +51,8 @@ var canonicalUnixArchiveOrder = []string{
 	"SBOM.spdx.json",
 	"install.sh",
 	"leaguebridge",
+	"linux-bsd-client-smoke.sh",
+	"linux-bsd-remote-session.sh",
 	"uninstall.sh",
 }
 
@@ -259,7 +263,7 @@ func readSourceArchive(archivePath string, archiveData []byte) (sourceArchive, e
 			return sourceArchive{}, fmt.Errorf("archive member %q has non-canonical file metadata", header.Name)
 		}
 		wantMode := int64(0o644)
-		if header.Name == "install.sh" || header.Name == "uninstall.sh" || header.Name == "leaguebridge" {
+		if header.Name == "install.sh" || header.Name == "linux-bsd-client-smoke.sh" || header.Name == "linux-bsd-remote-session.sh" || header.Name == "uninstall.sh" || header.Name == "leaguebridge" {
 			wantMode = 0o755
 		}
 		if header.Mode != wantMode {

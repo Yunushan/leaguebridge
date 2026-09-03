@@ -28,7 +28,7 @@ func TestBuildBindsEveryUnixPayloadAndTarget(t *testing.T) {
 	if len(manifest.Payload) != len(bodies) {
 		t.Fatalf("payload entries = %d; want %d", len(manifest.Payload), len(bodies))
 	}
-	wantOrder := []string{"LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "uninstall.sh"}
+	wantOrder := []string{"LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh", "uninstall.sh"}
 	for _, entry := range manifest.Payload {
 		if entry.Size != int64(len(bodies[entry.ArchivePath])) || len(entry.SHA256) != 64 {
 			t.Fatalf("entry is not content-bound: %+v", entry)
@@ -63,8 +63,8 @@ func TestBuildRejectsMissingUnexpectedAndUnsupportedPayload(t *testing.T) {
 		bodies map[string][]byte
 		want   string
 	}{
-		{name: "missing", goos: "linux", goarch: "amd64", bodies: map[string][]byte{}, want: "want 6"},
-		{name: "unexpected", goos: "linux", goarch: "amd64", bodies: withExtra(unixBodies()), want: "want 6"},
+		{name: "missing", goos: "linux", goarch: "amd64", bodies: map[string][]byte{}, want: "want 8"},
+		{name: "unexpected", goos: "linux", goarch: "amd64", bodies: withExtra(unixBodies()), want: "want 8"},
 		{name: "replaced", goos: "linux", goarch: "amd64", bodies: withReplacement(unixBodies()), want: `missing "LICENSE"`},
 		{name: "operating system", goos: "solaris", goarch: "amd64", bodies: unixBodies(), want: "unsupported operating system"},
 		{name: "unsupported target", goos: "dragonfly", goarch: "arm64", bodies: unixBodies(), want: "unsupported target"},
@@ -137,12 +137,14 @@ func TestMarshalIsCanonicalAndNewlineTerminated(t *testing.T) {
 
 func unixBodies() map[string][]byte {
 	return map[string][]byte{
-		"LICENSE":        []byte("license"),
-		"README.md":      []byte("readme"),
-		"SBOM.spdx.json": []byte("sbom"),
-		"install.sh":     []byte("install"),
-		"leaguebridge":   []byte("binary"),
-		"uninstall.sh":   []byte("uninstall"),
+		"LICENSE":                     []byte("license"),
+		"README.md":                   []byte("readme"),
+		"SBOM.spdx.json":              []byte("sbom"),
+		"install.sh":                  []byte("install"),
+		"leaguebridge":                []byte("binary"),
+		"linux-bsd-client-smoke.sh":   []byte("client smoke"),
+		"linux-bsd-remote-session.sh": []byte("remote session"),
+		"uninstall.sh":                []byte("uninstall"),
 	}
 }
 

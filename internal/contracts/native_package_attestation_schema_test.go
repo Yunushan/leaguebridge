@@ -26,16 +26,18 @@ func TestNativePackageAttestationSchemaIsScoreFreeAndTargetBound(t *testing.T) {
 			"target": map[string]any{"goos": "linux", "goarch": "amd64"},
 			"package": map[string]any{
 				"family": "debian", "format": "deb", "version": "v1.2.3",
-				"filename":              "leaguebridge-1.2.3.deb",
+				"filename":              "leaguebridge_1.2.3~ci_amd64.deb",
 				"staging_manifest_path": "staging/debian/NATIVE-PACKAGE-MANIFEST.json",
 				"install_evidence_path": "package-evidence/debian/install.txt",
 			},
 		},
 		"subjects": []any{
 			map[string]any{"path": "package-evidence/debian/install.txt", "role": "package-install-evidence", "size_bytes": json.Number("32"), "sha256": strings.Repeat("a", 64)},
-			map[string]any{"path": "packages/debian/leaguebridge-1.2.3.deb", "role": "package", "size_bytes": json.Number("32"), "sha256": strings.Repeat("b", 64)},
+			map[string]any{"path": "packages/debian/leaguebridge_1.2.3~ci_amd64.deb", "role": "package", "size_bytes": json.Number("32"), "sha256": strings.Repeat("b", 64)},
 			map[string]any{"path": "staging/debian/NATIVE-PACKAGE-MANIFEST.json", "role": "staging-manifest", "size_bytes": json.Number("32"), "sha256": strings.Repeat("c", 64)},
 			map[string]any{"path": "staging/debian/root/usr/bin/leaguebridge", "role": "staging-payload", "size_bytes": json.Number("32"), "sha256": strings.Repeat("d", 64)},
+			map[string]any{"path": "staging/debian/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh", "role": "staging-payload", "size_bytes": json.Number("32"), "sha256": strings.Repeat("2", 64)},
+			map[string]any{"path": "staging/debian/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh", "role": "staging-payload", "size_bytes": json.Number("32"), "sha256": strings.Repeat("2", 64)},
 			map[string]any{"path": "staging/debian/root/usr/share/doc/leaguebridge/LICENSE", "role": "staging-payload", "size_bytes": json.Number("32"), "sha256": strings.Repeat("e", 64)},
 			map[string]any{"path": "staging/debian/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json", "role": "staging-payload", "size_bytes": json.Number("32"), "sha256": strings.Repeat("f", 64)},
 			map[string]any{"path": "staging/debian/root/usr/share/doc/leaguebridge/README.md", "role": "staging-payload", "size_bytes": json.Number("32"), "sha256": strings.Repeat("0", 64)},
@@ -44,6 +46,40 @@ func TestNativePackageAttestationSchemaIsScoreFreeAndTargetBound(t *testing.T) {
 	}
 	if err := schema.Validate(valid); err != nil {
 		t.Fatalf("valid native package subject rejected: %v", err)
+	}
+	data, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dragonfly := decodeJSONBytes(t, data).(map[string]any)
+	dragonflyExecution := dragonfly["execution"].(map[string]any)
+	dragonflyExecution["job"] = "dragonfly-native-package"
+	dragonflyExecution["host_class"] = "virtualized"
+	dragonflyTarget := dragonflyExecution["target"].(map[string]any)
+	dragonflyTarget["goos"] = "dragonfly"
+	dragonflyPackage := dragonflyExecution["package"].(map[string]any)
+	dragonflyPackage["family"] = "dports"
+	dragonflyPackage["format"] = "pkg"
+	dragonflyPackage["filename"] = "leaguebridge-1.2.3.pkg"
+	dragonflyPackage["staging_manifest_path"] = "staging/dports/NATIVE-PACKAGE-MANIFEST.json"
+	dragonflyPackage["install_evidence_path"] = "package-evidence/dports/install.txt"
+	dragonflySubjects := dragonfly["subjects"].([]any)
+	dragonflySubjects[0].(map[string]any)["path"] = "package-evidence/dports/install.txt"
+	dragonflySubjects[1].(map[string]any)["path"] = "packages/dports/leaguebridge-1.2.3.pkg"
+	dragonflySubjects[2].(map[string]any)["path"] = "staging/dports/NATIVE-PACKAGE-MANIFEST.json"
+	dragonflySubjects[3].(map[string]any)["path"] = "staging/dports/root/usr/local/bin/leaguebridge"
+	dragonflySubjects[4].(map[string]any)["path"] = "staging/dports/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+	dragonflySubjects[5].(map[string]any)["path"] = "staging/dports/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh"
+	dragonflySubjects[6].(map[string]any)["path"] = "staging/dports/root/usr/local/share/doc/leaguebridge/LICENSE"
+	dragonflySubjects[7].(map[string]any)["path"] = "staging/dports/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json"
+	dragonflySubjects[8].(map[string]any)["path"] = "staging/dports/root/usr/local/share/doc/leaguebridge/README.md"
+	dragonflySubjects[9].(map[string]any)["path"] = "staging/dports/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json"
+	if err := schema.Validate(dragonfly); err != nil {
+		t.Fatalf("valid DragonFly native package subject rejected: %v", err)
+	}
+	dragonflyExecution["job"] = "native-package-bsd"
+	if err := schema.Validate(dragonfly); err == nil {
+		t.Fatal("schema accepted DragonFly package with the shared BSD job identity")
 	}
 	for name, mutate := range map[string]func(map[string]any){
 		"score field":         func(value map[string]any) { value["score"] = json.Number("100") },

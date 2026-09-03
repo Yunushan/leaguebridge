@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -99,7 +100,7 @@ func (c *remoteListingCapture) String() string {
 
 func (a *App) runRemote(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		return a.commandError("remote", false, ExitUsage, "expected map, kvm, wake, pair, unpair, list, stream, or quit")
+		return a.commandError("remote", false, ExitUsage, "expected map, kvm, wake, pair, unpair, list, play, stream, or quit")
 	}
 	if args[0] == "map" {
 		return a.runRemoteMap(ctx, args[1:])
@@ -118,6 +119,12 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		operation = remote.Unpair
 	case "list":
 		operation = remote.List
+	case "play":
+		// `play` is a League-oriented stream alias. It deliberately reuses the
+		// guarded stream path below so physical-host confirmation, explicit
+		// handoff acknowledgement, application presence, and client discovery
+		// cannot be bypassed by the convenience command.
+		operation = remote.Stream
 	case "quit":
 		operation = remote.Quit
 	case "stream":
@@ -139,7 +146,7 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	fps := set.Int("fps", 0, "stream frame rate (10-480); zero keeps the client default")
 	bitrate := set.Int("bitrate", 0, "stream bitrate in Kbps (500-500000); zero keeps the client default")
 	packetSize := set.Int("packet-size", 0, "stream network packet size in bytes (1024-9000, multiple of 16); zero keeps the client default")
-	codec := set.String("codec", "", "stream video codec: auto, h264, hevc, or av1; empty keeps the client default")
+	codec := set.String("codec", "", "stream video codec: auto, h264, h265, hevc, or av1; empty keeps the client default")
 	audioConfig := set.String("audio-config", "", "stream audio channels: stereo, 5.1-surround, or 7.1-surround")
 	audioOnHost := set.Bool("audio-on-host", false, "play stream audio on the physical host")
 	audioDevice := set.String("audio-device", "", "Moonlight Embedded audio output device (for example sysdefault or hw:0,0)")
@@ -206,7 +213,9 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	wakeWaitOverridden := false
 	wakeRetriesOverridden := false
 	wakeRetryDelayOverridden := false
+	optionProvided := make(map[string]bool)
 	set.Visit(func(option *flag.Flag) {
+		optionProvided[option.Name] = true
 		switch option.Name {
 		case "confirm-physical-host":
 			confirmationOverridden = true
@@ -247,6 +256,26 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			wakeRetryDelayOverridden = true
 		}
 	})
+	if args[0] == "play" {
+		// Keep the convenience path predictable for a League session while
+		// allowing operators to override any quality value explicitly. These
+		// values match the packaged Linux/BSD live-session helper.
+		if !optionProvided["resolution"] {
+			*resolution = "1080"
+		}
+		if !optionProvided["fps"] {
+			*fps = 60
+		}
+		if !optionProvided["bitrate"] {
+			*bitrate = 20000
+		}
+		if !optionProvided["packet-size"] {
+			*packetSize = 1392
+		}
+		if !optionProvided["codec"] {
+			*codec = "h264"
+		}
+	}
 	if *absoluteMouse && *noAbsoluteMouse {
 		return a.commandError("remote "+args[0], *asJSON, ExitUsage, "cannot combine --absolute-mouse and --no-absolute-mouse")
 	}
@@ -451,6 +480,13 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	if *confirmed {
 		target.PhysicalHostConfirmed = true
 	}
+	automaticClientSelectionRequested := strings.EqualFold(strings.TrimSpace(target.Client), "auto") || strings.TrimSpace(target.Client) == ""
+	if operation == remote.Unpair && (strings.EqualFold(strings.TrimSpace(target.Client), "auto") || strings.TrimSpace(target.Client) == "") {
+		// Unpair is an Embedded-only control operation. Resolve an automatic
+		// selection to that flavor before preflight and discovery instead of
+		// allowing the normal Qt-first preference to produce an unusable plan.
+		target.Client = "moonlight-embedded"
+	}
 	if operation == remote.Stream {
 		effectiveClient, err := effectiveRemoteStreamClientSelection(target.Client, *platform, *qtPlatform, streamOptions)
 		if err != nil {
@@ -461,6 +497,19 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		// owns the selector; otherwise preflight and discovery can choose different
 		// Moonlight clients when both are installed.
 		target.Client = effectiveClient
+	}
+	automaticClientSelection := automaticClientSelectionRequested
+	var automaticStreamFlavor remote.Flavor
+	if operation == remote.Stream && automaticClientSelectionRequested {
+		requiresEmbedded, requiresQt := streamOptionBackendRequirements(streamOptions)
+		if strings.TrimSpace(*qtPlatform) != "" {
+			requiresQt = true
+		}
+		if requiresQt && !requiresEmbedded {
+			automaticStreamFlavor = remote.FlavorQt
+		} else if requiresEmbedded && !requiresQt {
+			automaticStreamFlavor = remote.FlavorEmbedded
+		}
 	}
 	prober := a.prober()
 	environment := a.RemoteEnv
@@ -480,6 +529,24 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	automaticFallbackSelection := ""
 	var discoveryCtx context.Context
 	var cancelDiscovery context.CancelFunc
+	if !ready && operation == remote.Stream && automaticClientSelectionRequested && automaticStreamFlavor != "" {
+		// A flavor-specific stream selector narrows automatic discovery to
+		// compatible surfaces. Keep the official Linux Flatpak eligible when no
+		// native Qt executable is installed, while filtering incompatible clients
+		// before any process can start.
+		discoveryCtx, cancelDiscovery = context.WithTimeout(ctx, 3*time.Second)
+		defer cancelDiscovery()
+		candidate, candidatePreflight, selection, found := discoverAutomaticStreamClientForFlavor(
+			discoveryCtx, prober, environment, a.GOOS, *platform, *qtPlatform, automaticStreamFlavor,
+		)
+		if found {
+			preflight = candidatePreflight
+			ready = true
+			target.Client = selection
+			client = candidate
+			automaticFallbackSelection = selection
+		}
+	}
 	if !ready && !*dryRun && operation == remote.Stream && target.Client == "auto" &&
 		strings.TrimSpace(*platform) == "" && strings.TrimSpace(*qtPlatform) == "" {
 		// Automatic selection normally stops at the first discovered client. A
@@ -489,21 +556,34 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		// no candidate is started until one complete selection succeeds.
 		discoveryCtx, cancelDiscovery = context.WithTimeout(ctx, 3*time.Second)
 		defer cancelDiscovery()
-		for _, selection := range remote.AutomaticClientSelections(a.GOOS) {
-			candidatePreflight := remoteClientPreflight(ctx, prober, remote.Stream, selection, *platform, *qtPlatform)
-			if !candidatePreflight.Ready() {
-				continue
-			}
-			candidate, discoverErr := remote.DiscoverForPlatform(discoveryCtx, environment, selection, a.GOOS)
-			if discoverErr != nil {
-				continue
-			}
+		candidate, candidatePreflight, selection, found := discoverAutomaticStreamClient(
+			discoveryCtx, prober, environment, a.GOOS, *platform, *qtPlatform,
+		)
+		if found {
 			preflight = candidatePreflight
 			ready = true
 			target.Client = selection
 			client = candidate
 			automaticFallbackSelection = selection
-			break
+		}
+	}
+	if !ready && !*dryRun && automaticClientSelection &&
+		(operation == remote.Pair || operation == remote.List || operation == remote.Quit) {
+		// These are control-plane operations, so a headless client may still be
+		// usable even when the preferred automatic client report is not
+		// stream-ready. Try the other supported clients with the weaker control
+		// readiness gate before declaring the handoff blocked.
+		discoveryCtx, cancelDiscovery = context.WithTimeout(ctx, 3*time.Second)
+		defer cancelDiscovery()
+		candidate, candidatePreflight, selection, found := discoverAutomaticControlClient(
+			discoveryCtx, prober, environment, a.GOOS,
+		)
+		if found {
+			preflight = candidatePreflight
+			ready = true
+			target.Client = selection
+			client = candidate
+			automaticFallbackSelection = selection
 		}
 	}
 	if !ready {
@@ -540,37 +620,122 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	}
 	if client.Binary == "" {
 		client, err = remote.DiscoverForPlatform(discoveryCtx, environment, target.Client, a.GOOS)
+		if err != nil && operation == remote.Stream && !*dryRun && automaticClientSelectionRequested && automaticStreamFlavor != "" {
+			// A PATH/package change can occur after the flavor-specific preflight.
+			// Retry the constrained passive search so an automatic request can still
+			// recover to a compatible client without accepting the wrong flavor.
+			retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
+			candidate, candidatePreflight, selection, found := discoverAutomaticStreamClientForFlavor(
+				retryCtx, prober, environment, a.GOOS, *platform, *qtPlatform, automaticStreamFlavor,
+			)
+			cancelRetry()
+			if found {
+				client = candidate
+				preflight = candidatePreflight
+				target.Client = selection
+				automaticFallbackSelection = selection
+				err = nil
+			}
+		}
+		if err != nil && operation == remote.Stream && !*dryRun && target.Client == "auto" &&
+			strings.TrimSpace(*platform) == "" && strings.TrimSpace(*qtPlatform) == "" {
+			// The initial automatic preflight may have raced with a PATH or package
+			// change between the check and discovery. Give the remaining native
+			// clients the same bounded preflight/discovery opportunity used when the
+			// first client fails the graphical or input gate.
+			retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
+			candidate, candidatePreflight, selection, found := discoverAutomaticStreamClient(
+				retryCtx, prober, environment, a.GOOS, *platform, *qtPlatform,
+			)
+			cancelRetry()
+			if found {
+				client = candidate
+				preflight = candidatePreflight
+				target.Client = selection
+				automaticFallbackSelection = selection
+				err = nil
+			}
+		}
+		if err != nil && operation == remote.List && !*dryRun && automaticClientSelection {
+			// Automatic control discovery can race with package installation or a
+			// PATH update. Give the remaining supported clients one bounded chance
+			// before returning the resolver error.
+			retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
+			candidate, candidatePreflight, selection, found := discoverAutomaticControlClient(
+				retryCtx, prober, environment, a.GOOS,
+			)
+			cancelRetry()
+			if found {
+				client = candidate
+				preflight = candidatePreflight
+				target.Client = selection
+				automaticFallbackSelection = selection
+				err = nil
+			}
+		}
 		if err != nil {
 			return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
 		}
 	}
-	if operation == remote.Stream && streamOptions.MouseMode == "" {
-		// League's remote-input experiment needs relative pointer capture so a
-		// physical Windows host can expose mouse events through its documented
-		// Raw Input path. Make Moonlight Qt's documented relative default
-		// explicit in generated plans while preserving an explicit absolute
-		// override and Embedded's separate evdev input path.
-		switch client.Flavor {
-		case remote.FlavorQt, remote.FlavorFlatpak:
-			streamOptions.MouseMode = "relative"
+	streamMouseModeExplicit := streamOptions.MouseMode != ""
+	buildStreamPlan := func() (remote.Plan, error) {
+		if operation == remote.Stream && !*dryRun && client.Flavor == remote.FlavorEmbedded {
+			// Current Moonlight Embedded requires a controller database for its
+			// non-SDL input path. Check the same local search boundary before the
+			// process starts so a missing package data file cannot surface as a
+			// late, opaque client failure. This is intentionally live-only: dry
+			// runs must remain usable from a headless validation environment.
+			if err := validateEmbeddedStreamMappingAvailability(streamOptions.InputMapping, *platform); err != nil {
+				return remote.Plan{}, err
+			}
 		}
+		if operation == remote.Stream && !streamMouseModeExplicit {
+			// League's remote-input experiment needs relative pointer capture so a
+			// physical Windows host can expose mouse events through its documented
+			// Raw Input path. Make Moonlight Qt's documented relative default
+			// explicit in generated plans while preserving an explicit absolute
+			// override and Embedded's separate evdev input path. Reset the derived
+			// value first because automatic client recovery may switch from Qt to
+			// Embedded, where the Qt-only flag is invalid.
+			streamOptions.MouseMode = ""
+			switch client.Flavor {
+			case remote.FlavorQt, remote.FlavorFlatpak:
+				streamOptions.MouseMode = "relative"
+			}
+		}
+		return remote.BuildDiscoveredPlan(client, remote.Request{
+			Route:                   route,
+			Operation:               operation,
+			Host:                    target.Host,
+			App:                     target.App,
+			PairingPIN:              *pairingPIN,
+			QtPlatform:              *qtPlatform,
+			PhysicalHostConfirmed:   target.PhysicalHostConfirmed,
+			AcceptUnverifiedHandoff: *acknowledged,
+			Stream:                  streamOptions,
+		})
 	}
-	plan, err := remote.BuildDiscoveredPlan(client, remote.Request{
-		Route:                   route,
-		Operation:               operation,
-		Host:                    target.Host,
-		App:                     target.App,
-		PairingPIN:              *pairingPIN,
-		QtPlatform:              *qtPlatform,
-		PhysicalHostConfirmed:   target.PhysicalHostConfirmed,
-		AcceptUnverifiedHandoff: *acknowledged,
-		Stream:                  streamOptions,
-	})
+	plan, err := buildStreamPlan()
 	if err != nil {
 		return a.commandError("remote "+args[0], *asJSON, ExitBlocked, "%v", err)
 	}
 	if automaticFallbackSelection != "" {
-		plan.Warnings = append(plan.Warnings, fmt.Sprintf("automatic Moonlight selection used %s after the preferred automatic client failed the local stream preflight", automaticFallbackSelection))
+		operationDescription := "the live stream"
+		switch operation {
+		case remote.List:
+			operationDescription = "application listing"
+		case remote.Pair, remote.Quit:
+			operationDescription = args[0] + " operation"
+		}
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("automatic Moonlight selection used %s after the preferred automatic client could not be used for %s", automaticFallbackSelection, operationDescription))
+	}
+	rebuildPlan := func() error {
+		rebuilt, buildErr := buildStreamPlan()
+		if buildErr != nil {
+			return fmt.Errorf("cannot rebuild the remote plan after automatic client recovery: %w", buildErr)
+		}
+		plan = rebuilt
+		return nil
 	}
 	var wakePlan *wol.Plan
 	if wakeRequested {
@@ -671,34 +836,79 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		// intent, but a live stream is never allowed to skip this guard. Reconnect
 		// attempts call this closure again so a stale application listing cannot
 		// authorize a later launch after a dropped session.
-		listPlan, err := remote.BuildDiscoveredPlan(client, remote.Request{
-			Route:                 route,
-			Operation:             remote.List,
-			Host:                  target.Host,
-			PhysicalHostConfirmed: target.PhysicalHostConfirmed,
-		})
-		if err != nil {
-			return a.commandError("remote "+args[0], false, ExitBlocked, "cannot build the application-list preflight: %v", err)
+		var listPlan remote.Plan
+		rebuildStreamPlans := func() error {
+			streamPlan, streamErr := buildStreamPlan()
+			if streamErr != nil {
+				return fmt.Errorf("cannot rebuild the stream plan after automatic client recovery: %w", streamErr)
+			}
+			applicationPlan, applicationErr := remote.BuildDiscoveredPlan(client, remote.Request{
+				Route:                 route,
+				Operation:             remote.List,
+				Host:                  target.Host,
+				PhysicalHostConfirmed: target.PhysicalHostConfirmed,
+			})
+			if applicationErr != nil {
+				return fmt.Errorf("cannot build the application-list preflight after automatic client recovery: %w", applicationErr)
+			}
+			plan = streamPlan
+			listPlan = applicationPlan
+			return nil
 		}
+		if err := rebuildStreamPlans(); err != nil {
+			return a.commandError("remote "+args[0], false, ExitBlocked, "%v", err)
+		}
+		automaticClientFallbackTried := false
 		checkStreamApplication = func() (int, error) {
-			fmt.Fprintln(a.Stderr, "preflight: checking that the physical host advertises the requested application before streaming")
-			preflightCtx, cancelPreflight := context.WithTimeout(ctx, remoteControlTimeout)
-			defer cancelPreflight()
-			observedListing := newRemoteListingCapture()
-			preflightStdout := io.MultiWriter(a.Stdout, observedListing)
-			preflightErr := remote.Execute(preflightCtx, runner, a.Stdin, preflightStdout, a.Stderr, listPlan)
-			preflightTimedOut := ctx.Err() == nil &&
-				(errors.Is(preflightCtx.Err(), context.DeadlineExceeded) || errors.Is(preflightErr, context.DeadlineExceeded))
-			if preflightErr != nil {
-				if preflightTimedOut {
-					return ExitInternal, fmt.Errorf("Moonlight application-list preflight timed out after %s; verify that the physical host is reachable and try again", remoteControlTimeout)
+			for {
+				fmt.Fprintln(a.Stderr, "preflight: checking that the physical host advertises the requested application before streaming")
+				preflightCtx, cancelPreflight := context.WithTimeout(ctx, remoteControlTimeout)
+				observedListing := newRemoteListingCapture()
+				preflightStdout := io.MultiWriter(a.Stdout, observedListing)
+				preflightErr := remote.Execute(preflightCtx, runner, a.Stdin, preflightStdout, a.Stderr, listPlan)
+				preflightTimedOut := ctx.Err() == nil &&
+					(errors.Is(preflightCtx.Err(), context.DeadlineExceeded) || errors.Is(preflightErr, context.DeadlineExceeded))
+				cancelPreflight()
+				if preflightErr != nil {
+					if preflightTimedOut {
+						return ExitInternal, fmt.Errorf("Moonlight application-list preflight timed out after %s; verify that the physical host is reachable and try again", remoteControlTimeout)
+					}
+					if automaticClientSelection && !automaticClientFallbackTried && !remoteReconnectStopped(ctx, preflightErr) {
+						automaticClientFallbackTried = true
+						retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
+						var candidate remote.Client
+						var candidatePreflight probe.Report
+						var selection string
+						var found bool
+						if automaticStreamFlavor != "" {
+							candidate, candidatePreflight, selection, found = discoverAutomaticStreamClientForFlavorExcluding(
+								retryCtx, prober, environment, a.GOOS, *platform, *qtPlatform, automaticStreamFlavor, client.Binary,
+							)
+						} else {
+							candidate, candidatePreflight, selection, found = discoverAutomaticStreamClientExcluding(
+								retryCtx, prober, environment, a.GOOS, *platform, *qtPlatform, client.Binary,
+							)
+						}
+						cancelRetry()
+						if found {
+							client = candidate
+							preflight = candidatePreflight
+							target.Client = selection
+							automaticFallbackSelection = selection
+							if err := rebuildStreamPlans(); err != nil {
+								return ExitBlocked, err
+							}
+							fmt.Fprintf(a.Stderr, "warning: automatic Moonlight selection used %s after the preferred client failed the host application-list preflight; retrying with the selected native client\n", selection)
+							continue
+						}
+					}
+					return ExitInternal, fmt.Errorf("Moonlight application-list preflight failed: %w", preflightErr)
 				}
-				return ExitInternal, fmt.Errorf("Moonlight application-list preflight failed: %w", preflightErr)
+				if !remote.ApplicationListedForFlavor(observedListing.String(), applicationCheck, client.Flavor) {
+					return ExitBlocked, fmt.Errorf("Moonlight listed the host successfully, but required application %q was not advertised; no stream was started", applicationCheck)
+				}
+				return ExitOK, nil
 			}
-			if !remote.ApplicationListedForFlavor(observedListing.String(), applicationCheck, client.Flavor) {
-				return ExitBlocked, fmt.Errorf("Moonlight listed the host successfully, but required application %q was not advertised; no stream was started", applicationCheck)
-			}
-			return ExitOK, nil
 		}
 		for attempt := 0; ; attempt++ {
 			preflightCode, preflightErr := checkStreamApplication()
@@ -739,6 +949,7 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		}
 	}
 	if operation == remote.List {
+		automaticClientFallbackTried := false
 		for attempt := 0; ; attempt++ {
 			observedListing := newRemoteListingCapture()
 			remoteStdout := io.Writer(a.Stdout)
@@ -758,6 +969,25 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 				}
 				return ExitOK
 			}
+			if automaticClientSelection && !automaticClientFallbackTried && attempt == 0 && !remoteReconnectStopped(ctx, err) {
+				automaticClientFallbackTried = true
+				retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
+				candidate, candidatePreflight, selection, found := discoverAutomaticControlClientExcluding(
+					retryCtx, prober, environment, a.GOOS, client.Binary,
+				)
+				cancelRetry()
+				if found {
+					client = candidate
+					preflight = candidatePreflight
+					target.Client = selection
+					automaticFallbackSelection = selection
+					if err := rebuildPlan(); err != nil {
+						return a.commandError("remote "+args[0], false, ExitBlocked, "%v", err)
+					}
+					fmt.Fprintf(a.Stderr, "warning: automatic Moonlight selection used %s after the preferred client failed the application-list operation; retrying with the selected client\n", selection)
+					continue
+				}
+			}
 			if wakeRetryPlan == nil || attempt >= wakeRetryPlan.AdditionalAttempts || remoteReconnectStopped(ctx, err) {
 				if timedOut {
 					return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight %s timed out after %s; verify that the physical host is reachable and try again", args[0], remoteControlTimeout)
@@ -769,6 +999,48 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			if err := waitForRemoteReconnect(ctx, time.Duration(wakeRetryPlan.DelaySeconds)*time.Second); err != nil {
 				return a.commandError("remote "+args[0], false, ExitInternal, "Wake-on-LAN application-list retry canceled: %v", err)
 			}
+		}
+	}
+	if operation == remote.Pair || operation == remote.Quit {
+		// Pairing and remote-session termination are both supported by the
+		// native Qt and Embedded surfaces. When automatic discovery picked one
+		// launcher but its control operation failed, give one other installed
+		// native launcher a bounded chance before returning the error. Keep the
+		// failed executable excluded so a generic package alias cannot resolve
+		// straight back to the same process, and never replace an explicit
+		// --client choice.
+		automaticClientFallbackTried := false
+		for attempt := 0; ; attempt++ {
+			executionCtx, cancelExecution := context.WithTimeout(ctx, remoteControlTimeout)
+			err := remote.Execute(executionCtx, runner, a.Stdin, a.Stdout, remoteStderr, plan)
+			timedOut := ctx.Err() == nil && (errors.Is(executionCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded))
+			cancelExecution()
+			if err == nil {
+				return ExitOK
+			}
+			if automaticClientSelection && !automaticClientFallbackTried && attempt == 0 && !remoteReconnectStopped(ctx, err) {
+				automaticClientFallbackTried = true
+				retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
+				candidate, candidatePreflight, selection, found := discoverAutomaticControlClientExcluding(
+					retryCtx, prober, environment, a.GOOS, client.Binary,
+				)
+				cancelRetry()
+				if found {
+					client = candidate
+					preflight = candidatePreflight
+					target.Client = selection
+					automaticFallbackSelection = selection
+					if err := rebuildPlan(); err != nil {
+						return a.commandError("remote "+args[0], false, ExitBlocked, "%v", err)
+					}
+					fmt.Fprintf(a.Stderr, "warning: automatic Moonlight selection used %s after the preferred client failed the %s operation; retrying with the selected client\n", selection, args[0])
+					continue
+				}
+			}
+			if timedOut {
+				return a.commandError("remote "+args[0], false, ExitInternal, "Moonlight %s timed out after %s; verify that the physical host is reachable and try again", args[0], remoteControlTimeout)
+			}
+			return a.commandError("remote "+args[0], false, ExitInternal, "%v", err)
 		}
 	}
 	executionCtx, cancelExecution := context.WithTimeout(ctx, remoteControlTimeout)
@@ -826,6 +1098,102 @@ func remoteClientPreflight(ctx context.Context, prober ProbeRunner, operation re
 		return selectionAware.ClientFor(ctx, preferred)
 	}
 	return prober.Run(ctx, probe.ProfileClient)
+}
+
+func remoteAutomaticClientPreflight(ctx context.Context, prober ProbeRunner, operation remote.Operation, preferred, outputPlatform, qtPlatform string) probe.Report {
+	if automaticAware, ok := prober.(interface {
+		ClientForAutomatic(context.Context, string, string, string) probe.Report
+	}); ok {
+		return automaticAware.ClientForAutomatic(ctx, preferred, outputPlatform, qtPlatform)
+	}
+	return remoteClientPreflight(ctx, prober, operation, preferred, outputPlatform, qtPlatform)
+}
+
+// discoverAutomaticStreamClient tries each native Moonlight selection in the
+// same order as the passive resolver. Every candidate must pass the exact live
+// stream preflight and then be discovered from the real environment before it
+// can be returned. The helper never starts a client and deliberately leaves
+// explicit selections outside this retry path.
+func discoverAutomaticStreamClient(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, outputPlatform, qtPlatform string) (remote.Client, probe.Report, string, bool) {
+	return discoverAutomaticStreamClientForFlavorExcluding(ctx, prober, environment, goos, outputPlatform, qtPlatform, "", "")
+}
+
+// discoverAutomaticStreamClientExcluding is the recovery form used after a
+// discovered client has failed the host application-list handshake. The
+// failed executable is excluded so automatic recovery actually gives another
+// installed native client a chance instead of immediately repeating the same
+// launcher. No process is started during this search.
+func discoverAutomaticStreamClientExcluding(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, outputPlatform, qtPlatform, excludedBinary string) (remote.Client, probe.Report, string, bool) {
+	return discoverAutomaticStreamClientForFlavorExcluding(ctx, prober, environment, goos, outputPlatform, qtPlatform, "", excludedBinary)
+}
+
+// discoverAutomaticStreamClientForFlavor tries the automatic native-client
+// order while requiring a particular Moonlight flavor. This is used when an
+// invocation-scoped option narrows the command surface, such as a Qt-only
+// decoder or display mode. Discovery remains passive and the flavor is
+// checked after resolution so generic package names and Linux Flatpak are
+// handled according to the actual discovered client.
+func discoverAutomaticStreamClientForFlavor(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, outputPlatform, qtPlatform string, requiredFlavor remote.Flavor) (remote.Client, probe.Report, string, bool) {
+	return discoverAutomaticStreamClientForFlavorExcluding(ctx, prober, environment, goos, outputPlatform, qtPlatform, requiredFlavor, "")
+}
+
+func discoverAutomaticStreamClientForFlavorExcluding(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, outputPlatform, qtPlatform string, requiredFlavor remote.Flavor, excludedBinary string) (remote.Client, probe.Report, string, bool) {
+	excludedBinary = strings.TrimSpace(excludedBinary)
+	for _, selection := range remote.AutomaticClientSelections(goos) {
+		candidatePreflight := remoteAutomaticClientPreflight(ctx, prober, remote.Stream, selection, outputPlatform, qtPlatform)
+		if !candidatePreflight.Ready() {
+			continue
+		}
+		candidate, err := remote.DiscoverAutomaticClientForPlatform(ctx, environment, selection, goos)
+		if err != nil {
+			continue
+		}
+		if requiredFlavor != "" && !streamClientFlavorMatches(requiredFlavor, candidate.Flavor) {
+			continue
+		}
+		if excludedBinary != "" && candidate.Binary == excludedBinary {
+			continue
+		}
+		return candidate, candidatePreflight, selection, true
+	}
+	return remote.Client{}, probe.Report{}, "", false
+}
+
+func streamClientFlavorMatches(required, actual remote.Flavor) bool {
+	if required == remote.FlavorQt {
+		return actual == remote.FlavorQt || actual == remote.FlavorFlatpak
+	}
+	return actual == required
+}
+
+// discoverAutomaticControlClient tries the supported Moonlight selections
+// for a control-plane operation such as application listing. It deliberately
+// uses ReadyForControl rather than the graphical/input gates required by a
+// live stream, then passively binds the executable before returning it.
+func discoverAutomaticControlClient(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos string) (remote.Client, probe.Report, string, bool) {
+	return discoverAutomaticControlClientExcluding(ctx, prober, environment, goos, "")
+}
+
+// discoverAutomaticControlClientExcluding is used after an automatic client
+// has failed a list operation. Excluding the failed executable prevents a
+// generic package alias from immediately resolving back to the same launcher.
+func discoverAutomaticControlClientExcluding(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, excludedBinary string) (remote.Client, probe.Report, string, bool) {
+	excludedBinary = strings.TrimSpace(excludedBinary)
+	for _, selection := range remote.AutomaticClientSelections(goos) {
+		candidatePreflight := remoteAutomaticClientPreflight(ctx, prober, remote.List, selection, "", "")
+		if !candidatePreflight.ReadyForControl() {
+			continue
+		}
+		candidate, err := remote.DiscoverAutomaticClientForPlatform(ctx, environment, selection, goos)
+		if err != nil {
+			continue
+		}
+		if excludedBinary != "" && candidate.Binary == excludedBinary {
+			continue
+		}
+		return candidate, candidatePreflight, selection, true
+	}
+	return remote.Client{}, probe.Report{}, "", false
 }
 
 // effectiveRemoteStreamClientSelection keeps the launcher's discovered flavor
@@ -924,6 +1292,13 @@ func (a *App) runRemoteMap(ctx context.Context, args []string) int {
 		return a.commandError("remote map", *asJSON, ExitUsage, "remote map accepts exactly one --input-device; repeat it only for remote stream")
 	}
 	inputDevice := inputDevices[0]
+	effectiveClientSelection := strings.ToLower(strings.TrimSpace(*clientSelection))
+	if effectiveClientSelection == "" || effectiveClientSelection == "auto" {
+		// Mapping is an Embedded-only local action. Resolve an automatic choice to
+		// Embedded before preflight and discovery instead of letting the normal
+		// Qt-first resolver produce a plan that cannot support `map`.
+		effectiveClientSelection = "moonlight-embedded"
+	}
 	if !eligibleClientPlatform(a.GOOS, a.GOARCH) {
 		return a.commandError("remote map", *asJSON, ExitBlocked, "local controller mapping targets Linux, FreeBSD, OpenBSD, or NetBSD on amd64/arm64, or DragonFly BSD on amd64; current host is %s/%s", a.GOOS, a.GOARCH)
 	}
@@ -937,7 +1312,7 @@ func (a *App) runRemoteMap(ctx context.Context, args []string) int {
 	if selectionAware, ok := prober.(interface {
 		ClientFor(context.Context, string) probe.Report
 	}); ok {
-		preflight = selectionAware.ClientFor(ctx, *clientSelection)
+		preflight = selectionAware.ClientFor(ctx, effectiveClientSelection)
 	} else {
 		preflight = prober.Run(ctx, probe.ProfileClient)
 	}
@@ -950,7 +1325,7 @@ func (a *App) runRemoteMap(ctx context.Context, args []string) int {
 	if environment == nil {
 		environment = remote.RealEnvironment{}
 	}
-	client, err := remote.DiscoverForPlatform(discoveryCtx, environment, *clientSelection, a.GOOS)
+	client, err := remote.DiscoverForPlatform(discoveryCtx, environment, effectiveClientSelection, a.GOOS)
 	if err != nil {
 		return a.commandError("remote map", *asJSON, ExitBlocked, "%v", err)
 	}
@@ -1295,10 +1670,93 @@ func validateRemoteInputMappingFile(path string) error {
 	if info.Size() > remoteInputMappingFileLimit {
 		return fmt.Errorf("input mapping %q exceeds the %d-byte limit", path, remoteInputMappingFileLimit)
 	}
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("input mapping %q cannot be opened: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("input mapping %q cannot be closed: %w", path, err)
+	}
 	return nil
 }
 
+const embeddedStreamMappingRequirement = "Moonlight Embedded needs a readable gamecontrollerdb.txt for a non-SDL stream; install the Moonlight data package, set --input-mapping to an existing SDL mapping file, set SDL_GAMECONTROLLERCONFIG, or use Moonlight Qt"
+
+// validateEmbeddedStreamMappingAvailability mirrors Moonlight Embedded's
+// current controller-database lookup. The selected client owns parsing and
+// using the file; LeagueBridge only prevents a known startup failure. The
+// default file is not subject to the explicit --input-mapping size limit,
+// because it is package-owned data and Moonlight is responsible for it.
+func validateEmbeddedStreamMappingAvailability(inputMapping, platform string) error {
+	if strings.TrimSpace(inputMapping) != "" {
+		return validateRemoteInputMappingFile(strings.TrimSpace(inputMapping))
+	}
+	if strings.EqualFold(strings.TrimSpace(platform), "sdl") || strings.TrimSpace(os.Getenv("SDL_GAMECONTROLLERCONFIG")) != "" {
+		return nil
+	}
+	for _, candidate := range moonlightEmbeddedMappingCandidates() {
+		if readableRegularFile(candidate) {
+			return nil
+		}
+	}
+	return errors.New(embeddedStreamMappingRequirement)
+}
+
+func moonlightEmbeddedMappingCandidates() []string {
+	const filename = "gamecontrollerdb.txt"
+	candidates := []string{filename}
+	appendRoot := func(root string) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return
+		}
+		candidates = append(candidates, filepath.Join(root, "moonlight", filename))
+	}
+
+	home := strings.TrimSpace(os.Getenv("HOME"))
+	if home == "" {
+		if resolved, err := os.UserHomeDir(); err == nil {
+			home = resolved
+		}
+	}
+	if home != "" {
+		appendRoot(home)
+		appendRoot(filepath.Join(home, ".config"))
+	}
+	appendRoot(os.Getenv("XDG_CONFIG_DIR"))
+	appendRoot(os.Getenv("XDG_CONFIG_HOME"))
+	appendRoot(os.Getenv("XDG_DATA_HOME"))
+
+	dataDirs := strings.TrimSpace(os.Getenv("XDG_DATA_DIRS"))
+	if dataDirs == "" {
+		for _, root := range []string{"/usr/share", "/usr/local/share"} {
+			appendRoot(root)
+		}
+		return candidates
+	}
+	for _, root := range filepath.SplitList(dataDirs) {
+		appendRoot(root)
+	}
+	return candidates
+}
+
+func readableRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	return file.Close() == nil
+}
+
 func validateRemoteInputDevice(path string) error {
+	return validateRemoteInputDeviceWithFlags(path, os.O_RDWR|syscall.O_NONBLOCK, "read/write")
+}
+
+func validateRemoteInputDeviceWithFlags(path string, flags int, access string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("input device %q cannot be read: %w", path, err)
@@ -1306,12 +1764,16 @@ func validateRemoteInputDevice(path string) error {
 	if info.Mode()&os.ModeCharDevice == 0 {
 		return fmt.Errorf("input device %q is not a character device", path)
 	}
-	// Opening with O_NONBLOCK verifies the permission that Moonlight will need
-	// without risking a startup hang on a device node. Keep the handle open only
-	// for this check; Moonlight owns the actual device lifetime during a stream.
-	device, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	// Opening with O_NONBLOCK verifies the permission that the selected
+	// Moonlight operation will need without risking a startup hang on a device
+	// node. Keep the handle open only for this check; Moonlight owns the actual
+	// device lifetime during mapping or streaming. O_RDWR requests permission
+	// only; this code never writes to the device. The upstream `map` action
+	// invokes evdev_create before its later read-only mapping open, so mapping
+	// uses the same conservative permission check.
+	device, err := os.OpenFile(path, flags, 0)
 	if err != nil {
-		return fmt.Errorf("input device %q cannot be opened for read: %w", path, err)
+		return fmt.Errorf("input device %q cannot be opened for %s: %w", path, access, err)
 	}
 	_ = device.Close()
 	return nil

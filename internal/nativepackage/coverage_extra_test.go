@@ -15,7 +15,11 @@ func TestVerifyStagingRootAcceptsCompleteTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stagingPath := t.TempDir()
+	containerPath := t.TempDir()
+	stagingPath := filepath.Join(containerPath, "staging")
+	if err := os.Mkdir(stagingPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	packageRoot := filepath.Join(stagingPath, "root")
 	if err := os.Mkdir(packageRoot, 0o755); err != nil {
 		t.Fatal(err)
@@ -46,7 +50,12 @@ func TestVerifyStagingRootAcceptsCompleteTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := os.OpenRoot(stagingPath)
+	parent, err := os.OpenRoot(containerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	root, err := parent.OpenRoot("staging")
 	if err != nil {
 		t.Fatal(err)
 	}

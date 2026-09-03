@@ -33,6 +33,7 @@ type scriptedProber struct {
 	profiles         []probe.Profile
 	contexts         []context.Context
 	clientSelections []string
+	beforeClient     func(string)
 }
 
 type streamAwareScriptedProber struct {
@@ -54,6 +55,9 @@ func (p *scriptedProber) Run(ctx context.Context, profile probe.Profile) probe.R
 
 func (p *scriptedProber) ClientFor(ctx context.Context, preferred string) probe.Report {
 	p.clientSelections = append(p.clientSelections, preferred)
+	if p.beforeClient != nil {
+		p.beforeClient(preferred)
+	}
 	if report, ok := p.clientReports[preferred]; ok {
 		return report
 	}
@@ -212,7 +216,9 @@ func useRealRemoteFixture(t *testing.T, a *App) string {
 	if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Keep launcher discovery hermetic: an installed host Flatpak or another
+	// Moonlight binary must not change the fallback path under test.
+	t.Setenv("PATH", directory)
 	a.RemoteEnv = remote.RealEnvironment{}
 	return path
 }
@@ -1461,6 +1467,31 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 	})
 
+	t.Run("automatic unpair selects Embedded", func(t *testing.T) {
+		a, out, errOut, prober, runner := newTestApp(t)
+		directory := t.TempDir()
+		fileName := "moonlight-embedded"
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		moonlightPath := filepath.Join(directory, fileName)
+		if err := os.WriteFile(moonlightPath, []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+		a.RemoteEnv = remote.RealEnvironment{}
+		args := []string{"remote", "unpair", "--host", "gaming-pc.local", "--confirm-physical-host"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if runner.called != 1 || runner.name != moonlightPath || !reflect.DeepEqual(runner.args, []string{"unpair", "gaming-pc.local"}) {
+			t.Fatalf("runner=%+v; want one Embedded unpair operation", runner)
+		}
+		if !reflect.DeepEqual(prober.clientSelections, []string{"moonlight-embedded"}) {
+			t.Fatalf("client selections=%#v; want the Embedded operation-specific selection", prober.clientSelections)
+		}
+	})
+
 	t.Run("quit terminates a remote application with the control timeout", func(t *testing.T) {
 		a, out, errOut, _, runner := newTestApp(t)
 		moonlightPath := useRealRemoteFixture(t, a)
@@ -1502,6 +1533,36 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "Validated argument vector") || runner.called != 0 {
 			t.Fatalf("stdout=%q stderr=%q runner.called=%d", out.String(), errOut.String(), runner.called)
+		}
+	})
+
+	t.Run("play alias applies the League session defaults", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		args := []string{"remote", "play", "--host", "gaming-pc.local", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; output=%q", code, out.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		arguments := plan["arguments"].([]any)
+		want := []any{"stream", "-1080", "-fps", "60", "-bitrate", "20000", "-packet-size", "1392", "-video-codec", "H.264", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}
+		if envelope.Command != "remote play" || !reflect.DeepEqual(arguments, want) || runner.called != 0 {
+			t.Fatalf("envelope=%+v arguments=%#v runner.called=%d; want the guarded stream defaults and no process", envelope, arguments, runner.called)
+		}
+	})
+
+	t.Run("play alias preserves explicit quality overrides", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		args := []string{"remote", "play", "--host", "gaming-pc.local", "--resolution", "1440", "--fps", "120", "--bitrate", "30000", "--packet-size", "1408", "--codec", "hevc", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; output=%q", code, out.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		arguments := plan["arguments"].([]any)
+		want := []any{"stream", "-1440", "-fps", "120", "-bitrate", "30000", "-packet-size", "1408", "-video-codec", "HEVC", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}
+		if !reflect.DeepEqual(arguments, want) || runner.called != 0 {
+			t.Fatalf("arguments=%#v runner.called=%d; want explicit overrides and no process", arguments, runner.called)
 		}
 	})
 
@@ -2226,8 +2287,102 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 	})
 }
 
+func TestRemoteEmbeddedStreamRequiresControllerMapping(t *testing.T) {
+	t.Chdir(t.TempDir())
+	a, _, errOut, _, runner := newTestApp(t)
+	a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
+	t.Setenv("HOME", t.TempDir())
+	for _, name := range []string{"SDL_GAMECONTROLLERCONFIG", "XDG_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS"} {
+		t.Setenv(name, "")
+	}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--client", "moonlight-embedded", "--host", "gaming-pc.local",
+		"--confirm-physical-host", "--acknowledge-unverified-handoff",
+	})
+	if code != ExitBlocked || runner.called != 0 {
+		t.Fatalf("code=%d stderr=%q runner.called=%d; want early mapping block and no process", code, errOut.String(), runner.called)
+	}
+	if !strings.Contains(errOut.String(), "gamecontrollerdb.txt") || !strings.Contains(errOut.String(), "--input-mapping") {
+		t.Fatalf("stderr=%q; want actionable controller-mapping guidance", errOut.String())
+	}
+}
+
+func TestEmbeddedStreamMappingAvailability(t *testing.T) {
+	t.Chdir(t.TempDir())
+	resetEnvironment := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("HOME", t.TempDir())
+		for _, name := range []string{"SDL_GAMECONTROLLERCONFIG", "XDG_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_DATA_DIRS"} {
+			t.Setenv(name, "")
+		}
+	}
+
+	t.Run("missing mapping is rejected for non-SDL streams", func(t *testing.T) {
+		resetEnvironment(t)
+		err := validateEmbeddedStreamMappingAvailability("", "auto")
+		if err == nil || !strings.Contains(err.Error(), "gamecontrollerdb.txt") {
+			t.Fatalf("error=%v; want missing mapping error", err)
+		}
+	})
+
+	t.Run("explicit SDL backend does not require the database", func(t *testing.T) {
+		resetEnvironment(t)
+		if err := validateEmbeddedStreamMappingAvailability("", "sdl"); err != nil {
+			t.Fatalf("unexpected SDL mapping error: %v", err)
+		}
+	})
+
+	t.Run("environment mapping does not require a file path", func(t *testing.T) {
+		resetEnvironment(t)
+		t.Setenv("SDL_GAMECONTROLLERCONFIG", "030000005e0400008e02000000000000,Example Controller")
+		if err := validateEmbeddedStreamMappingAvailability("", "x11"); err != nil {
+			t.Fatalf("unexpected environment mapping error: %v", err)
+		}
+	})
+
+	t.Run("home package data is discovered", func(t *testing.T) {
+		resetEnvironment(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		mappingDir := filepath.Join(home, "moonlight")
+		if err := os.MkdirAll(mappingDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(mappingDir, "gamecontrollerdb.txt"), []byte("fixture"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateEmbeddedStreamMappingAvailability("", "x11"); err != nil {
+			t.Fatalf("unexpected package mapping error: %v", err)
+		}
+	})
+
+	t.Run("explicit mapping is opened and bounded", func(t *testing.T) {
+		resetEnvironment(t)
+		mapping := filepath.Join(t.TempDir(), "mapping.txt")
+		if err := os.WriteFile(mapping, []byte("fixture"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateEmbeddedStreamMappingAvailability(mapping, "x11"); err != nil {
+			t.Fatalf("unexpected explicit mapping error: %v", err)
+		}
+	})
+
+	t.Run("missing explicit mapping is rejected", func(t *testing.T) {
+		resetEnvironment(t)
+		mapping := filepath.Join(t.TempDir(), "missing.txt")
+		err := validateEmbeddedStreamMappingAvailability(mapping, "x11")
+		if err == nil || !strings.Contains(err.Error(), "cannot be read") {
+			t.Fatalf("error=%v; want explicit mapping read error", err)
+		}
+	})
+}
+
 func TestRemoteStreamAutomaticallyFallsBackToReadyNativeClient(t *testing.T) {
 	a, out, errOut, prober, runner := newTestApp(t)
+	// The fake runner does not provide Moonlight's package-owned mapping data;
+	// model the environment variable that makes Embedded accept its input path.
+	t.Setenv("SDL_GAMECONTROLLERCONFIG", "fixture-controller-map")
 	directory := t.TempDir()
 	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
 		fileName := clientName
@@ -2266,6 +2421,499 @@ func TestRemoteStreamAutomaticallyFallsBackToReadyNativeClient(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "stream output") {
 		t.Fatalf("stdout=%q; want stream output", out.String())
+	}
+}
+
+func TestRemoteStreamAutomaticQtSelectionUsesFlatpakWhenNativeQtIsMissing(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	directory := t.TempDir()
+	flatpakName := "flatpak"
+	if runtime.GOOS == "windows" {
+		flatpakName += ".exe"
+	}
+	flatpakPath := filepath.Join(directory, flatpakName)
+	a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"flatpak": flatpakPath}}
+	blockedQt := readyClientReport()
+	blockedQt.Status = probe.StatusFail
+	blockedQt.Checks[3].Status = probe.StatusFail
+	prober.clientReports = map[string]probe.Report{
+		"moonlight-qt":       blockedQt,
+		"moonlight-embedded": readyClientReport(),
+		"moonlight":          readyClientReport(),
+		"flatpak":            readyClientReport(),
+	}
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff", "--decoder", "software", "--dry-run", "--json",
+	})
+	if code != ExitOK || runner.called != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d selections=%#v; want a Flatpak dry-run plan", code, out.String(), errOut.String(), runner.called, prober.clientSelections)
+	}
+	if !strings.Contains(out.String(), `"flavor": "moonlight-flatpak"`) || !strings.Contains(out.String(), `"binary":`) || !strings.Contains(out.String(), flatpakName) {
+		t.Fatalf("stdout=%q; want the discovered Flatpak client", out.String())
+	}
+	if !strings.Contains(out.String(), `"-video-decoder"`) || !strings.Contains(out.String(), `"software"`) {
+		t.Fatalf("stdout=%q; want the Qt-only decoder option", out.String())
+	}
+	if !strings.Contains(out.String(), "automatic Moonlight selection used flatpak") {
+		t.Fatalf("stdout=%q; want Flatpak selection warning", out.String())
+	}
+}
+
+func TestAutomaticFallbackKeepsLinuxGenericMoonlightQtFlavor(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name string
+		find func(context.Context, ProbeRunner, remote.Environment, string) (remote.Client, probe.Report, string, bool)
+	}{
+		{
+			name: "stream",
+			find: func(ctx context.Context, prober ProbeRunner, environment remote.Environment, excluded string) (remote.Client, probe.Report, string, bool) {
+				return discoverAutomaticStreamClientForFlavorExcluding(ctx, prober, environment, "linux", "", "", remote.FlavorQt, excluded)
+			},
+		},
+		{
+			name: "control",
+			find: func(ctx context.Context, prober ProbeRunner, environment remote.Environment, excluded string) (remote.Client, probe.Report, string, bool) {
+				return discoverAutomaticControlClientExcluding(ctx, prober, environment, "linux", excluded)
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			blocked := readyClientReport()
+			blocked.Status = probe.StatusFail
+			blocked.Checks[0].Status = probe.StatusFail
+			prober := &scriptedProber{
+				clientReports: map[string]probe.Report{
+					"moonlight-qt":       readyClientReport(),
+					"moonlight-embedded": blocked,
+					"moonlight":          readyClientReport(),
+				},
+			}
+			environment := fakeRemoteEnvironment{paths: map[string]string{
+				"moonlight-qt":       "/fixture/preferred-qt",
+				"moonlight-embedded": "/fixture/embedded",
+				"moonlight":          "/fixture/generic-qt",
+			}}
+			client, _, selection, found := tt.find(context.Background(), prober, environment, "/fixture/preferred-qt")
+			if !found {
+				t.Fatalf("automatic fallback did not find the generic Qt candidate; selections=%#v", prober.clientSelections)
+			}
+			if client.Binary != "/fixture/generic-qt" || client.Flavor != remote.FlavorQt || selection != "moonlight" {
+				t.Fatalf("client=%+v selection=%q; want generic binary classified as Qt", client, selection)
+			}
+			if !reflect.DeepEqual(prober.clientSelections, []string{"moonlight-qt", "moonlight-embedded", "moonlight"}) {
+				t.Fatalf("client selections=%#v; want distinct generic candidate after preferred Qt", prober.clientSelections)
+			}
+		})
+	}
+}
+
+func TestRemoteStreamRetriesAutomaticDiscoveryAfterTransientLookupFailure(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	t.Setenv("SDL_GAMECONTROLLERCONFIG", "fixture-controller-map")
+	directory := t.TempDir()
+	setExecutable := func() {
+		fileName := "moonlight-embedded"
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The initial automatic preflight is intentionally optimistic in this
+	// fixture. The client appears on PATH only while the fallback is probing the
+	// first explicit candidate, modeling a package/PATH change between preflight
+	// and passive discovery.
+	prober.beforeClient = func(selection string) {
+		if selection == "moonlight-qt" {
+			setExecutable()
+		}
+	}
+	t.Setenv("PATH", directory)
+	a.RemoteEnv = remote.RealEnvironment{}
+	prober.clientReports = map[string]probe.Report{
+		"auto":               readyClientReport(),
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.outputs = []string{"League of Legends\n", "stream output\n"}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff",
+	})
+	if code != ExitOK || runner.called != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want application preflight plus stream execution", code, out.String(), errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+		t.Fatalf("client selections=%#v; want automatic discovery retry sequence", prober.clientSelections)
+	}
+	if !strings.Contains(errOut.String(), "automatic Moonlight selection used moonlight-embedded") {
+		t.Fatalf("stderr=%q; want fallback warning", errOut.String())
+	}
+	if !strings.Contains(out.String(), "stream output") {
+		t.Fatalf("stdout=%q; want stream output", out.String())
+	}
+}
+
+func TestRemoteStreamRetriesAutomaticClientAfterApplicationListFailure(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	t.Setenv("SDL_GAMECONTROLLERCONFIG", "fixture-controller-map")
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	prober.clientReports = map[string]probe.Report{
+		"auto":               readyClientReport(),
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.results = []error{errors.New("Qt application-list handshake failed"), nil, nil}
+	runner.outputs = []string{"", "League of Legends\n", "stream output\n"}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff",
+	})
+	if code != ExitOK || runner.called != 3 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want failed Qt list, Embedded list, and stream", code, out.String(), errOut.String(), runner.called)
+	}
+	wantHistory := [][]string{
+		{"list", "gaming-pc.local"},
+		{"list", "gaming-pc.local"},
+		{"stream", "-app", config.DefaultRemoteApplication, "gaming-pc.local"},
+	}
+	if !reflect.DeepEqual(runner.argsHistory, wantHistory) {
+		t.Fatalf("runner.argsHistory=%#v; want %#v", runner.argsHistory, wantHistory)
+	}
+	if !strings.Contains(errOut.String(), "failed the host application-list preflight") {
+		t.Fatalf("stderr=%q; want automatic client recovery warning", errOut.String())
+	}
+	if !strings.Contains(out.String(), "stream output") {
+		t.Fatalf("stdout=%q; want stream output", out.String())
+	}
+}
+
+func TestRemoteStreamRetriesAutomaticClientAfterReconnectListFailure(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	t.Setenv("SDL_GAMECONTROLLERCONFIG", "fixture-controller-map")
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	prober.clientReports = map[string]probe.Report{
+		"auto":               readyClientReport(),
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.results = []error{
+		nil,
+		errors.New("preferred stream failed"),
+		errors.New("preferred reconnect application-list failed"),
+		nil,
+		nil,
+	}
+	runner.outputs = []string{"League of Legends\n", "", "", "League of Legends\n", "stream output\n"}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff", "--reconnect-attempts", "1", "--reconnect-delay", "0",
+	})
+	if code != ExitOK || runner.called != 5 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want initial list, failed stream, failed reconnect list, fallback list, and stream", code, out.String(), errOut.String(), runner.called)
+	}
+	wantFallbackStream := []string{"stream", "-app", config.DefaultRemoteApplication, "gaming-pc.local"}
+	if !reflect.DeepEqual(runner.argsHistory[4], wantFallbackStream) {
+		t.Fatalf("reconnect stream args=%#v; want Embedded stream args %#v", runner.argsHistory[4], wantFallbackStream)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+		t.Fatalf("client selections=%#v; want one bounded fallback after reconnect-list failure", prober.clientSelections)
+	}
+	if !strings.Contains(errOut.String(), "failed the host application-list preflight") {
+		t.Fatalf("stderr=%q; want reconnect fallback warning", errOut.String())
+	}
+	if !strings.Contains(out.String(), "stream output") {
+		t.Fatalf("stdout=%q; want recovered stream output", out.String())
+	}
+}
+
+func TestRemoteStreamDoesNotReplaceAutomaticClientAfterMissingApplication(t *testing.T) {
+	a, _, errOut, prober, runner := newTestApp(t)
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	prober.clientReports = map[string]probe.Report{
+		"auto":               readyClientReport(),
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.output = "Desktop\nSteam\n"
+
+	code := a.Run(context.Background(), []string{
+		"remote", "stream", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--acknowledge-unverified-handoff",
+	})
+	if code != ExitBlocked || runner.called != 1 {
+		t.Fatalf("code=%d stderr=%q runner.called=%d; want one blocked list preflight", code, errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto"}) {
+		t.Fatalf("client selections=%#v; a successful list without the requested app must not trigger client replacement", prober.clientSelections)
+	}
+	if !strings.Contains(errOut.String(), "no stream was started") {
+		t.Fatalf("stderr=%q; want fail-closed missing-application result", errOut.String())
+	}
+}
+
+func TestRemoteListRetriesAutomaticClientAfterExecutionFailure(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	prober.clientReports = map[string]probe.Report{
+		"auto":               readyClientReport(),
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.results = []error{errors.New("Qt application-list operation failed"), nil}
+	runner.outputs = []string{"", "League of Legends\n"}
+
+	code := a.Run(context.Background(), []string{
+		"remote", "list", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--require-app", "League of Legends",
+	})
+	if code != ExitOK || runner.called != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want failed Qt list followed by Embedded list", code, out.String(), errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+		t.Fatalf("client selections=%#v; want automatic control fallback sequence", prober.clientSelections)
+	}
+	if !strings.Contains(errOut.String(), "failed the application-list operation") {
+		t.Fatalf("stderr=%q; want automatic client recovery warning", errOut.String())
+	}
+	if !strings.Contains(out.String(), "League of Legends") {
+		t.Fatalf("stdout=%q; want the successful listing", out.String())
+	}
+}
+
+func TestRemoteListAutomaticallyFallsBackWhenControlPreflightBlocksPreferredClient(t *testing.T) {
+	a, out, errOut, prober, runner := newTestApp(t)
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	blocked := readyClientReport()
+	blocked.Status = probe.StatusFail
+	blocked.Checks[0].Status = probe.StatusFail
+	prober.clientReports = map[string]probe.Report{
+		"auto":               blocked,
+		"moonlight-qt":       blocked,
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.output = "Desktop\nLeague of Legends\n"
+
+	code := a.Run(context.Background(), []string{
+		"remote", "list", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--require-app", "League of Legends",
+	})
+	if code != ExitOK || runner.called != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want one Embedded list operation", code, out.String(), errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+		t.Fatalf("client selections=%#v; want control-preflight fallback sequence", prober.clientSelections)
+	}
+	if !strings.Contains(errOut.String(), "used moonlight-embedded after the preferred automatic client could not be used for application listing") {
+		t.Fatalf("stderr=%q; want preflight fallback warning", errOut.String())
+	}
+}
+
+func TestRemoteListDoesNotReplaceAutomaticClientAfterMissingApplication(t *testing.T) {
+	a, _, errOut, prober, runner := newTestApp(t)
+	directory := t.TempDir()
+	for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+		fileName := clientName
+		if runtime.GOOS == "windows" {
+			fileName += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(directory, fileName), []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.RemoteEnv = remote.RealEnvironment{}
+	prober.clientReports = map[string]probe.Report{
+		"auto":               readyClientReport(),
+		"moonlight-qt":       readyClientReport(),
+		"moonlight-embedded": readyClientReport(),
+	}
+	runner.output = "Desktop\nSteam\n"
+
+	code := a.Run(context.Background(), []string{
+		"remote", "list", "--host", "gaming-pc.local", "--confirm-physical-host",
+		"--require-app", "League of Legends",
+	})
+	if code != ExitBlocked || runner.called != 1 {
+		t.Fatalf("code=%d stderr=%q runner.called=%d; want one blocked list operation", code, errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto"}) {
+		t.Fatalf("client selections=%#v; a successful list without the requested app must not trigger client replacement", prober.clientSelections)
+	}
+	if !strings.Contains(errOut.String(), "was not advertised") {
+		t.Fatalf("stderr=%q; want fail-closed missing-application result", errOut.String())
+	}
+}
+
+func TestRemoteControlRetriesAutomaticClientAfterExecutionFailure(t *testing.T) {
+	for _, operation := range []string{"pair", "quit"} {
+		t.Run(operation, func(t *testing.T) {
+			a, out, errOut, prober, runner := newTestApp(t)
+			directory := t.TempDir()
+			paths := make(map[string]string)
+			for _, clientName := range []string{"moonlight-qt", "moonlight-embedded"} {
+				fileName := clientName
+				if runtime.GOOS == "windows" {
+					fileName += ".exe"
+				}
+				path := filepath.Join(directory, fileName)
+				if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				paths[clientName] = path
+			}
+			t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+			a.RemoteEnv = remote.RealEnvironment{}
+			prober.clientReports = map[string]probe.Report{
+				"auto":               readyClientReport(),
+				"moonlight-qt":       readyClientReport(),
+				"moonlight-embedded": readyClientReport(),
+			}
+			runner.results = []error{errors.New("preferred control operation failed"), nil}
+
+			code := a.Run(context.Background(), []string{
+				"remote", operation, "--host", "gaming-pc.local", "--confirm-physical-host",
+			})
+			if code != ExitOK || runner.called != 2 {
+				t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want failed preferred %s followed by Embedded retry", code, out.String(), errOut.String(), runner.called, operation)
+			}
+			if runner.name != paths["moonlight-embedded"] || !reflect.DeepEqual(runner.argsHistory, [][]string{{operation, "gaming-pc.local"}, {operation, "gaming-pc.local"}}) {
+				t.Fatalf("runner name=%q args=%#v; want Embedded retry with fixed %s argv", runner.name, runner.argsHistory, operation)
+			}
+			if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+				t.Fatalf("client selections=%#v; want automatic control fallback sequence", prober.clientSelections)
+			}
+			if !strings.Contains(errOut.String(), "failed the "+operation+" operation") {
+				t.Fatalf("stderr=%q; want automatic client recovery warning", errOut.String())
+			}
+		})
+	}
+}
+
+func TestRemoteControlFallsBackWhenAutomaticPreflightBlocksPreferred(t *testing.T) {
+	for _, operation := range []string{"pair", "quit"} {
+		t.Run(operation, func(t *testing.T) {
+			a, out, errOut, prober, runner := newTestApp(t)
+			directory := t.TempDir()
+			embeddedName := "moonlight-embedded"
+			qtName := "moonlight-qt"
+			if runtime.GOOS == "windows" {
+				embeddedName += ".exe"
+				qtName += ".exe"
+			}
+			embeddedPath := filepath.Join(directory, embeddedName)
+			qtPath := filepath.Join(directory, qtName)
+			for _, path := range []string{embeddedPath, qtPath} {
+				if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+			a.RemoteEnv = remote.RealEnvironment{}
+			blocked := readyClientReport()
+			blocked.Status = probe.StatusFail
+			blocked.Checks[0].Status = probe.StatusFail
+			prober.clientReports = map[string]probe.Report{
+				"auto":               blocked,
+				"moonlight-qt":       blocked,
+				"moonlight-embedded": readyClientReport(),
+			}
+
+			code := a.Run(context.Background(), []string{
+				"remote", operation, "--host", "gaming-pc.local", "--confirm-physical-host",
+			})
+			if code != ExitOK || runner.called != 1 {
+				t.Fatalf("code=%d stdout=%q stderr=%q runner.called=%d; want one Embedded %s operation", code, out.String(), errOut.String(), runner.called, operation)
+			}
+			if runner.name != embeddedPath || !reflect.DeepEqual(runner.args, []string{operation, "gaming-pc.local"}) {
+				t.Fatalf("runner name=%q args=%#v; want Embedded %s argv", runner.name, runner.args, operation)
+			}
+			if !reflect.DeepEqual(prober.clientSelections, []string{"auto", "moonlight-qt", "moonlight-embedded"}) {
+				t.Fatalf("client selections=%#v; want automatic preflight fallback sequence", prober.clientSelections)
+			}
+			if !strings.Contains(errOut.String(), "could not be used for "+operation+" operation") {
+				t.Fatalf("stderr=%q; want operation-specific preflight warning", errOut.String())
+			}
+		})
+	}
+}
+
+func TestRemoteControlDoesNotFallbackAfterCancellation(t *testing.T) {
+	a, _, errOut, prober, runner := newTestApp(t)
+	useRealRemoteFixture(t, a)
+	runner.results = []error{context.Canceled}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	code := a.Run(ctx, []string{
+		"remote", "pair", "--host", "gaming-pc.local", "--confirm-physical-host",
+	})
+	if code != ExitBlocked || runner.called != 0 {
+		t.Fatalf("code=%d stderr=%q runner.called=%d; want cancellation to stop before operation execution", code, errOut.String(), runner.called)
+	}
+	if !reflect.DeepEqual(prober.clientSelections, []string{"auto"}) {
+		t.Fatalf("client selections=%#v; cancellation must not probe a fallback client", prober.clientSelections)
 	}
 }
 
@@ -2308,6 +2956,9 @@ func TestEffectiveRemoteStreamClientSelectionHonorsOptionSurface(t *testing.T) {
 		{name: "Embedded input", options: remote.StreamOptions{InputDevice: "/dev/input/event4"}, wantClient: "moonlight-embedded"},
 		{name: "Qt mouse mode", options: remote.StreamOptions{MouseMode: "relative"}, wantClient: "moonlight-qt"},
 		{name: "Embedded platform", options: remote.StreamOptions{Platform: "sdl"}, wantClient: "moonlight-embedded"},
+		{name: "shared fullscreen mode", options: remote.StreamOptions{DisplayMode: "fullscreen"}, wantClient: "auto"},
+		{name: "Qt borderless", options: remote.StreamOptions{DisplayMode: "borderless"}, wantClient: "moonlight-qt"},
+		{name: "shared windowed mode", options: remote.StreamOptions{DisplayMode: "windowed"}, wantClient: "auto"},
 		{name: "HDR is shared", options: remote.StreamOptions{HDR: true}, wantClient: "auto"},
 	}
 	for _, tt := range tests {
@@ -2905,7 +3556,7 @@ func TestRemoteErrorsAndSafetyGates(t *testing.T) {
 		want     string
 		json     bool
 	}{
-		{name: "missing subcommand", args: []string{"remote"}, wantCode: ExitUsage, want: "expected map, kvm, wake, pair, unpair, list, stream, or quit"},
+		{name: "missing subcommand", args: []string{"remote"}, wantCode: ExitUsage, want: "expected map, kvm, wake, pair, unpair, list, play, stream, or quit"},
 		{name: "unknown subcommand", args: []string{"remote", "shell"}, wantCode: ExitUsage, want: "unknown subcommand"},
 		{name: "unexpected argument", args: []string{"remote", "pair", "extra"}, wantCode: ExitUsage, want: "unexpected arguments"},
 		{name: "unknown route", args: []string{"remote", "pair", "--route", "darwin", "--dry-run"}, wantCode: ExitUsage, want: "route must be windows or macos"},
@@ -3110,6 +3761,18 @@ func TestRemoteMapIsLocalEmbeddedOnly(t *testing.T) {
 	if runner.called != 0 || !reflect.DeepEqual(prober.clientSelections, []string{"moonlight-embedded"}) {
 		t.Fatalf("runner.called=%d clientSelections=%#v", runner.called, prober.clientSelections)
 	}
+
+	t.Run("automatic selection resolves Embedded", func(t *testing.T) {
+		a, out, errOut, prober, runner := newTestApp(t)
+		a.RemoteEnv = fakeRemoteEnvironment{paths: map[string]string{"moonlight-embedded": "/fixture/moonlight-embedded"}}
+		args := []string{"remote", "map", "--client", "auto", "--input-device", "/dev/input/event4", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		if runner.called != 0 || !reflect.DeepEqual(prober.clientSelections, []string{"moonlight-embedded"}) {
+			t.Fatalf("runner.called=%d clientSelections=%#v; want no execution and Embedded selection", runner.called, prober.clientSelections)
+		}
+	})
 }
 
 func TestRemoteMapRejectsUnsupportedClientAndMissingDevice(t *testing.T) {

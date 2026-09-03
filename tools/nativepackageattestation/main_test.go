@@ -28,11 +28,14 @@ func TestBuildInventoriesVerifiedPackageStagingAndInstallEvidence(t *testing.T) 
 	if document.Execution.Package.Version != "v1.2.3" || document.Execution.Package.Family != string(nativepackage.FamilyDebian) || document.Execution.Package.Format != "deb" {
 		t.Fatalf("package identity = %+v", document.Execution.Package)
 	}
+	if document.Execution.Package.Filename != "leaguebridge_1.2.3~ci_amd64.deb" {
+		t.Fatalf("Debian package filename = %q; want a Debian epoch-safe filename with tilde", document.Execution.Package.Filename)
+	}
 	roles := map[string]int{}
 	for _, item := range document.Subjects {
 		roles[item.Role]++
 	}
-	if roles["package"] != 1 || roles["staging-manifest"] != 1 || roles["staging-payload"] != 5 || roles["package-install-evidence"] != 1 {
+	if roles["package"] != 1 || roles["staging-manifest"] != 1 || roles["staging-payload"] != 7 || roles["package-install-evidence"] != 1 {
 		t.Fatalf("subject roles = %+v", roles)
 	}
 	data, err := marshal(document)
@@ -84,6 +87,13 @@ func TestLoadDocumentRejectsPackagePromotionFields(t *testing.T) {
 func TestValidateSetShapeRequiresCompleteNativePackageSet(t *testing.T) {
 	if err := validateSetShape(nil); err == nil || !strings.Contains(err.Error(), "exactly 6") {
 		t.Fatalf("incomplete package set error = %v; want exact six-subject requirement", err)
+	}
+}
+
+func TestExpectedExecutionUsesDragonFlyPackageJob(t *testing.T) {
+	job, runner, architecture, hostClass := expectedExecution(target{GOOS: "dragonfly", GOARCH: "amd64"}, string(nativepackage.FamilyDPorts))
+	if job != "dragonfly-native-package" || runner != "Linux" || architecture != "X64" || hostClass != "virtualized" {
+		t.Fatalf("DragonFly package execution = %q/%q/%q/%q", job, runner, architecture, hostClass)
 	}
 }
 
@@ -175,7 +185,9 @@ func createPackageFixture(t *testing.T, name, goos, goarch string, family native
 	stagingDir := filepath.ToSlash(filepath.Join("staging", name))
 	packageDir := filepath.ToSlash(filepath.Join("packages", name))
 	packageFilename := "leaguebridge-1.2.3." + format
-	if format == "pkg" {
+	if family == nativepackage.FamilyDebian {
+		packageFilename = "leaguebridge_1.2.3~ci_amd64.deb"
+	} else if format == "pkg" {
 		packageFilename = "leaguebridge-1.2.3.pkg"
 	}
 	packagePath := filepath.ToSlash(filepath.Join(packageDir, packageFilename))

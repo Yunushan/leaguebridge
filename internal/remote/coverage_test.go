@@ -131,6 +131,39 @@ func TestDefaultMoonlightFlavorUsesPlatformConvention(t *testing.T) {
 	}
 }
 
+func TestDiscoverAutomaticGenericMoonlightUsesPlatformConvention(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		goos       string
+		wantFlavor Flavor
+	}{
+		{goos: "linux", wantFlavor: FlavorQt},
+		{goos: "openbsd", wantFlavor: FlavorQt},
+		{goos: "netbsd", wantFlavor: FlavorQt},
+		{goos: "freebsd", wantFlavor: FlavorEmbedded},
+		{goos: "dragonfly", wantFlavor: FlavorEmbedded},
+	} {
+		t.Run(tt.goos, func(t *testing.T) {
+			t.Parallel()
+			client, err := DiscoverAutomaticClientForPlatform(
+				context.Background(),
+				passiveEnv{paths: map[string]string{
+					"moonlight-qt":       "/opt/distinct-qt",
+					"moonlight-embedded": "/opt/embedded",
+					"moonlight":          "/opt/generic",
+				}},
+				"moonlight", tt.goos,
+			)
+			if err != nil {
+				t.Fatalf("DiscoverAutomaticClientForPlatform(): %v", err)
+			}
+			if client.Binary != "/opt/generic" || client.Flavor != tt.wantFlavor {
+				t.Fatalf("client = %+v, want generic binary with flavor %q", client, tt.wantFlavor)
+			}
+		})
+	}
+}
+
 func TestBuildPlanPairAndListVariants(t *testing.T) {
 	tests := []struct {
 		name      string

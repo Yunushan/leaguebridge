@@ -20,8 +20,14 @@ type systemFileSystem struct{}
 
 func (systemFileSystem) Stat(name string) (fs.FileInfo, error) { return os.Lstat(name) }
 
+func (systemFileSystem) StatResolved(name string) (fs.FileInfo, error) { return os.Stat(name) }
+
 func (systemFileSystem) OpenRead(name string) (io.Closer, error) {
 	return os.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+}
+
+func (systemFileSystem) OpenReadWrite(name string) (io.Closer, error) {
+	return os.OpenFile(name, os.O_RDWR|syscall.O_NONBLOCK, 0)
 }
 
 type systemEnvironment struct{}

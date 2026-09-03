@@ -22,7 +22,28 @@ if [ -L "$binary" ] || [ ! -f "$binary" ] || [ ! -x "$binary" ]; then
   exit 2
 fi
 
+if [ -L "$evidence_dir" ] || { [ -e "$evidence_dir" ] && [ ! -d "$evidence_dir" ]; }; then
+  echo "linux-runtime-smoke: evidence path is not a real directory" >&2
+  exit 1
+fi
 mkdir -p "$evidence_dir"
+if [ -L "$evidence_dir" ] || [ ! -d "$evidence_dir" ]; then
+  echo "linux-runtime-smoke: evidence path changed into a non-directory after creation" >&2
+  exit 1
+fi
+for output in \
+  kernel.txt \
+  version.json \
+  status.json \
+  readiness.json \
+  manifest-verify.json \
+  doctor.json \
+  result.txt; do
+  if [ -e "$evidence_dir/$output" ] || [ -L "$evidence_dir/$output" ]; then
+    echo "linux-runtime-smoke: refusing to overwrite existing evidence output: $evidence_dir/$output" >&2
+    exit 1
+  fi
+done
 
 actual_uname=$(uname -s)
 if [ "$actual_uname" != Linux ]; then
@@ -30,11 +51,26 @@ if [ "$actual_uname" != Linux ]; then
   exit 1
 fi
 
-case "$(uname -m)" in
+runtime_machine=$(uname -m)
+case "$runtime_machine" in
   x86_64|amd64) actual_arch=amd64 ;;
+  aarch64|arm64) actual_arch=arm64 ;;
   *)
-    echo "linux-runtime-smoke: machine architecture is not amd64" >&2
-    exit 1
+    runtime_machine_arch=
+    if command -v sysctl >/dev/null 2>&1; then
+      runtime_machine_arch=$(sysctl -n hw.machine_arch 2>/dev/null || :)
+    fi
+    if [ -z "$runtime_machine_arch" ] || [ "$runtime_machine_arch" = "$runtime_machine" ]; then
+      runtime_machine_arch=$(uname -p 2>/dev/null || :)
+    fi
+    case "$runtime_machine_arch" in
+      x86_64|amd64) actual_arch=amd64 ;;
+      aarch64|arm64) actual_arch=arm64 ;;
+      *)
+        echo "linux-runtime-smoke: machine architecture is not amd64 or arm64: uname -m=$runtime_machine uname -p=$runtime_machine_arch" >&2
+        exit 1
+        ;;
+    esac
     ;;
 esac
 
@@ -56,13 +92,18 @@ else
   doctor_exit=$?
 fi
 
-# Hosted Linux runners are intentionally headless and do not prove a usable
-# Moonlight desktop. A blocked client doctor result is the expected, honest
-# outcome until a real Linux/BSD client session is tested separately.
-if [ "$doctor_exit" -ne 3 ]; then
-  echo "linux-runtime-smoke: client doctor exited $doctor_exit; expected 3" >&2
-  exit 1
-fi
+# Hosted Linux runners are often headless and return the blocked exit code,
+# while a real desktop can return success with only optional diagnostic
+# warnings. Accept both states and record which one occurred; neither state
+# is gameplay evidence.
+case "$doctor_exit" in
+  0) client_preflight=pass ;;
+  3) client_preflight=blocked ;;
+  *)
+    echo "linux-runtime-smoke: client doctor exited $doctor_exit; expected 0 or 3" >&2
+    exit 1
+    ;;
+esac
 
 require_fixed() {
   file=$1
@@ -84,10 +125,11 @@ require_json_success() {
 require_json_success "$evidence_dir/version.json" version
 require_json_success "$evidence_dir/status.json" status
 require_json_success "$evidence_dir/readiness.json" readiness
+require_fixed "$evidence_dir/readiness.json" '"repository_evidence_verified": true' "verified repository evidence"
 require_json_success "$evidence_dir/manifest-verify.json" "manifest verify"
 require_json_success "$evidence_dir/doctor.json" doctor
 require_fixed "$evidence_dir/doctor.json" '"os": "linux"' "runtime GOOS linux"
-require_fixed "$evidence_dir/doctor.json" '"architecture": "amd64"' "runtime architecture amd64"
+require_fixed "$evidence_dir/doctor.json" "\"architecture\": \"$actual_arch\"" "runtime architecture $actual_arch"
 
 if ! awk '
   /"id": "client.platform"/ {
@@ -114,9 +156,15 @@ fi
 {
   printf 'goos=linux\n'
   printf 'goarch=%s\n' "$actual_arch"
+  printf 'machine=%s\n' "$runtime_machine"
   printf 'doctor_exit=%s\n' "$doctor_exit"
+  printf 'client_preflight=%s\n' "$client_preflight"
   printf 'client.platform=pass\n'
   printf 'gameplay=not-tested\n'
 } > "$evidence_dir/result.txt"
 
-echo "Linux runtime smoke passed for Linux/$actual_arch (client preflight remains blocked as expected)"
+if [ "$client_preflight" = pass ]; then
+  echo "Linux runtime smoke passed for Linux/$actual_arch (client preflight passed; gameplay not tested)"
+else
+  echo "Linux runtime smoke passed for Linux/$actual_arch (client preflight remains blocked as expected)"
+fi

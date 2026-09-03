@@ -306,7 +306,7 @@ func TestCheckTarGzipRequiresLifecycleScripts(t *testing.T) {
 	members := canonicalMembers("leaguebridge", true)
 	writeTarGzip(t, path, members[:len(members)-1])
 	_, err := readTarGzip(path, "leaguebridge", testEpoch)
-	if err == nil || !strings.Contains(err.Error(), "want 7") {
+	if err == nil || !strings.Contains(err.Error(), "want 9") {
 		t.Fatalf("readTarGzip() error = %v; want exact-member-count error", err)
 	}
 }

@@ -235,6 +235,8 @@ func targetSpecFor(version, goos, goarch string) (targetSpec, error) {
 		{archivePath: "SBOM.spdx.json", installPath: doc + "SBOM.spdx.json", role: "sbom", mode: "0644"},
 		{archivePath: "install.sh", role: "installer", mode: "0755"},
 		{archivePath: "leaguebridge", installPath: prefix + "/bin/leaguebridge", role: "executable", mode: "0755"},
+		{archivePath: "linux-bsd-client-smoke.sh", installPath: prefix + "/libexec/leaguebridge/linux-bsd-client-smoke.sh", role: "client-smoke-helper", mode: "0755"},
+		{archivePath: "linux-bsd-remote-session.sh", installPath: prefix + "/libexec/leaguebridge/linux-bsd-remote-session.sh", role: "remote-session-helper", mode: "0755"},
 		{archivePath: "uninstall.sh", installPath: prefix + "/libexec/leaguebridge/uninstall.sh", role: "uninstaller", mode: "0755"},
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].archivePath < files[j].archivePath })

@@ -20,6 +20,28 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 go build -mod=vendor ./cmd/leaguebridge
 ```
 
+## Recovering from a stale Git index lock
+
+If Git reports that `.git/index.lock` already exists, close GitHub Desktop,
+editors, and other operations that may be changing this checkout first. In
+PowerShell, inspect the exact repository lock and active Git processes:
+
+```powershell
+Get-Process git,git-remote-https,git-lfs -ErrorAction SilentlyContinue
+Test-Path -LiteralPath .git\index.lock
+```
+
+Only when no Git process is active and the lock belongs to this checkout, remove
+that exact file and retry:
+
+```powershell
+Remove-Item -LiteralPath .git\index.lock
+git status
+```
+
+Never remove the lock while another Git process is running; it protects the
+index from concurrent writes.
+
 The vulnerability scan uses the live Go vulnerability database and fails only
 for known vulnerabilities reachable from LeagueBridge symbols. Release builds
 must use the exact supported Go toolchain pinned by the release workflow; the

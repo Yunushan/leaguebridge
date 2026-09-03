@@ -64,11 +64,11 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 		"moonlight-qt":                 "https://github.com/moonlight-stream/moonlight-qt",
 		"moonlight-embedded":           "https://github.com/moonlight-stream/moonlight-embedded",
 		"microsoft-bcdboot":            "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11",
-		"riot-vanguard-faq":             "https://www.riotgames.com/en/DevRel/vanguard-faq",
-		"pikvm-api":                     "https://docs.pikvm.org/api/",
-		"pikvm-usb":                     "https://docs.pikvm.org/usb/",
-		"pikvm-auth":                    "https://docs.pikvm.org/auth/",
-		"pikvm-audio":                   "https://docs.pikvm.org/audio/",
+		"riot-vanguard-faq":            "https://www.riotgames.com/en/DevRel/vanguard-faq",
+		"pikvm-api":                    "https://docs.pikvm.org/api/",
+		"pikvm-usb":                    "https://docs.pikvm.org/usb/",
+		"pikvm-auth":                   "https://docs.pikvm.org/auth/",
+		"pikvm-audio":                  "https://docs.pikvm.org/audio/",
 	}
 	got := make(map[string]string, len(manifest.Sources))
 	for _, source := range manifest.Sources {

@@ -151,8 +151,8 @@ func Build(source packageinfo.Manifest, sourceManifest []byte, archiveSHA256 str
 	for _, entry := range source.Payload {
 		entries[entry.ArchivePath] = entry
 	}
-	staged := make([]PayloadFile, 0, 5)
-	for _, path := range []string{"LICENSE", manifestFilename, "README.md", "SBOM.spdx.json", "leaguebridge"} {
+	staged := make([]PayloadFile, 0, len(SourcePayloadNames()))
+	for _, path := range SourcePayloadNames() {
 		entry := PayloadFile{SourcePath: path, Mode: "0644"}
 		switch path {
 		case "LICENSE":
@@ -178,6 +178,18 @@ func Build(source packageinfo.Manifest, sourceManifest []byte, archiveSHA256 str
 		case "leaguebridge":
 			sourceEntry := entries[path]
 			entry.Role = "executable"
+			entry.Mode = "0755"
+			entry.Size = sourceEntry.Size
+			entry.SHA256 = sourceEntry.SHA256
+		case "linux-bsd-client-smoke.sh":
+			sourceEntry := entries[path]
+			entry.Role = "client-smoke-helper"
+			entry.Mode = "0755"
+			entry.Size = sourceEntry.Size
+			entry.SHA256 = sourceEntry.SHA256
+		case "linux-bsd-remote-session.sh":
+			sourceEntry := entries[path]
+			entry.Role = "remote-session-helper"
 			entry.Mode = "0755"
 			entry.Size = sourceEntry.Size
 			entry.SHA256 = sourceEntry.SHA256
@@ -281,10 +293,10 @@ func (manifest Manifest) Validate() error {
 	if manifest.Package.Architecture != spec.architecture || manifest.Package.InstallRoot != spec.installRoot {
 		return errors.New("native package architecture or install root is not target-bound")
 	}
-	if len(manifest.Payload) != 5 {
-		return fmt.Errorf("native package payload has %d files; want 5", len(manifest.Payload))
+	if len(manifest.Payload) != 7 {
+		return fmt.Errorf("native package payload has %d files; want 7", len(manifest.Payload))
 	}
-	for index, path := range []string{"LICENSE", manifestFilename, "README.md", "SBOM.spdx.json", "leaguebridge"} {
+	for index, path := range []string{"LICENSE", manifestFilename, "README.md", "SBOM.spdx.json", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh"} {
 		entry := manifest.Payload[index]
 		if entry.SourcePath != path || entry.Size < 0 || entry.Size > MaximumPayloadSize || !digestPattern.MatchString(entry.SHA256) {
 			return fmt.Errorf("native package payload[%d] is invalid", index)
@@ -306,6 +318,10 @@ func stagedPayloadMetadata(sourcePath string) (role, mode string) {
 		return "license", "0644"
 	case "leaguebridge":
 		return "executable", "0755"
+	case "linux-bsd-client-smoke.sh":
+		return "client-smoke-helper", "0755"
+	case "linux-bsd-remote-session.sh":
+		return "remote-session-helper", "0755"
 	case manifestFilename, "README.md":
 		return "documentation", "0644"
 	case "SBOM.spdx.json":
@@ -483,16 +499,21 @@ func verifyStagingTree(root *os.Root, expectedFiles map[string]PayloadFile, expe
 		if entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("staging tree contains symlink %q", name)
 		}
-		info, err := entry.Info()
+		// Go 1.24's fs.DirEntry.Info implementation can resolve a top-level
+		// entry through the caller-visible name of a child os.Root rather than
+		// the pinned root itself. That reports ENOENT when the child root was
+		// opened relative to another root. Use the root handle for the
+		// authoritative metadata lookup instead.
+		info, err := root.Lstat(filepath.FromSlash(name))
 		if err != nil {
 			return fmt.Errorf("inspect staging tree entry %q: %w", name, err)
 		}
-		if entry.IsDir() {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("staging tree contains symlink %q", name)
+		}
+		if info.IsDir() {
 			if _, ok := expectedDirectories[name]; !ok {
 				return fmt.Errorf("staging tree contains unexpected directory %q", name)
-			}
-			if !info.IsDir() {
-				return fmt.Errorf("staging tree directory %q is not a directory", name)
 			}
 			return nil
 		}
@@ -670,6 +691,10 @@ func sourcePayloadSpec(path string) (installPath, role, mode string) {
 		return "", "installer", "0755"
 	case "leaguebridge":
 		return "/usr/local/bin/leaguebridge", "executable", "0755"
+	case "linux-bsd-client-smoke.sh":
+		return "/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh", "client-smoke-helper", "0755"
+	case "linux-bsd-remote-session.sh":
+		return "/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh", "remote-session-helper", "0755"
 	case "uninstall.sh":
 		return "/usr/local/libexec/leaguebridge/uninstall.sh", "uninstaller", "0755"
 	default:
@@ -684,6 +709,18 @@ func stagedInstallPath(sourcePath, installRoot string) string {
 		}
 		return "/usr/local/bin/leaguebridge"
 	}
+	if sourcePath == "linux-bsd-client-smoke.sh" {
+		if installRoot == "/" {
+			return "/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+		}
+		return "/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+	}
+	if sourcePath == "linux-bsd-remote-session.sh" {
+		if installRoot == "/" {
+			return "/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
+		}
+		return "/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh"
+	}
 	if installRoot == "/" {
 		return "/usr/share/doc/leaguebridge/" + sourcePath
 	}
@@ -693,7 +730,7 @@ func stagedInstallPath(sourcePath, installRoot string) string {
 // SourcePayloadNames returns the stable order of source files copied into the
 // staging root. It is kept exported for the staging command and its tests.
 func SourcePayloadNames() []string {
-	result := []string{"LICENSE", manifestFilename, "README.md", "SBOM.spdx.json", "leaguebridge"}
+	result := []string{"LICENSE", manifestFilename, "README.md", "SBOM.spdx.json", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh"}
 	return append([]string(nil), result...)
 }
 

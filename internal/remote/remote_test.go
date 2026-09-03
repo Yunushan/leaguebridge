@@ -1677,6 +1677,19 @@ func TestStreamOptionsRejectHDRWithH264(t *testing.T) {
 	}
 }
 
+func TestStreamOptionsUnknownCodecErrorListsAcceptedValues(t *testing.T) {
+	t.Parallel()
+	err := (StreamOptions{Codec: "vp9"}).Validate()
+	if err == nil {
+		t.Fatal("Validate(codec=vp9) unexpectedly succeeded")
+	}
+	for _, accepted := range []string{"auto", "h264", "h265", "hevc", "av1"} {
+		if !strings.Contains(err.Error(), accepted) {
+			t.Fatalf("Validate(codec=vp9) error = %v; missing accepted codec %q", err, accepted)
+		}
+	}
+}
+
 func TestValidatePlanArgumentsRejectsHDRWithH264(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -1942,6 +1955,18 @@ func TestBuildPlanDisplayModeUsesClientSyntax(t *testing.T) {
 	if err := validatePlanArguments(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, embeddedPlan.Arguments); err != nil {
 		t.Fatalf("generated Embedded windowed arguments rejected: %v", err)
 	}
+	fullscreenRequest := request
+	fullscreenRequest.Stream.DisplayMode = "fullscreen"
+	fullscreenPlan, err := BuildPlan(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, fullscreenRequest)
+	if err != nil {
+		t.Fatalf("BuildPlan(embedded fullscreen): %v", err)
+	}
+	if containsArgument(fullscreenPlan.Arguments, "-windowed") {
+		t.Fatalf("Embedded fullscreen arguments = %#v; want Moonlight's fullscreen default without -windowed", fullscreenPlan.Arguments)
+	}
+	if err := validatePlanArguments(Client{Flavor: FlavorEmbedded, Binary: "moonlight"}, fullscreenPlan.Arguments); err != nil {
+		t.Fatalf("generated Embedded fullscreen arguments rejected: %v", err)
+	}
 
 	borderlessRequest := request
 	borderlessRequest.Stream.DisplayMode = "borderless"
@@ -2131,6 +2156,13 @@ func TestStreamOptionsRejectsAmbiguousOrExcessiveInputDevices(t *testing.T) {
 		InputDevices: []string{"/dev/input/event1"},
 	}).Validate(); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
 		t.Fatalf("ambiguous input selectors error = %v; want combination rejection", err)
+	}
+	atLimit := make([]string, maxEmbeddedInputDevices)
+	for index := range atLimit {
+		atLimit[index] = fmt.Sprintf("/dev/input/event%d", index)
+	}
+	if err := (StreamOptions{InputDevices: atLimit}).Validate(); err != nil {
+		t.Fatalf("input selectors at the Embedded limit were rejected: %v", err)
 	}
 	tooMany := make([]string, maxEmbeddedInputDevices+1)
 	for index := range tooMany {

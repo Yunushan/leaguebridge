@@ -63,6 +63,8 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 		"go run -mod=vendor ./tools/releasecheck",
 		"go run -mod=vendor ./tools/nativepackagestage",
 		"go run -mod=vendor ./tools/nativepackagecheck",
+		`cp "$snapshot_root/scripts/install.sh" "$snapshot_root/scripts/linux-bsd-client-smoke.sh" "$snapshot_root/scripts/linux-bsd-remote-session.sh" "$snapshot_root/scripts/uninstall.sh" "$pack_stage/"`,
+		`chmod 0755 "$pack_stage/install.sh" "$pack_stage/linux-bsd-client-smoke.sh" "$pack_stage/linux-bsd-remote-session.sh" "$pack_stage/uninstall.sh"`,
 		"native_stage_root=",
 		"native_stage_families=(",
 		"native_stage_archives=(",
@@ -250,13 +252,14 @@ func TestNativePackageSmokeUsesTargetPackageManagerContracts(t *testing.T) {
 	}
 	script := string(data)
 	for _, required := range []string{
-		`pkg create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n`,
-		`as_root pkg add -f "$package"`,
-		`as_root pkg delete -y "$package_name"`,
+		`pkg_command=`,
+		`"$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n`,
+		`as_root "$pkg_command" add -f "$package"`,
+		`as_root "$pkg_command" delete -y "$package_name"`,
 		`pkg_create -A amd64 -B "$staging/root" -p /usr/local \`,
 		`-f "$packlist" -d "$description" \`,
 		`as_root pkg_add -D unsigned -I "$package"`,
-		`as_root pkg_delete -I "$package_name"`,
+		`as_root pkg_delete -I "$installed_package_name"`,
 		`pkg_create \`,
 		`-I /usr/local -p "$root_abs/usr/local" -F gzip \`,
 		`-c "$comment" -d "$description" -f "$packlist" "$package"`,

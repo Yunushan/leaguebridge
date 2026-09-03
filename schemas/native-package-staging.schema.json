@@ -73,14 +73,16 @@
     "payload": {
       "type": "array",
       "minItems": 5,
-      "maxItems": 5,
+      "maxItems": 7,
       "uniqueItems": true,
       "prefixItems": [
         { "$ref": "#/$defs/license" },
         { "$ref": "#/$defs/packageManifest" },
         { "$ref": "#/$defs/readme" },
         { "$ref": "#/$defs/sbom" },
-        { "$ref": "#/$defs/executable" }
+        { "$ref": "#/$defs/executable" },
+        { "$ref": "#/$defs/clientSmoke" },
+        { "$ref": "#/$defs/remoteSession" }
       ],
       "items": false
     }
@@ -147,12 +149,12 @@
       "additionalProperties": false,
       "required": ["source_path", "install_path", "role", "mode", "size", "sha256"],
       "properties": {
-        "source_path": { "enum": ["LICENSE", "PACKAGE-MANIFEST.json", "README.md", "SBOM.spdx.json", "leaguebridge"] },
+        "source_path": { "enum": ["LICENSE", "PACKAGE-MANIFEST.json", "README.md", "SBOM.spdx.json", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh"] },
         "install_path": {
           "type": "string",
-          "pattern": "^/(?:usr/bin/leaguebridge|usr/share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json|PACKAGE-MANIFEST\\.json)|usr/local/bin/leaguebridge|usr/local/share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json|PACKAGE-MANIFEST\\.json))$"
+          "pattern": "^/(?:usr/bin/leaguebridge|usr/libexec/leaguebridge/linux-bsd-client-smoke\\.sh|usr/libexec/leaguebridge/linux-bsd-remote-session\\.sh|usr/share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json|PACKAGE-MANIFEST\\.json)|usr/local/bin/leaguebridge|usr/local/libexec/leaguebridge/linux-bsd-client-smoke\\.sh|usr/local/libexec/leaguebridge/linux-bsd-remote-session\\.sh|usr/local/share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json|PACKAGE-MANIFEST\\.json))$"
         },
-        "role": { "enum": ["license", "documentation", "sbom", "executable"] },
+        "role": { "enum": ["license", "documentation", "sbom", "executable", "client-smoke-helper", "remote-session-helper"] },
         "mode": { "enum": ["0644", "0755"] },
         "size": { "type": "integer", "minimum": 0, "maximum": 134217728 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
@@ -186,6 +188,18 @@
       "allOf": [
         { "$ref": "#/$defs/payloadFile" },
         { "properties": { "source_path": { "const": "leaguebridge" }, "role": { "const": "executable" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "clientSmoke": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "linux-bsd-client-smoke.sh" }, "role": { "const": "client-smoke-helper" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "remoteSession": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "source_path": { "const": "linux-bsd-remote-session.sh" }, "role": { "const": "remote-session-helper" }, "mode": { "const": "0755" } } }
       ]
     }
   }

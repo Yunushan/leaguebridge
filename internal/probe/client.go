@@ -35,6 +35,15 @@ func (p *Prober) ClientFor(ctx context.Context, preferred string) Report {
 	return p.client(ctx, preferred, "", "")
 }
 
+// ClientForAutomatic performs the same read-only preflight for one candidate
+// in automatic recovery. A generic "moonlight" candidate is a Qt client on
+// Linux, OpenBSD, and NetBSD, even though the explicit legacy selection keeps
+// its Embedded meaning for backwards compatibility.
+func (p *Prober) ClientForAutomatic(ctx context.Context, preferred, outputPlatform, qtPlatform string) Report {
+	automaticGenericQt := strings.EqualFold(strings.TrimSpace(preferred), "moonlight") && !genericMoonlightIsEmbeddedOnTarget(p.goos)
+	return p.clientWithSelection(ctx, preferred, outputPlatform, qtPlatform, automaticGenericQt)
+}
+
 // ClientForStream performs client preflight for the exact Moonlight flavor and
 // Embedded output backend that a live stream will use. An explicit output
 // selection must not inherit a pass from a different graphical endpoint.
@@ -51,9 +60,13 @@ func (p *Prober) ClientForStreamWithQtPlatform(ctx context.Context, preferred, o
 	return p.client(ctx, preferred, outputPlatform, normalizeQtPlatform(qtPlatform))
 }
 
-func (p *Prober) client(_ context.Context, preferred, outputPlatform, qtPlatform string) Report {
+func (p *Prober) client(ctx context.Context, preferred, outputPlatform, qtPlatform string) Report {
+	return p.clientWithSelection(ctx, preferred, outputPlatform, qtPlatform, false)
+}
+
+func (p *Prober) clientWithSelection(_ context.Context, preferred, outputPlatform, qtPlatform string, automaticGenericQt bool) Report {
 	selectedQtPlatform := normalizeQtPlatform(qtPlatform)
-	if p.qtClientSelected(preferred) && (selectedQtPlatform == "" || selectedQtPlatform == "auto") {
+	if p.qtClientSelectedFor(preferred, automaticGenericQt) && (selectedQtPlatform == "" || selectedQtPlatform == "auto") {
 		// Qt consumes QT_QPA_PLATFORM from the child environment when no
 		// invocation-scoped override was supplied. Mirror that choice during
 		// preflight so a stale offscreen/minimal/invalid backend cannot make a
@@ -67,7 +80,7 @@ func (p *Prober) client(_ context.Context, preferred, outputPlatform, qtPlatform
 		p.clientPlatformCheck(),
 		graphicalSession,
 		inputPath,
-		p.moonlightCheck(preferred),
+		p.moonlightCheckFor(automaticGenericQt, preferred),
 		p.audioCheck(),
 		p.decoderCheck(),
 	}
@@ -80,12 +93,16 @@ func (p *Prober) client(_ context.Context, preferred, outputPlatform, qtPlatform
 // needed because QT_QPA_PLATFORM affects Qt only and must not block an
 // Embedded stream that happens to inherit the same process environment.
 func (p *Prober) qtClientSelected(preferred string) bool {
+	return p.qtClientSelectedFor(preferred, false)
+}
+
+func (p *Prober) qtClientSelectedFor(preferred string, automaticGenericQt bool) bool {
 	selection := strings.ToLower(strings.TrimSpace(preferred))
 	switch selection {
 	case "moonlight-qt", "flatpak":
 		return true
 	case "moonlight", "moonlight-embedded":
-		return false
+		return selection == "moonlight" && automaticGenericQt
 	case "", "auto":
 		if command, ok := p.lookupMoonlight(); ok {
 			return moonlightCommandUsesQt(p.goos, command, selection)
@@ -231,6 +248,20 @@ func (p *Prober) inputPathCheckForQt(outputPlatform, qtPlatform string, graphica
 				Status:   StatusWarn,
 				Summary:  "The selected SDL KMS/DRM display is available, but no supported input endpoint was detected.",
 				Guidance: "Grant the session access to a supported /dev/input/event* device, or WSCONS /dev/wskbd* and /dev/wsmouse* devices, before streaming.",
+			}
+		}
+		if selected == "x11" || selected == "x11_vdpau" || selected == "x11_vaapi" {
+			// Moonlight Embedded's X11 video backends initialize their
+			// keyboard and mouse path from the X11 window. An evdev node is
+			// only needed when the caller explicitly adds an -input device
+			// for an extra controller; the application layer preflights those
+			// selectors separately. Requiring input-group access here wrongly
+			// blocks ordinary desktop users whose X11 session is usable but
+			// whose /dev/input nodes are intentionally private.
+			return Check{
+				ID:      "client.input",
+				Status:  StatusPass,
+				Summary: "The selected Embedded " + selected + " output backend uses the display-backed X11 keyboard/mouse path; input delivery is not verified.",
 			}
 		}
 		return Check{
@@ -514,7 +545,7 @@ func (p *Prober) waylandDisplayEnvironmentCheck() displayEnvironmentResult {
 			guidance:   "Run LeagueBridge inside the graphical session and ensure XDG_RUNTIME_DIR is accessible.",
 		}
 	}
-	info, err := p.fs.Stat(endpoint)
+	info, err := p.statResolved(endpoint)
 	if err == nil && info != nil && info.Mode()&fs.ModeSocket != 0 {
 		return displayEnvironmentResult{
 			configured: true,
@@ -592,7 +623,7 @@ func (p *Prober) displayEnvironmentCheck() displayEnvironmentResult {
 		case !resolvable:
 			waylandProblem = "the configured Wayland runtime root is unavailable"
 		default:
-			info, err := p.fs.Stat(endpoint)
+			info, err := p.statResolved(endpoint)
 			if err == nil && info != nil && info.Mode()&fs.ModeSocket != 0 {
 				return displayEnvironmentResult{
 					configured: true,
@@ -641,6 +672,13 @@ func (p *Prober) displayEnvironmentCheck() displayEnvironmentResult {
 		}
 	}
 	return displayEnvironmentResult{}
+}
+
+func (p *Prober) statResolved(name string) (fs.FileInfo, error) {
+	if resolved, ok := p.fs.(ResolvedFileSystem); ok {
+		return resolved.StatResolved(name)
+	}
+	return p.fs.Stat(name)
 }
 
 func validWaylandDisplay(value string, p *Prober) bool {
@@ -721,8 +759,9 @@ func x11LocalSocketPath(value, targetGOOS string) string {
 // directDisplayBackend recognizes only explicitly selected direct-display
 // backends. A DRM device by itself is not enough: without an explicit SDL or
 // Qt backend selection, a desktop may still be headless or owned by another
-// session. The check remains an indicator, not proof that the client can open
-// the device or render a usable stream.
+// session. The check verifies native read/write device permission when the
+// system filesystem can test it, but remains an indicator rather than proof of
+// successful rendering.
 func (p *Prober) directDisplayBackend() (string, bool) {
 	if _, ok := eligibleClientOS[p.goos]; !ok {
 		return "", false
@@ -731,17 +770,17 @@ func (p *Prober) directDisplayBackend() (string, bool) {
 		if p.goos == "netbsd" {
 			return "", false
 		}
-		if p.deviceNodeExistsAny(p.directDRMDevicePaths()...) {
+		if p.writableDeviceNodeAny(p.directDRMDevicePaths()...) {
 			return "SDL KMS/DRM", true
 		}
 	}
 	switch platform := strings.ToLower(strings.TrimSpace(p.envValue("QT_QPA_PLATFORM"))); platform {
 	case "eglfs", "kms", "kmsdrm":
-		if p.deviceNodeExistsAny(p.directDRMDevicePaths()...) {
+		if p.writableDeviceNodeAny(p.directDRMDevicePaths()...) {
 			return "Qt EGLFS/KMS", true
 		}
 	case "linuxfb":
-		if p.deviceNodeExistsAny(filepath.FromSlash("/dev/fb0")) {
+		if p.writableDeviceNodeAny(linuxFramebufferDevicePaths()...) {
 			return "Qt Linux framebuffer", true
 		}
 	}
@@ -754,11 +793,11 @@ func (p *Prober) directQtDisplayBackend(qtPlatform string) (string, bool) {
 	}
 	switch qtPlatform {
 	case "eglfs":
-		if p.deviceNodeExistsAny(p.directDRMDevicePaths()...) {
+		if p.writableDeviceNodeAny(p.directDRMDevicePaths()...) {
 			return "Qt EGLFS", true
 		}
 	case "linuxfb":
-		if p.deviceNodeExistsAny(filepath.FromSlash("/dev/fb0")) {
+		if p.writableDeviceNodeAny(linuxFramebufferDevicePaths()...) {
 			return "Qt Linux framebuffer", true
 		}
 	}
@@ -768,6 +807,9 @@ func (p *Prober) directQtDisplayBackend(qtPlatform string) (string, bool) {
 func (p *Prober) unsupportedDirectDisplay() (string, string) {
 	if p.goos == "netbsd" && strings.EqualFold(strings.TrimSpace(p.envValue("SDL_VIDEODRIVER")), "kmsdrm") {
 		return "SDL KMS/DRM direct display is not supported on NetBSD by the current SDL *BSD backend.", "Use an X11 or Wayland session on NetBSD instead of SDL KMS/DRM."
+	}
+	if p.goos == "dragonfly" && strings.EqualFold(strings.TrimSpace(p.envValue("SDL_VIDEODRIVER")), "kmsdrm") && !p.privilege.IsRoot() {
+		return "SDL KMS/DRM direct display on DragonFly BSD requires the root user according to the current SDL *BSD backend.", "Run the KMS/DRM client as root only when that is acceptable, or use a DragonFly desktop session/backend that does not require KMS/DRM."
 	}
 	return "", ""
 }
@@ -785,12 +827,23 @@ func (p *Prober) directDRMDevicePaths() []string {
 	return paths
 }
 
+// linuxFramebufferDevicePaths mirrors Qt's linuxfb plugin: it prefers the
+// conventional framebuffer node and falls back to the graphics subdirectory
+// used by some device images. The probe still checks the node type before
+// treating either path as a usable endpoint.
+func linuxFramebufferDevicePaths() []string {
+	return []string{
+		filepath.FromSlash("/dev/fb0"),
+		filepath.FromSlash("/dev/graphics/fb0"),
+	}
+}
+
 func (p *Prober) directEvdevInputAvailable() bool {
 	paths := make([]string, 0, 64)
 	for index := 0; index < 64; index++ {
 		paths = append(paths, filepath.FromSlash("/dev/input/event"+strconv.Itoa(index)))
 	}
-	return p.readableCharacterDeviceAny(paths...)
+	return p.writableCharacterDeviceAny(paths...)
 }
 
 func (p *Prober) directInputBackend(backend string) (string, bool) {
@@ -814,7 +867,7 @@ func (p *Prober) wsconsInputAvailable() bool {
 	if p.goos != "openbsd" {
 		return false
 	}
-	return p.readableCharacterDeviceAny(wsconsKeyboardDevicePaths()...) && p.readableCharacterDeviceAny(wsconsMouseDevicePaths()...)
+	return p.writableCharacterDeviceAny(wsconsKeyboardDevicePaths()...) && p.writableCharacterDeviceAny(wsconsMouseDevicePaths()...)
 }
 
 // deviceNodeExistsAny rejects regular files and directories at device paths.
@@ -847,6 +900,10 @@ func wsconsMouseDevicePaths() []string {
 }
 
 func (p *Prober) moonlightCheck(preferred ...string) Check {
+	return p.moonlightCheckFor(false, preferred...)
+}
+
+func (p *Prober) moonlightCheckFor(automaticGenericQt bool, preferred ...string) Check {
 	selection := ""
 	if len(preferred) > 0 {
 		selection = strings.ToLower(strings.TrimSpace(preferred[0]))
@@ -873,6 +930,9 @@ func (p *Prober) moonlightCheck(preferred ...string) Check {
 	if selection != "flatpak" {
 		if command, ok := p.lookupMoonlightFor(selection); ok {
 			label := moonlightCommandLabel(p.goos, command, selection)
+			if automaticGenericQt && selection == "moonlight" {
+				label = "Moonlight Qt"
+			}
 			summary := label + " is available."
 			if selection != "" && selection != "auto" {
 				summary = label + " is available for the selected client setting."
@@ -1075,6 +1135,7 @@ func moonlightCommandUsesQt(goos, command, selection string) bool {
 }
 
 func genericMoonlightIsEmbeddedOnTarget(goos string) bool {
+	goos = strings.ToLower(strings.TrimSpace(goos))
 	return goos == "freebsd" || goos == "dragonfly"
 }
 

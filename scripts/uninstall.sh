@@ -104,6 +104,8 @@ remove_file "$documentation_dir/README.md"
 remove_file "$documentation_dir/LICENSE"
 remove_file "$documentation_dir/SBOM.spdx.json"
 remove_file "$documentation_dir/PACKAGE-MANIFEST.json"
+remove_file "$helper_dir/linux-bsd-client-smoke.sh"
+remove_file "$helper_dir/linux-bsd-remote-session.sh"
 remove_file "$helper_dir/uninstall.sh"
 
 # Remove only LeagueBridge-specific directories and only when they are empty.

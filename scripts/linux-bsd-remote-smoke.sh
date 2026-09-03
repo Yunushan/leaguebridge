@@ -99,12 +99,26 @@ case "$(uname -s)" in
 		exit 1
 		;;
 esac
-case "$(uname -m)" in
+runtime_machine=$(uname -m)
+case "$runtime_machine" in
 	x86_64|amd64) expected_goarch=amd64 ;;
 	aarch64|arm64) expected_goarch=arm64 ;;
 	*)
-		printf '%s\n' "linux-bsd-remote-smoke: machine architecture is not amd64 or arm64" >&2
-		exit 1
+		runtime_machine_arch=
+		if command -v sysctl >/dev/null 2>&1; then
+			runtime_machine_arch=$(sysctl -n hw.machine_arch 2>/dev/null || :)
+		fi
+		if [ -z "$runtime_machine_arch" ] || [ "$runtime_machine_arch" = "$runtime_machine" ]; then
+			runtime_machine_arch=$(uname -p 2>/dev/null || :)
+		fi
+		case "$runtime_machine_arch" in
+			x86_64|amd64) expected_goarch=amd64 ;;
+			aarch64|arm64) expected_goarch=arm64 ;;
+			*)
+				printf '%s\n' "linux-bsd-remote-smoke: machine architecture is not amd64 or arm64: uname -m=$runtime_machine uname -p=$runtime_machine_arch" >&2
+				exit 1
+				;;
+		esac
 		;;
 esac
 
@@ -171,6 +185,7 @@ require_json_success() {
 require_json_success "$evidence_dir/version.json" version
 require_json_success "$evidence_dir/status.json" status
 require_json_success "$evidence_dir/readiness.json" readiness
+require_fixed "$evidence_dir/readiness.json" '"repository_evidence_verified": true' "verified repository evidence"
 require_json_success "$evidence_dir/manifest-verify.json" "manifest verify"
 require_json_success "$evidence_dir/doctor.json" doctor
 require_fixed "$evidence_dir/doctor.json" "\"os\": \"$expected_goos\"" "runtime GOOS $expected_goos"
@@ -243,17 +258,13 @@ if [ "$list_exit" -ne 0 ]; then
 	exit 1
 fi
 
-# A dry run validates the stream-specific Moonlight argv without starting an
-# interactive stream. Actual League/Vanguard behavior still requires the
-# operator to run remote stream and observe a real Practice Tool session.
+# A dry run exercises the League-oriented remote play alias and its default
+# stream profile without starting an interactive stream. Actual
+# League/Vanguard behavior still requires the operator to run remote play and
+# observe a real Practice Tool session.
 stream_dry_run_exit=0
-if "$binary" remote stream \
+if "$binary" remote play \
 	--config "$config" \
-	--resolution 1080 \
-	--fps 60 \
-	--bitrate 20000 \
-	--packet-size 1392 \
-	--codec h264 \
 	--dry-run --json --acknowledge-unverified-handoff > "$evidence_dir/stream-plan.json"; then
 	stream_dry_run_exit=0
 else
@@ -263,7 +274,7 @@ if [ "$stream_dry_run_exit" -ne 0 ]; then
 	printf '%s\n' "linux-bsd-remote-smoke: stream dry run failed; inspect stream-plan.json" >&2
 	exit 1
 fi
-require_json_success "$evidence_dir/stream-plan.json" "remote stream"
+require_json_success "$evidence_dir/stream-plan.json" "remote play"
 require_fixed "$evidence_dir/stream-plan.json" '"route": "physical-' "physical remote route"
 require_fixed "$evidence_dir/stream-plan.json" '"-1080"' "1080p stream option"
 require_fixed "$evidence_dir/stream-plan.json" '"-fps"' "FPS stream option"
@@ -274,7 +285,7 @@ require_fixed "$evidence_dir/stream-plan.json" '"1392"' "1392-byte packet-size o
 
 {
 	printf 'goos=%s\n' "$expected_goos"
-printf 'goarch=%s\n' "$expected_goarch"
+	printf 'goarch=%s\n' "$expected_goarch"
 	printf 'kernel_release=%s\n' "$(uname -r)"
 	printf 'doctor_exit=%s\n' "$doctor_exit"
 	printf 'remote_list_exit=%s\n' "$list_exit"
@@ -291,4 +302,4 @@ printf 'goarch=%s\n' "$expected_goarch"
 } > "$evidence_dir/result.txt"
 
 printf '%s\n' "Linux/BSD remote-client smoke passed for $expected_goos/$expected_goarch"
-printf '%s\n' "Run remote stream separately and verify a real Practice Tool session; this smoke does not prove League or Vanguard behavior."
+printf '%s\n' "Run remote play separately and verify a real Practice Tool session; this smoke does not prove League or Vanguard behavior."

@@ -201,8 +201,8 @@ func TestRemoteInputMappingFilePreflight(t *testing.T) {
 
 func TestRemoteInputDevicePreflight(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		// /dev/null exercises the same read-only character-device open used to
-		// catch evdev permission failures before Moonlight starts.
+		// /dev/null exercises the same nonblocking read/write character-device
+		// open used to catch evdev permission failures before Moonlight starts.
 		if err := validateRemoteInputDevice(os.DevNull); err != nil {
 			t.Fatalf("character device %q rejected: %v", os.DevNull, err)
 		}

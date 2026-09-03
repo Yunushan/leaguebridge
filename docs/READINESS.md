@@ -5,7 +5,7 @@ dimension independently and never converts engineering work into gameplay
 compatibility.
 
 The latest Wine, Proton, VM/Dockur, anti-cheat, and cloud-provider route audit
-is recorded in [`docs/research/2026-08-29-route-revalidation.md`](research/2026-08-29-route-revalidation.md).
+is recorded in [`docs/research/2026-09-03-route-revalidation.md`](research/2026-09-03-route-revalidation.md).
 
 ## Engineering readiness (100 points)
 
@@ -36,9 +36,9 @@ Their mere scripts, workflows, self-authored notes, or arbitrary files do not
 count. Schema v3 keeps those criteria at zero until an authenticated verifier
 for the required class is implemented and the corresponding evidence exists.
 
-The CI workflow includes a hosted Ubuntu Linux amd64 runtime/install smoke and
-native BSD guest lifecycle jobs for amd64 and arm64 where the guest supports
-it. These jobs deliberately capture their
+The CI workflow includes hosted Ubuntu Linux amd64 and arm64 runtime/install
+smokes and native BSD guest lifecycle jobs for amd64 and arm64 where the guest
+supports it. These jobs deliberately capture their
 observations as artifacts and keep headless or unsupported client states
 blocked; a workflow definition or an unauthenticated artifact cannot promote a
 scorecard row. Non-PR CI emits score-free native-runtime v2 subjects that hash

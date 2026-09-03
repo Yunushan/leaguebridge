@@ -38,6 +38,8 @@ func TestStageBuildsSafeDebianRootWithoutPortableScripts(t *testing.T) {
 	root := filepath.Join(output, "root")
 	for _, relative := range []string{
 		filepath.Join("usr", "bin", "leaguebridge"),
+		filepath.Join("usr", "libexec", "leaguebridge", "linux-bsd-client-smoke.sh"),
+		filepath.Join("usr", "libexec", "leaguebridge", "linux-bsd-remote-session.sh"),
 		filepath.Join("usr", "share", "doc", "leaguebridge", "LICENSE"),
 		filepath.Join("usr", "share", "doc", "leaguebridge", "README.md"),
 		filepath.Join("usr", "share", "doc", "leaguebridge", "SBOM.spdx.json"),
@@ -49,6 +51,8 @@ func TestStageBuildsSafeDebianRootWithoutPortableScripts(t *testing.T) {
 	}
 	for _, relative := range []string{
 		filepath.Join("usr", "local", "bin", "leaguebridge"),
+		filepath.Join("usr", "local", "share", "doc", "leaguebridge", "linux-bsd-client-smoke.sh"),
+		filepath.Join("usr", "local", "share", "doc", "leaguebridge", "linux-bsd-remote-session.sh"),
 		filepath.Join("usr", "local", "share", "doc", "leaguebridge", "install.sh"),
 		filepath.Join("usr", "local", "share", "doc", "leaguebridge", "uninstall.sh"),
 	} {
@@ -95,7 +99,7 @@ func TestReadSourceArchiveRejectsSymlinksAndReorderedMembers(t *testing.T) {
 
 	reorderedArchive := filepath.Join(t.TempDir(), filepath.Base(fixture.archive))
 	writeArchiveWithOrder(t, reorderedArchive, fixture.source, fixture.bodies, []string{
-		"LICENSE", "README.md", "PACKAGE-MANIFEST.json", "SBOM.spdx.json", "install.sh", "leaguebridge", "uninstall.sh",
+		"LICENSE", "README.md", "PACKAGE-MANIFEST.json", "SBOM.spdx.json", "install.sh", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh", "uninstall.sh",
 	})
 	if _, err := readSourceArchive(reorderedArchive, mustRead(t, reorderedArchive)); err == nil || !strings.Contains(err.Error(), "out of canonical order") {
 		t.Fatalf("reordered archive error = %v", err)
@@ -183,7 +187,7 @@ func makeArchiveFixture(t *testing.T, goos, goarch string) archiveFixture {
 func writeArchive(t *testing.T, filename string, source packageinfo.Manifest, bodies map[string][]byte, mutate func(*tar.Header, string)) {
 	t.Helper()
 	order := []string{
-		"LICENSE", "PACKAGE-MANIFEST.json", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "uninstall.sh",
+		"LICENSE", "PACKAGE-MANIFEST.json", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh", "uninstall.sh",
 	}
 	if mutate == nil {
 		writeArchiveWithOrder(t, filename, source, bodies, order)
@@ -212,7 +216,7 @@ func writeArchiveWithOrder(t *testing.T, filename string, source packageinfo.Man
 			body = manifestData
 		}
 		header := &tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), ModTime: modTime, Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
-		if name == "install.sh" || name == "uninstall.sh" || name == "leaguebridge" {
+		if name == "install.sh" || name == "linux-bsd-client-smoke.sh" || name == "linux-bsd-remote-session.sh" || name == "uninstall.sh" || name == "leaguebridge" {
 			header.Mode = 0o755
 		}
 		for _, mutate := range mutations {

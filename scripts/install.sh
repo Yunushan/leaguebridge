@@ -67,6 +67,8 @@ source_readme=$script_dir/README.md
 source_license=$script_dir/LICENSE
 source_sbom=$script_dir/SBOM.spdx.json
 source_package_manifest=$script_dir/PACKAGE-MANIFEST.json
+source_client_smoke=$script_dir/linux-bsd-client-smoke.sh
+source_remote_session=$script_dir/linux-bsd-remote-session.sh
 source_uninstaller=$script_dir/uninstall.sh
 
 require_regular_source() {
@@ -81,6 +83,8 @@ require_regular_source "$source_readme"
 require_regular_source "$source_license"
 require_regular_source "$source_sbom"
 require_regular_source "$source_package_manifest"
+require_regular_source "$source_client_smoke"
+require_regular_source "$source_remote_session"
 require_regular_source "$source_uninstaller"
 
 install_root=$destdir$prefix
@@ -163,6 +167,8 @@ install_file() {
 
 install_file "$source_binary" "$binary_dir/$program" 0755
 install_file "$source_uninstaller" "$helper_dir/uninstall.sh" 0755
+install_file "$source_client_smoke" "$helper_dir/linux-bsd-client-smoke.sh" 0755
+install_file "$source_remote_session" "$helper_dir/linux-bsd-remote-session.sh" 0755
 install_file "$source_readme" "$documentation_dir/README.md" 0644
 install_file "$source_license" "$documentation_dir/LICENSE" 0644
 install_file "$source_sbom" "$documentation_dir/SBOM.spdx.json" 0644

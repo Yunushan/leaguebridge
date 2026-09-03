@@ -152,6 +152,8 @@ printf '%s\n' \
   'cp -a %{_leaguebridge_payload}/. %{buildroot}/' \
   '%files' \
   '%attr(0755,root,root) /usr/bin/leaguebridge' \
+  '%attr(0755,root,root) /usr/libexec/leaguebridge/linux-bsd-client-smoke.sh' \
+  '%attr(0755,root,root) /usr/libexec/leaguebridge/linux-bsd-remote-session.sh' \
   '%attr(0644,root,root) /usr/share/doc/leaguebridge/LICENSE' \
   '%attr(0644,root,root) /usr/share/doc/leaguebridge/README.md' \
   '%attr(0644,root,root) /usr/share/doc/leaguebridge/SBOM.spdx.json' \
@@ -179,11 +181,15 @@ sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
   echo 'target=linux/amd64'
   dpkg-deb --info "$debian_package"
   sudo dpkg-query --admindir="$debian_scratch/var/lib/dpkg" -W leaguebridge
+  test -x "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+  test -x "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   "$debian_scratch/usr/bin/leaguebridge" status
   "$debian_scratch/usr/bin/leaguebridge" manifest verify
   sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
     --instdir="$debian_scratch" --purge leaguebridge
   test ! -e "$debian_scratch/usr/bin/leaguebridge"
+  test ! -e "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+  test ! -e "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   echo 'install=pass'
   echo 'uninstall=pass'
   sha256sum "$debian_package"
@@ -199,10 +205,14 @@ sudo rpm --root "$rpm_scratch" --install "$rpm_package"
   rpm --version
   rpm -qip "$rpm_package"
   sudo rpm --root "$rpm_scratch" -q leaguebridge
+  test -x "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+  test -x "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   "$rpm_scratch/usr/bin/leaguebridge" status
   "$rpm_scratch/usr/bin/leaguebridge" manifest verify
   sudo rpm --root "$rpm_scratch" --erase leaguebridge
   test ! -e "$rpm_scratch/usr/bin/leaguebridge"
+  test ! -e "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+  test ! -e "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   echo 'install=pass'
   echo 'uninstall=pass'
   sha256sum "$rpm_package"

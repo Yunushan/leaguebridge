@@ -37,9 +37,9 @@ attempt, certificate, and post-verification digest checks described above.
 The workflow also emits `leaguebridge.native-runtime-attestation.v2` subjects
 for the native Linux/BSD runtime jobs. `tools/nativeattestation` inventories
 the exact runtime executable and every smoke/install evidence file, records
-their size and SHA-256, and keeps the document score-free. The Linux amd64 job
-is a hosted runner; seven BSD target jobs run in explicitly `virtualized` BSD
-guests on a hosted runner: amd64 and arm64 for FreeBSD, OpenBSD, and NetBSD,
+their size and SHA-256, and keeps the document score-free. The Linux amd64 and
+arm64 jobs are hosted runners; seven BSD target jobs run in explicitly `virtualized`
+BSD guests on a hosted runner: amd64 and arm64 for FreeBSD, OpenBSD, and NetBSD,
 plus amd64 for DragonFly BSD. The native verifier requires the
 complete target set, the exact commit/tree/workflow revision/run identity, and
 the same GitHub artifact-attestation check for each JSON subject and listed

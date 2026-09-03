@@ -38,6 +38,8 @@ var canonicalMembers = []memberSpec{
 	{name: "SBOM.spdx.json", mode: 0o644},
 	{name: "install.sh", mode: 0o755},
 	{name: "leaguebridge", mode: 0o755},
+	{name: "linux-bsd-client-smoke.sh", mode: 0o755},
+	{name: "linux-bsd-remote-session.sh", mode: 0o755},
 	{name: "uninstall.sh", mode: 0o755},
 }
 

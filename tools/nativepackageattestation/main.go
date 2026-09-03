@@ -39,7 +39,7 @@ const (
 	maxDocumentSize        = 128 << 10
 	maxSubjectSize         = int64(256 << 20)
 	maxInstallEvidenceSize = int64(1 << 20)
-	maxEvidenceFiles       = 8
+	maxEvidenceFiles       = 10
 	maxGitHubOutput        = 8 << 20
 	githubTimeout          = 5 * time.Minute
 	githubOIDCIssuer       = "https://token.actions.githubusercontent.com"
@@ -54,7 +54,7 @@ var (
 	goVersionPattern  = regexp.MustCompile(`^go1\.[0-9]+\.[0-9]+$`)
 	repositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	refPattern        = regexp.MustCompile(`^refs/[A-Za-z0-9._/@-]{1,250}$`)
-	filenamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_-]{0,240}$`)
+	filenamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+_~-]{0,240}$`)
 	sha256Pattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -444,8 +444,8 @@ func hashStagingTree(directory, outputPath string, seen map[string]struct{}) ([]
 	if err != nil {
 		return nil, fmt.Errorf("inventory staging directory: %w", err)
 	}
-	if len(result) != 6 {
-		return nil, fmt.Errorf("staging directory contains %d regular files; want exactly 6", len(result))
+	if len(result) != 8 {
+		return nil, fmt.Errorf("staging directory contains %d regular files; want exactly 8", len(result))
 	}
 	return result, nil
 }
@@ -688,8 +688,10 @@ func expectedExecution(targetValue target, family string) (job, runner, architec
 	switch targetValue.GOOS {
 	case "linux":
 		return "native-package-linux", "Linux", "X64", "hosted"
-	case "freebsd", "openbsd", "netbsd", "dragonfly":
+	case "freebsd", "openbsd", "netbsd":
 		return "native-package-bsd", "Linux", "X64", "virtualized"
+	case "dragonfly":
+		return "dragonfly-native-package", "Linux", "X64", "virtualized"
 	default:
 		return "", "", "", ""
 	}
@@ -1059,7 +1061,7 @@ func validateDocument(value document) error {
 		}
 		roles[item.Role]++
 	}
-	if roles["package"] != 1 || roles["staging-manifest"] != 1 || roles["staging-payload"] != 5 || roles["package-install-evidence"] != 1 {
+	if roles["package"] != 1 || roles["staging-manifest"] != 1 || roles["staging-payload"] != 7 || roles["package-install-evidence"] != 1 {
 		return fmt.Errorf("native package subject roles are invalid: %+v", roles)
 	}
 	artifact := value.Execution.Package

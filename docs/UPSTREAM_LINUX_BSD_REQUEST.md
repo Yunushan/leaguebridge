@@ -11,9 +11,9 @@ Riot's current [Vanguard x LoL explanation](https://www.leagueoflegends.com/en-u
 says that Linux has not been officially supported and that the Wine/Lutris
 implementation cannot satisfy Vanguard's driver requirements. The public
 [Linux support request](https://github.com/RiotVanguard/Vanguard/issues/84)
-remains open as of 30 August 2026. This document provides a respectful,
-non-exploit request for a supported solution; it does not claim that one
-exists.
+remains open as of 3 September 2026, with no assignee, linked branch, or pull
+request. This document provides a respectful, non-exploit request for a
+supported solution; it does not claim that one exists.
 
 ## Copy/paste request
 

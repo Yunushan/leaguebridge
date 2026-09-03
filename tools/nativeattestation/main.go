@@ -481,6 +481,7 @@ func validateSetShape(kind string, values []loadedDocument) error {
 	switch kind {
 	case "linux-runtime":
 		want["linux/amd64"] = struct{}{}
+		want["linux/arm64"] = struct{}{}
 	case "bsd-runtime":
 		for _, goos := range []string{"freebsd", "openbsd", "netbsd"} {
 			want[goos+"/amd64"] = struct{}{}
@@ -517,8 +518,14 @@ func validateSetShape(kind string, values []loadedDocument) error {
 func expectedExecution(kind string, target target) (job, runner, architecture string) {
 	switch kind {
 	case "linux-runtime":
+		if target.GOARCH == "arm64" {
+			return "linux-runtime", "Linux", "ARM64"
+		}
 		return "linux-runtime", "Linux", "X64"
 	case "bsd-runtime":
+		if target.GOOS == "dragonfly" {
+			return "dragonfly-runtime", "Linux", "X64"
+		}
 		return "bsd-runtime", "Linux", "X64"
 	default:
 		return "", "", ""
@@ -906,7 +913,7 @@ func validateExecution(value execution, kind string) error {
 	if value.RunnerOS != "Linux" {
 		return fmt.Errorf("unsupported runner OS %q", value.RunnerOS)
 	}
-	if value.RunnerArchitecture != "X64" {
+	if value.RunnerArchitecture != "X64" && value.RunnerArchitecture != "ARM64" {
 		return fmt.Errorf("unsupported runner architecture %q", value.RunnerArchitecture)
 	}
 	if value.HostClass != "hosted" && value.HostClass != "virtualized" && value.HostClass != "physical" {
@@ -921,8 +928,9 @@ func validateExecution(value execution, kind string) error {
 	if err := validateTarget(kind, value.Target); err != nil {
 		return err
 	}
-	if value.Job != kind {
-		return fmt.Errorf("execution job %q is not %q", value.Job, kind)
+	expectedJob, expectedRunner, expectedArchitecture := expectedExecution(kind, value.Target)
+	if value.Job != expectedJob || value.RunnerOS != expectedRunner || value.RunnerArchitecture != expectedArchitecture {
+		return fmt.Errorf("execution identity %q/%q/%q is not %q/%q/%q for %s/%s", value.Job, value.RunnerOS, value.RunnerArchitecture, expectedJob, expectedRunner, expectedArchitecture, value.Target.GOOS, value.Target.GOARCH)
 	}
 	return nil
 }
@@ -930,8 +938,8 @@ func validateExecution(value execution, kind string) error {
 func validateTarget(kind string, value target) error {
 	switch kind {
 	case "linux-runtime":
-		if value.GOOS != "linux" || value.GOARCH != "amd64" {
-			return errors.New("linux runtime target must be linux/amd64")
+		if value.GOOS != "linux" || (value.GOARCH != "amd64" && value.GOARCH != "arm64") {
+			return errors.New("linux runtime target must be linux/amd64 or linux/arm64")
 		}
 	case "bsd-runtime":
 		if (value.GOARCH != "amd64" && value.GOARCH != "arm64") || (value.GOOS != "freebsd" && value.GOOS != "openbsd" && value.GOOS != "netbsd" && value.GOOS != "dragonfly") || (value.GOOS == "dragonfly" && value.GOARCH != "amd64") {

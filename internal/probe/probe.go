@@ -195,12 +195,30 @@ type FileSystem interface {
 	Stat(name string) (fs.FileInfo, error)
 }
 
-// DeviceAccess is an optional read-only extension used when a client input
-// endpoint must be checked for actual session access. Fixture file systems may
-// omit it and retain existence-only semantics; the system file system
-// implements it with a nonblocking read-only open.
+// ResolvedFileSystem is an optional read-only filesystem surface for
+// environment-selected display endpoints. Unlike FileSystem.Stat, its
+// implementation may follow the final symbolic link so a compositor such as
+// WSLg can expose a named Wayland socket through a runtime-directory link.
+// Callers use it only to confirm the resolved endpoint type; it is not used
+// for user-authored files, devices, or executable discovery.
+type ResolvedFileSystem interface {
+	StatResolved(name string) (fs.FileInfo, error)
+}
+
+// DeviceAccess is an optional read-only extension for callers that need to
+// check an endpoint with read permission. Fixture file systems may omit it and
+// retain existence-only semantics; the system file system implements it with
+// a nonblocking read-only open.
 type DeviceAccess interface {
 	OpenRead(name string) (io.Closer, error)
+}
+
+// WritableDeviceAccess is an optional extension used when the native client
+// needs read/write permission for a device endpoint. The probe only opens the
+// endpoint with O_RDWR|O_NONBLOCK; it never writes to the device. Fixture file
+// systems may omit it and retain existence-only semantics.
+type WritableDeviceAccess interface {
+	OpenReadWrite(name string) (io.Closer, error)
 }
 
 // Environment supplies environment values without requiring probes to depend
@@ -241,6 +259,13 @@ type PlatformInfo interface {
 
 type systemPlatformInfo struct{}
 
+// PrivilegeInfo reports the minimum local privilege fact needed by a native
+// display-backend probe. It deliberately exposes only the root/non-root bit;
+// probes never collect usernames, group memberships, or process credentials.
+type PrivilegeInfo interface {
+	IsRoot() bool
+}
+
 // Dependencies makes every source of host state replaceable by fixtures.
 // GOOS and GOARCH default to runtime values when empty.
 type Dependencies struct {
@@ -249,6 +274,7 @@ type Dependencies struct {
 	Commands       Commands
 	Services       Services
 	Platform       PlatformInfo
+	Privilege      PrivilegeInfo
 	GOOS           string
 	GOARCH         string
 	CommandTimeout time.Duration
@@ -256,14 +282,15 @@ type Dependencies struct {
 
 // Prober performs read-only preflight checks.
 type Prober struct {
-	fs       FileSystem
-	env      Environment
-	command  Commands
-	services Services
-	platform PlatformInfo
-	goos     string
-	goarch   string
-	timeout  time.Duration
+	fs        FileSystem
+	env       Environment
+	command   Commands
+	services  Services
+	platform  PlatformInfo
+	privilege PrivilegeInfo
+	goos      string
+	goarch    string
+	timeout   time.Duration
 }
 
 // New constructs a Prober. Nil dependencies receive safe system defaults.
@@ -283,6 +310,9 @@ func New(deps Dependencies) *Prober {
 	if deps.Platform == nil {
 		deps.Platform = systemPlatformInfo{}
 	}
+	if deps.Privilege == nil {
+		deps.Privilege = systemPrivilegeInfo{}
+	}
 	if deps.GOOS == "" {
 		deps.GOOS = runtime.GOOS
 	}
@@ -296,14 +326,15 @@ func New(deps Dependencies) *Prober {
 		deps.CommandTimeout = maximumCommandTimeout
 	}
 	return &Prober{
-		fs:       deps.FS,
-		env:      deps.Env,
-		command:  deps.Commands,
-		services: deps.Services,
-		platform: deps.Platform,
-		goos:     strings.ToLower(strings.TrimSpace(deps.GOOS)),
-		goarch:   strings.ToLower(strings.TrimSpace(deps.GOARCH)),
-		timeout:  deps.CommandTimeout,
+		fs:        deps.FS,
+		env:       deps.Env,
+		command:   deps.Commands,
+		services:  deps.Services,
+		platform:  deps.Platform,
+		privilege: deps.Privilege,
+		goos:      strings.ToLower(strings.TrimSpace(deps.GOOS)),
+		goarch:    strings.ToLower(strings.TrimSpace(deps.GOARCH)),
+		timeout:   deps.CommandTimeout,
 	}
 }
 
@@ -468,21 +499,33 @@ func (p *Prober) run(ctx context.Context, name string, args ...string) (CommandR
 	return p.command.Run(commandCtx, name, args...)
 }
 
-// readableCharacterDeviceAny verifies both the device-node type and the
-// permission needed by a client input backend. It deliberately returns to
-// existence-only behavior for fixture file systems that do not expose the
-// optional DeviceAccess surface.
-func (p *Prober) readableCharacterDeviceAny(paths ...string) bool {
-	access, canCheckAccess := p.fs.(DeviceAccess)
+// writableCharacterDeviceAny verifies both the device-node type and the
+// read/write permission needed by a native client input backend. It
+// deliberately returns to existence-only behavior for fixture file systems
+// that do not expose the optional WritableDeviceAccess surface.
+func (p *Prober) writableCharacterDeviceAny(paths ...string) bool {
+	return p.writableDeviceAny(fs.ModeCharDevice, paths...)
+}
+
+// writableDeviceNodeAny verifies a device node and the read/write permission
+// needed by a direct display backend. It shares the fixture fallback with
+// input checks so existing deterministic probe fixtures remain useful without
+// pretending to attest permissions they cannot model.
+func (p *Prober) writableDeviceNodeAny(paths ...string) bool {
+	return p.writableDeviceAny(fs.ModeDevice, paths...)
+}
+
+func (p *Prober) writableDeviceAny(requiredMode fs.FileMode, paths ...string) bool {
+	access, canCheckAccess := p.fs.(WritableDeviceAccess)
 	for _, candidate := range uniqueNonEmpty(paths) {
 		info, err := p.fs.Stat(candidate)
-		if err != nil || info == nil || info.Mode()&fs.ModeCharDevice == 0 {
+		if err != nil || info == nil || info.Mode()&requiredMode == 0 {
 			continue
 		}
 		if !canCheckAccess {
 			return true
 		}
-		device, err := access.OpenRead(candidate)
+		device, err := access.OpenReadWrite(candidate)
 		if err != nil || device == nil {
 			continue
 		}

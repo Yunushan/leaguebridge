@@ -61,6 +61,7 @@ fi
 
 package_version=${version#v}
 package_name="leaguebridge-$package_version"
+installed_package_name=$package_name
 staging="native-package-staging/$family"
 package_dir="native-package-output/$family"
 evidence_dir="native-package-evidence/$family"
@@ -120,11 +121,13 @@ as_root() {
 }
 
 package_installed=0
-netbsd_payload_staged=0
+pkg_command=
 
 assert_clean_install_paths() {
   for install_path in \
     /usr/local/bin/leaguebridge \
+    /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh \
+    /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh \
     /usr/local/share/doc/leaguebridge \
     /usr/local/share/doc/leaguebridge/LICENSE \
     /usr/local/share/doc/leaguebridge/README.md \
@@ -139,6 +142,8 @@ assert_clean_install_paths() {
 assert_uninstalled() {
   for installed_path in \
     /usr/local/bin/leaguebridge \
+    /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh \
+    /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh \
     /usr/local/share/doc/leaguebridge \
     /usr/local/share/doc/leaguebridge/LICENSE \
     /usr/local/share/doc/leaguebridge/README.md \
@@ -154,18 +159,50 @@ remove_owned_doc_directory() {
   as_root rmdir /usr/local/share/doc/leaguebridge 2>/dev/null || :
 }
 
+hash_package() {
+  package_path=$1
+  package_hash=
+  if command -v sha256sum >/dev/null 2>&1; then
+    package_hash=$(sha256sum "$package_path" | awk '{print $1}')
+  elif command -v sha256 >/dev/null 2>&1; then
+    package_hash=$(sha256 -q "$package_path" 2>/dev/null || :)
+    if [ -z "$package_hash" ]; then
+      package_hash=$(sha256 "$package_path" | awk '{print $NF}')
+    fi
+  elif command -v openssl >/dev/null 2>&1; then
+    package_hash=$(openssl dgst -sha256 -r "$package_path" 2>/dev/null | awk '{print $1}' || :)
+    if [ -z "$package_hash" ]; then
+      package_hash=$(openssl dgst -sha256 "$package_path" | awk '{print $NF}')
+    fi
+  else
+    fail "no SHA-256 utility is available in the BSD guest"
+  fi
+  case "$package_hash" in
+    ''|*[!0-9A-Fa-f]*) fail "SHA-256 utility returned an invalid package digest" ;;
+  esac
+  if [ "${#package_hash}" -ne 64 ]; then
+    fail "SHA-256 utility returned a digest with an unexpected length"
+  fi
+  printf '%s  %s\n' "$(printf '%s' "$package_hash" | tr 'A-F' 'a-f')" "$package_path"
+}
+
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/leaguebridge-native-package.XXXXXXXX")
 cleanup() {
+  cleanup_status=$?
   set +e
+  if [ "$cleanup_status" -ne 0 ] && [ -f "${evidence:-}" ]; then
+    echo "native-package-bsd-smoke: command output before failure:" >&2
+    cat "$evidence" >&2
+  fi
   case "$expected_goos" in
     freebsd|dragonfly)
-      if [ "$package_installed" -eq 1 ]; then
-        as_root pkg delete -y "$package_name" >/dev/null 2>&1
+      if [ "$package_installed" -eq 1 ] && [ -n "${pkg_command:-}" ]; then
+        as_root "$pkg_command" delete -y "$package_name" >/dev/null 2>&1
       fi
       ;;
     openbsd)
       if [ "$package_installed" -eq 1 ]; then
-        as_root pkg_delete -I "$package_name" >/dev/null 2>&1
+        as_root pkg_delete -I "$installed_package_name" >/dev/null 2>&1
       fi
       ;;
     netbsd)
@@ -174,9 +211,11 @@ cleanup() {
       fi
       ;;
   esac
-  if [ "$netbsd_payload_staged" -eq 1 ] || [ "$package_installed" -eq 1 ]; then
+  if [ "$package_installed" -eq 1 ]; then
     as_root rm -f \
       /usr/local/bin/leaguebridge \
+      /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh \
+      /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh \
       /usr/local/share/doc/leaguebridge/LICENSE \
       /usr/local/share/doc/leaguebridge/README.md \
       /usr/local/share/doc/leaguebridge/SBOM.spdx.json \
@@ -186,13 +225,33 @@ cleanup() {
   if [ -n "${temporary_root:-}" ] && [ -e "$temporary_root" ] && [ ! -L "$temporary_root" ]; then
     rm -rf -- "$temporary_root"
   fi
+  exit "$cleanup_status"
 }
 trap cleanup EXIT HUP INT TERM
 
 case "$expected_goos" in
+  openbsd)
+    # OpenBSD derives the installed package name from the output filename when
+    # the packing list does not contain @name. Keep the name used by pkg_info
+    # and pkg_delete bound to that derived identity.
+    installed_package_name="$package_name-$expected_goos"
+    ;;
+esac
+
+case "$expected_goos" in
   freebsd|dragonfly)
-    command -v pkg >/dev/null 2>&1 || fail "pkg is unavailable in the BSD guest"
-    if pkg info -e "$package_name" >/dev/null 2>&1; then
+    if command -v pkg >/dev/null 2>&1; then
+      pkg_command=$(command -v pkg)
+    elif command -v pkg-static >/dev/null 2>&1; then
+      pkg_command=$(command -v pkg-static)
+    else
+      fail "pkg and pkg-static are unavailable in the BSD guest"
+    fi
+    case "$pkg_command" in
+      /*) ;;
+      *) fail "BSD package tool did not resolve to an absolute path" ;;
+    esac
+    if "$pkg_command" info -e "$installed_package_name" >/dev/null 2>&1; then
       fail "guest already has package $package_name installed"
     fi
     assert_clean_install_paths
@@ -210,7 +269,7 @@ case "$expected_goos" in
       '}' > "$metadata/+MANIFEST"
     generated="$temporary_root/generated"
     mkdir "$generated"
-    pkg create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n
+    "$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n
     generated_package=
     set +f
     for candidate in "$generated"/*.pkg; do
@@ -231,18 +290,19 @@ case "$expected_goos" in
     command -v pkg_add >/dev/null 2>&1 || fail "pkg_add is unavailable in the OpenBSD guest"
     command -v pkg_delete >/dev/null 2>&1 || fail "pkg_delete is unavailable in the OpenBSD guest"
     command -v pkg_info >/dev/null 2>&1 || fail "pkg_info is unavailable in the OpenBSD guest"
-    if pkg_info -e "$package_name" >/dev/null 2>&1; then
+    if pkg_info -e "$installed_package_name" >/dev/null 2>&1; then
       fail "guest already has package $package_name installed"
     fi
     assert_clean_install_paths
     packlist="$temporary_root/packing-list"
     description="$temporary_root/description"
     printf '%s\n' \
-      "@name $package_name" \
       '@arch amd64' \
       '@cwd /usr/local' \
       '@mode 0755' \
       'bin/leaguebridge' \
+      'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
+      'libexec/leaguebridge/linux-bsd-remote-session.sh' \
       '@mode 0644' \
       'share/doc/leaguebridge/LICENSE' \
       'share/doc/leaguebridge/README.md' \
@@ -255,7 +315,6 @@ case "$expected_goos" in
       -D FULLPKGPATH=sysutils/leaguebridge "$package"
     ;;
   netbsd)
-    command -v pkg_create >/dev/null 2>&1 || fail "pkg_create is unavailable in the NetBSD guest"
     command -v pkg_add >/dev/null 2>&1 || fail "pkg_add is unavailable in the NetBSD guest"
     command -v pkg_delete >/dev/null 2>&1 || fail "pkg_delete is unavailable in the NetBSD guest"
     command -v pkg_info >/dev/null 2>&1 || fail "pkg_info is unavailable in the NetBSD guest"
@@ -271,6 +330,8 @@ case "$expected_goos" in
       '@cwd /usr/local' \
       '@mode 0755' \
       'bin/leaguebridge' \
+      'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
+      'libexec/leaguebridge/linux-bsd-remote-session.sh' \
       '@mode 0644' \
       'share/doc/leaguebridge/LICENSE' \
       'share/doc/leaguebridge/README.md' \
@@ -278,34 +339,42 @@ case "$expected_goos" in
       'share/doc/leaguebridge/PACKAGE-MANIFEST.json' > "$packlist"
     printf '%s\n' 'LeagueBridge remote handoff controller' > "$comment"
     printf '%s\n' 'A bounded, read-only compatibility and remote handoff controller.' > "$description"
-    as_root mkdir -p /usr/local/bin /usr/local/share/doc/leaguebridge
-    netbsd_payload_staged=1
-    as_root cp -p \
-      "$staging/root/usr/local/bin/leaguebridge" \
-      /usr/local/bin/leaguebridge
-    as_root cp -p \
-      "$staging/root/usr/local/share/doc/leaguebridge/LICENSE" \
-      "$staging/root/usr/local/share/doc/leaguebridge/README.md" \
-      "$staging/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json" \
-      "$staging/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" \
-      /usr/local/share/doc/leaguebridge/
-    as_root chmod 0755 /usr/local/bin/leaguebridge
-    as_root chmod 0644 /usr/local/share/doc/leaguebridge/LICENSE \
-      /usr/local/share/doc/leaguebridge/README.md \
-      /usr/local/share/doc/leaguebridge/SBOM.spdx.json \
-      /usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
-    root_abs=$(cd "$staging/root" && pwd -P)
-    pkg_create \
-      -I /usr/local -p "$root_abs/usr/local" -F gzip \
-      -c "$comment" -d "$description" -f "$packlist" "$package"
-    as_root rm -f /usr/local/bin/leaguebridge \
-      /usr/local/share/doc/leaguebridge/LICENSE \
-      /usr/local/share/doc/leaguebridge/README.md \
-      /usr/local/share/doc/leaguebridge/SBOM.spdx.json \
-      /usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
-    as_root rmdir /usr/local/share/doc/leaguebridge 2>/dev/null || :
-    assert_clean_install_paths
-    netbsd_payload_staged=0
+    if command -v pkg_create >/dev/null 2>&1; then
+      root_abs=$(cd "$staging/root" && pwd -P)
+      pkg_create \
+        -I /usr/local -p "$root_abs/usr/local" -F gzip \
+        -c "$comment" -d "$description" -f "$packlist" "$package"
+    else
+      command -v tar >/dev/null 2>&1 || fail "pkg_create is unavailable and tar is unavailable in the NetBSD guest"
+      command -v gzip >/dev/null 2>&1 || fail "pkg_create is unavailable and gzip is unavailable in the NetBSD guest"
+      package_root="$temporary_root/netbsd-package-root"
+      package_path_absolute=$(pwd -P)/$package
+      mkdir -p "$package_root/bin" "$package_root/libexec/leaguebridge" "$package_root/share/doc/leaguebridge"
+      cp -p "$staging/root/usr/local/bin/leaguebridge" "$package_root/bin/leaguebridge"
+      cp -p "$staging/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh" "$package_root/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+      cp -p "$staging/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh" "$package_root/libexec/leaguebridge/linux-bsd-remote-session.sh"
+      cp -p \
+        "$staging/root/usr/local/share/doc/leaguebridge/LICENSE" \
+        "$staging/root/usr/local/share/doc/leaguebridge/README.md" \
+        "$staging/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json" \
+        "$staging/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" \
+        "$package_root/share/doc/leaguebridge/"
+      cp "$packlist" "$package_root/+CONTENTS"
+      cp "$comment" "$package_root/+COMMENT"
+      cp "$description" "$package_root/+DESC"
+      # NetBSD's pkg_install format treats +CONTENTS as the package table of
+      # contents. Put it first so the tar fallback remains consumable by
+      # pkg_add implementations that stream metadata instead of seeking.
+      (cd "$package_root" && tar -czf "$package_path_absolute" \
+        +CONTENTS +COMMENT +DESC \
+        bin/leaguebridge \
+        libexec/leaguebridge/linux-bsd-client-smoke.sh \
+        libexec/leaguebridge/linux-bsd-remote-session.sh \
+        share/doc/leaguebridge/LICENSE \
+        share/doc/leaguebridge/README.md \
+        share/doc/leaguebridge/SBOM.spdx.json \
+        share/doc/leaguebridge/PACKAGE-MANIFEST.json)
+    fi
     ;;
 esac
 
@@ -321,20 +390,22 @@ case "$expected_goos" in
       echo "filename=$(basename "$package")"
       echo "target=$expected_goos/amd64"
       uname -a
-      pkg -v
-      pkg info -e "$package_name" || :
+      "$pkg_command" -v
+      "$pkg_command" info -e "$package_name" || :
       package_installed=1
-      as_root pkg add -f "$package"
-      as_root pkg info -e "$package_name"
+      as_root "$pkg_command" add -f "$package"
+      as_root "$pkg_command" info -e "$package_name"
       /usr/local/bin/leaguebridge status
+      test -x /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+      test -x /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
       /usr/local/bin/leaguebridge manifest verify
-      as_root pkg delete -y "$package_name"
+      as_root "$pkg_command" delete -y "$package_name"
       remove_owned_doc_directory
       assert_uninstalled
       package_installed=0
       echo 'install=pass'
       echo 'uninstall=pass'
-      sha256 "$package"
+      hash_package "$package"
     } > "$evidence" 2>&1
     ;;
   openbsd)
@@ -347,17 +418,19 @@ case "$expected_goos" in
       pkg_add -V
       package_installed=1
       as_root pkg_add -D unsigned -I "$package"
-      as_root pkg_info -e "$package_name"
+      as_root pkg_info -e "$installed_package_name"
       /usr/local/bin/leaguebridge status
+      test -x /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+      test -x /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
       /usr/local/bin/leaguebridge manifest verify
-      as_root pkg_delete -I "$package_name"
+      as_root pkg_delete -I "$installed_package_name"
       remove_owned_doc_directory
       assert_uninstalled
       package_installed=0
       echo 'package-signature=unsigned-ci-only'
       echo 'install=pass'
       echo 'uninstall=pass'
-      sha256 "$package"
+      hash_package "$package"
     } > "$evidence" 2>&1
     ;;
   netbsd)
@@ -372,6 +445,8 @@ case "$expected_goos" in
       as_root pkg_add "$package"
       as_root pkg_info -e "$package_name"
       /usr/local/bin/leaguebridge status
+      test -x /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+      test -x /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
       /usr/local/bin/leaguebridge manifest verify
       as_root pkg_delete -f "$package_name"
       remove_owned_doc_directory
@@ -379,7 +454,7 @@ case "$expected_goos" in
       package_installed=0
       echo 'install=pass'
       echo 'uninstall=pass'
-      sha256 "$package"
+      hash_package "$package"
     } > "$evidence" 2>&1
     ;;
 esac

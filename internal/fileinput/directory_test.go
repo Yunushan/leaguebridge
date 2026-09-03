@@ -130,6 +130,65 @@ func TestCreateTempDirectory(t *testing.T) {
 	}
 }
 
+func TestNestedRootCloseDoesNotInvalidateParentRoot(t *testing.T) {
+	parent, err := OpenDirectoryRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+
+	child, _, err := CreateTempDirectory(parent, ".fixture-dir-", 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Close()
+
+	if err := child.Mkdir("payload", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payloadRoot, err := child.OpenRoot("payload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadFile, err := payloadRoot.OpenFile("file", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		payloadRoot.Close()
+		t.Fatal(err)
+	}
+	if _, err := payloadFile.Write([]byte("payload\n")); err != nil {
+		payloadFile.Close()
+		payloadRoot.Close()
+		t.Fatal(err)
+	}
+	if err := payloadFile.Close(); err != nil {
+		payloadRoot.Close()
+		t.Fatal(err)
+	}
+	if err := payloadRoot.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := child.OpenFile("manifest", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte("manifest\n")); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadRegularBoundedFromRoot(child, "manifest", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "manifest\n" {
+		t.Fatalf("manifest contents = %q; want %q", got, "manifest\n")
+	}
+}
+
 func TestOpenDirectoryRootRejectsSymlink(t *testing.T) {
 	target := t.TempDir()
 	link := filepath.Join(t.TempDir(), "directory-link")

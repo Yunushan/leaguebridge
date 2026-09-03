@@ -48,7 +48,16 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "kind": { "const": "linux-runtime" } } },
+      "if": {
+        "properties": {
+          "kind": { "const": "linux-runtime" },
+          "execution": {
+            "properties": {
+              "target": { "properties": { "goarch": { "const": "amd64" } } }
+            }
+          }
+        }
+      },
       "then": {
         "properties": {
           "execution": {
@@ -66,7 +75,45 @@
       }
     },
     {
-      "if": { "properties": { "kind": { "const": "bsd-runtime" } } },
+      "if": {
+        "properties": {
+          "kind": { "const": "linux-runtime" },
+          "execution": {
+            "properties": {
+              "target": { "properties": { "goarch": { "const": "arm64" } } }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "job": { "const": "linux-runtime" },
+              "runner_os": { "const": "Linux" },
+              "runner_architecture": { "const": "ARM64" },
+              "host_class": { "const": "hosted" },
+              "target": {
+                "properties": { "goos": { "const": "linux" }, "goarch": { "const": "arm64" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "bsd-runtime" },
+          "execution": {
+            "properties": {
+              "target": {
+                "properties": { "goos": { "enum": ["freebsd", "openbsd", "netbsd"] } }
+              }
+            }
+          }
+        }
+      },
       "then": {
         "properties": {
           "execution": {
@@ -76,20 +123,42 @@
               "runner_architecture": { "const": "X64" },
               "host_class": { "const": "virtualized" },
               "target": {
-                "oneOf": [
-                  {
-                    "properties": {
-                      "goos": { "enum": ["freebsd", "openbsd", "netbsd"] },
-                      "goarch": { "enum": ["amd64", "arm64"] }
-                    }
-                  },
-                  {
-                    "properties": {
-                      "goos": { "const": "dragonfly" },
-                      "goarch": { "const": "amd64" }
-                    }
-                  }
-                ]
+                "properties": {
+                  "goos": { "enum": ["freebsd", "openbsd", "netbsd"] },
+                  "goarch": { "enum": ["amd64", "arm64"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "const": "bsd-runtime" },
+          "execution": {
+            "properties": {
+              "target": {
+                "properties": { "goos": { "const": "dragonfly" } }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "execution": {
+            "properties": {
+              "job": { "const": "dragonfly-runtime" },
+              "runner_os": { "const": "Linux" },
+              "runner_architecture": { "const": "X64" },
+              "host_class": { "const": "virtualized" },
+              "target": {
+                "properties": {
+                  "goos": { "const": "dragonfly" },
+                  "goarch": { "const": "amd64" }
+                }
               }
             }
           }
@@ -141,7 +210,7 @@
       "properties": {
         "job": { "$ref": "#/$defs/slug" },
         "runner_os": { "const": "Linux" },
-        "runner_architecture": { "const": "X64" },
+        "runner_architecture": { "enum": ["X64", "ARM64"] },
         "host_class": { "enum": ["hosted", "virtualized", "physical"] },
         "go_version": { "type": "string", "pattern": "^go1\\.[0-9]+\\.[0-9]+$" },
         "command": { "$ref": "#/$defs/boundedText" },

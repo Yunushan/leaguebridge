@@ -23,7 +23,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -120,7 +120,7 @@ jobs:
           name: ci-attestation-race-vet-ubuntu-24.04
           path: ci-attestation-input
       - name: Attest commit-bound race/vet subject
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ci-attestation-input/race-vet.json
 
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up minimum Go
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -161,7 +161,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -199,7 +199,7 @@ jobs:
             goarch: amd64
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -295,7 +295,7 @@ jobs:
           name: ci-attestation-cross-build-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ci-attestation-input
       - name: Attest commit-bound cross-build subject and binary
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             ci-attestation-input/ci-attestation/cross-build.json
@@ -311,7 +311,7 @@ jobs:
       attestations: read
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -458,7 +458,7 @@ jobs:
             cpa_architecture: arm64
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -471,14 +471,29 @@ jobs:
         with:
           name: release-smoke-dist
           path: dist
+      - name: Resolve verified repository-evidence marker
+        id: repository-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/readinesscheck -root .
+          scorecard_sha256="$(sha256sum readiness/scorecard.json | awk '{print $1}')"
+          if [[ ! "$scorecard_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "readiness scorecard did not produce a canonical SHA-256 digest" >&2
+            exit 1
+          fi
+          printf 'value=leaguebridge-repository-evidence-v1:%s\n' "$scorecard_sha256" >> "$GITHUB_OUTPUT"
       - name: Build static CLI for ${{ matrix.goos }}/${{ matrix.goarch }}
         env:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          REPOSITORY_EVIDENCE_VERIFICATION: ${{ steps.repository-evidence.outputs.value }}
         run: |
           mkdir -p bsd-ci
-          go build -mod=vendor -trimpath -buildvcs=true -o "bsd-ci/leaguebridge-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/leaguebridge
+          go build -mod=vendor -trimpath -buildvcs=true \
+            -ldflags "-X github.com/Yunushan/leaguebridge/internal/version.RepositoryEvidenceVerification=$REPOSITORY_EVIDENCE_VERIFICATION" \
+            -o "bsd-ci/leaguebridge-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/leaguebridge
       - name: Boot ${{ matrix.label }} guest
         id: start-vm
         uses: cross-platform-actions/action@faa0c6197e94aacf1c5956460152c8380d3560a5 # v1.5.0
@@ -514,12 +529,16 @@ jobs:
         shell: cpa.sh {0}
         run: |
           mkdir -p "bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}"
-          sh scripts/verify-install.sh \
+          evidence_file="bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}/install-lifecycle.txt"
+          if ! sh scripts/verify-install.sh \
             "dist/leaguebridge_0.0.0-ci_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" \
             v0.0.0-ci \
             "${{ matrix.goos }}" \
             "${{ matrix.goarch }}" \
-            >"bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}/install-lifecycle.txt" 2>&1
+            >"$evidence_file" 2>&1; then
+            cat "$evidence_file" >&2
+            exit 1
+          fi
       - name: Synchronize BSD evidence to the runner
         if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
         run: cpa.sh --sync-files vm-to-runner
@@ -560,7 +579,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -573,14 +592,28 @@ jobs:
         with:
           name: release-smoke-dist
           path: dist
+      - name: Resolve verified repository-evidence marker
+        id: repository-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/readinesscheck -root .
+          scorecard_sha256="$(sha256sum readiness/scorecard.json | awk '{print $1}')"
+          if [[ ! "$scorecard_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "readiness scorecard did not produce a canonical SHA-256 digest" >&2
+            exit 1
+          fi
+          printf 'value=leaguebridge-repository-evidence-v1:%s\n' "$scorecard_sha256" >> "$GITHUB_OUTPUT"
       - name: Build static CLI for dragonfly/amd64
         env:
           CGO_ENABLED: "0"
           GOOS: dragonfly
           GOARCH: amd64
+          REPOSITORY_EVIDENCE_VERIFICATION: ${{ steps.repository-evidence.outputs.value }}
         run: |
           mkdir -p bsd-ci
           go build -mod=vendor -trimpath -buildvcs=true \
+            -ldflags "-X github.com/Yunushan/leaguebridge/internal/version.RepositoryEvidenceVerification=$REPOSITORY_EVIDENCE_VERIFICATION" \
             -o bsd-ci/leaguebridge-dragonfly-amd64 ./cmd/leaguebridge
       - name: Boot DragonFly BSD 6.4.2 guest
         id: start-dragonfly-vm
@@ -616,12 +649,16 @@ jobs:
         shell: dragonflybsd {0}
         run: |
           mkdir -p bsd-evidence/dragonfly/amd64
-          sh scripts/verify-install.sh \
+          evidence_file=bsd-evidence/dragonfly/amd64/install-lifecycle.txt
+          if ! sh scripts/verify-install.sh \
             dist/leaguebridge_0.0.0-ci_dragonfly_amd64.tar.gz \
             v0.0.0-ci \
             dragonfly \
             amd64 \
-            >bsd-evidence/dragonfly/amd64/install-lifecycle.txt 2>&1
+            >"$evidence_file" 2>&1; then
+            cat "$evidence_file" >&2
+            exit 1
+          fi
       - name: Create score-free DragonFly runtime attestation subject
         if: success() && steps.start-dragonfly-vm.outcome == 'success' && steps.dragonfly-ready.outcome == 'success'
         shell: bash
@@ -695,7 +732,7 @@ jobs:
           name: bsd-runtime-${{ matrix.goos }}-${{ matrix.guest_version }}-${{ matrix.goarch }}
           path: bsd-runtime-input
       - name: Attest native BSD runtime subject and evidence
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             bsd-runtime-input/bsd-evidence/${{ matrix.goos }}/${{ matrix.goarch }}/native-runtime.json
@@ -714,7 +751,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -735,12 +772,20 @@ jobs:
           retention-days: 1
 
   linux-runtime:
-    name: Hosted Linux runtime
+    name: Hosted Linux runtime (${{ matrix.goarch }})
     needs: release-smoke
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: ubuntu-24.04
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -753,27 +798,47 @@ jobs:
         with:
           name: release-smoke-dist
           path: dist
+      - name: Resolve verified repository-evidence marker
+        id: repository-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/readinesscheck -root .
+          scorecard_sha256="$(sha256sum readiness/scorecard.json | awk '{print $1}')"
+          if [[ ! "$scorecard_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "readiness scorecard did not produce a canonical SHA-256 digest" >&2
+            exit 1
+          fi
+          printf 'value=leaguebridge-repository-evidence-v1:%s\n' "$scorecard_sha256" >> "$GITHUB_OUTPUT"
       - name: Exercise shipped Linux install lifecycle
         if: always()
         env:
           TMPDIR: ${{ runner.temp }}
         run: |
-          mkdir -p linux-evidence
-          {
+          mkdir -p linux-evidence/${{ matrix.goarch }}
+          evidence_file=linux-evidence/${{ matrix.goarch }}/install-lifecycle.txt
+          if ! {
             uname -a
             sh scripts/verify-install.sh \
-              "dist/leaguebridge_0.0.0-ci_linux_amd64.tar.gz" \
+              "dist/leaguebridge_0.0.0-ci_linux_${{ matrix.goarch }}.tar.gz" \
               v0.0.0-ci \
               linux \
-              amd64
-          } >"linux-evidence/install-lifecycle.txt" 2>&1
+              "${{ matrix.goarch }}"
+          } >"$evidence_file" 2>&1; then
+            cat "$evidence_file" >&2
+            exit 1
+          fi
       - name: Build and execute the native Linux CLI smoke
         env:
           CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.goarch }}
+          REPOSITORY_EVIDENCE_VERIFICATION: ${{ steps.repository-evidence.outputs.value }}
         run: |
-          mkdir -p ci-bin linux-evidence
-          go build -mod=vendor -trimpath -buildvcs=true -o ci-bin/leaguebridge-linux-amd64 ./cmd/leaguebridge
-          sh scripts/linux-runtime-smoke.sh ci-bin/leaguebridge-linux-amd64 linux-evidence
+          mkdir -p ci-bin linux-evidence/${{ matrix.goarch }}
+          go build -mod=vendor -trimpath -buildvcs=true \
+            -ldflags "-X github.com/Yunushan/leaguebridge/internal/version.RepositoryEvidenceVerification=$REPOSITORY_EVIDENCE_VERIFICATION" \
+            -o ci-bin/leaguebridge-linux-${{ matrix.goarch }} ./cmd/leaguebridge
+          sh scripts/linux-runtime-smoke.sh ci-bin/leaguebridge-linux-${{ matrix.goarch }} linux-evidence/${{ matrix.goarch }}
       - name: Create score-free Linux runtime attestation subject
         if: success()
         shell: bash
@@ -787,26 +852,26 @@ jobs:
           export CI_ATTESTATION_TREE="$(git rev-parse HEAD^{tree})"
           go run -mod=vendor ./tools/nativeattestation \
             -kind linux-runtime \
-            -evidence-dir linux-evidence \
-            -output linux-evidence/native-runtime.json \
+            -evidence-dir linux-evidence/${{ matrix.goarch }} \
+            -output linux-evidence/${{ matrix.goarch }}/native-runtime.json \
             -target-goos linux \
-            -target-goarch amd64 \
+            -target-goarch "${{ matrix.goarch }}" \
             -host-class hosted \
-            -subject ci-bin/leaguebridge-linux-amd64 \
+            -subject ci-bin/leaguebridge-linux-${{ matrix.goarch }} \
             -command 'hosted Linux runtime smoke; shipped archive install lifecycle'
       - name: Retain hosted Linux runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: linux-runtime
+          name: linux-runtime-${{ matrix.goarch }}
           path: |
             linux-evidence/
-            ci-bin/leaguebridge-linux-amd64
+            ci-bin/leaguebridge-linux-${{ matrix.goarch }}
           if-no-files-found: error
           retention-days: 30
 
   attest-linux-runtime:
-    name: Attest hosted Linux runtime
+    name: Attest hosted Linux runtime (${{ matrix.goarch }})
     if: github.event_name != 'pull_request'
     needs: linux-runtime
     runs-on: ubuntu-24.04
@@ -815,26 +880,32 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+          - goarch: arm64
     steps:
       - name: Download Linux runtime evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: linux-runtime
+          name: linux-runtime-${{ matrix.goarch }}
           path: linux-runtime-input
       - name: Attest native Linux runtime subject and evidence
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            linux-runtime-input/linux-evidence/native-runtime.json
-            linux-runtime-input/linux-evidence/kernel.txt
-            linux-runtime-input/linux-evidence/version.json
-            linux-runtime-input/linux-evidence/status.json
-            linux-runtime-input/linux-evidence/readiness.json
-            linux-runtime-input/linux-evidence/manifest-verify.json
-            linux-runtime-input/linux-evidence/doctor.json
-            linux-runtime-input/linux-evidence/result.txt
-            linux-runtime-input/linux-evidence/install-lifecycle.txt
-            linux-runtime-input/ci-bin/leaguebridge-linux-amd64
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/native-runtime.json
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/kernel.txt
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/version.json
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/status.json
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/readiness.json
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/manifest-verify.json
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/doctor.json
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/result.txt
+            linux-runtime-input/linux-evidence/${{ matrix.goarch }}/install-lifecycle.txt
+            linux-runtime-input/ci-bin/leaguebridge-linux-${{ matrix.goarch }}
 
   verify-native-runtime-attestations:
     name: Verify signed native runtime attestations
@@ -846,7 +917,7 @@ jobs:
       attestations: read
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -857,8 +928,9 @@ jobs:
       - name: Download Linux runtime evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: linux-runtime
+          pattern: linux-runtime-*
           path: native-runtime-input/linux
+          merge-multiple: false
       - name: Download BSD runtime evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -870,16 +942,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p linux-evidence ci-bin bsd-evidence bsd-ci
-          cp native-runtime-input/linux/linux-evidence/native-runtime.json linux-evidence/native-runtime.json
-          cp native-runtime-input/linux/linux-evidence/kernel.txt linux-evidence/kernel.txt
-          cp native-runtime-input/linux/linux-evidence/version.json linux-evidence/version.json
-          cp native-runtime-input/linux/linux-evidence/status.json linux-evidence/status.json
-          cp native-runtime-input/linux/linux-evidence/readiness.json linux-evidence/readiness.json
-          cp native-runtime-input/linux/linux-evidence/manifest-verify.json linux-evidence/manifest-verify.json
-          cp native-runtime-input/linux/linux-evidence/doctor.json linux-evidence/doctor.json
-          cp native-runtime-input/linux/linux-evidence/result.txt linux-evidence/result.txt
-          cp native-runtime-input/linux/linux-evidence/install-lifecycle.txt linux-evidence/install-lifecycle.txt
-          cp native-runtime-input/linux/ci-bin/leaguebridge-linux-amd64 ci-bin/leaguebridge-linux-amd64
+          for arch in amd64 arm64; do
+            source_root="native-runtime-input/linux/linux-runtime-$arch"
+            destination="linux-evidence/$arch"
+            mkdir -p "$destination"
+            for file in native-runtime.json kernel.txt version.json status.json readiness.json manifest-verify.json doctor.json result.txt install-lifecycle.txt; do
+              cp "$source_root/linux-evidence/$arch/$file" "$destination/$file"
+            done
+            cp "$source_root/ci-bin/leaguebridge-linux-$arch" "ci-bin/leaguebridge-linux-$arch"
+          done
           for target in freebsd openbsd netbsd dragonfly; do
             case "$target" in
               freebsd) version=15.1; arches="amd64 arm64" ;;
@@ -924,7 +995,8 @@ jobs:
           )
           go run -mod=vendor ./tools/nativeattestation \
             -verify -kind linux-runtime -expected-host-class hosted "${common_args[@]}" \
-            -verify-subject linux-evidence/native-runtime.json
+            -verify-subject linux-evidence/amd64/native-runtime.json \
+            -verify-subject linux-evidence/arm64/native-runtime.json
           go run -mod=vendor ./tools/nativeattestation \
             -verify -kind bsd-runtime -expected-host-class virtualized "${common_args[@]}" \
             -verify-subject bsd-evidence/freebsd/amd64/native-runtime.json \
@@ -946,7 +1018,7 @@ jobs:
       artifact-metadata: write
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -996,13 +1068,15 @@ jobs:
             -output native-package-evidence/rpm/native-package.json \
             -command 'rpm native package build; package-manager install and uninstall; native install smoke'
       - name: Attest native Linux package subjects
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             native-package-evidence/debian/native-package.json
             native-package-output/debian/leaguebridge_0.0.0~ci_amd64.deb
             native-package-staging/debian/NATIVE-PACKAGE-MANIFEST.json
             native-package-staging/debian/root/usr/bin/leaguebridge
+            native-package-staging/debian/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-staging/debian/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh
             native-package-staging/debian/root/usr/share/doc/leaguebridge/LICENSE
             native-package-staging/debian/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json
             native-package-staging/debian/root/usr/share/doc/leaguebridge/README.md
@@ -1012,6 +1086,8 @@ jobs:
             native-package-output/rpm/leaguebridge-0.0.0-1.ci.x86_64.rpm
             native-package-staging/rpm/NATIVE-PACKAGE-MANIFEST.json
             native-package-staging/rpm/root/usr/bin/leaguebridge
+            native-package-staging/rpm/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-staging/rpm/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh
             native-package-staging/rpm/root/usr/share/doc/leaguebridge/LICENSE
             native-package-staging/rpm/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json
             native-package-staging/rpm/root/usr/share/doc/leaguebridge/README.md
@@ -1062,7 +1138,7 @@ jobs:
             package_file: leaguebridge-0.0.0-ci-netbsd.tgz
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -1154,13 +1230,15 @@ jobs:
             -command 'BSD native package build; package-manager install and uninstall; native install smoke'
       - name: Attest native BSD package subject
         if: success() && github.event_name != 'pull_request'
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             native-package-evidence/${{ matrix.family }}/native-package.json
             native-package-output/${{ matrix.family }}/${{ matrix.package_file }}
             native-package-staging/${{ matrix.family }}/NATIVE-PACKAGE-MANIFEST.json
             native-package-staging/${{ matrix.family }}/root/usr/local/bin/leaguebridge
+            native-package-staging/${{ matrix.family }}/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-staging/${{ matrix.family }}/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
             native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/LICENSE
             native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
             native-package-staging/${{ matrix.family }}/root/usr/local/share/doc/leaguebridge/README.md
@@ -1190,7 +1268,7 @@ jobs:
       artifact-metadata: write
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go
@@ -1285,13 +1363,15 @@ jobs:
             -command 'DragonFly BSD native package build; package-manager install and uninstall; native install smoke'
       - name: Attest DragonFly native package subject
         if: success() && github.event_name != 'pull_request'
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             native-package-evidence/dports/native-package.json
             native-package-output/dports/leaguebridge-0.0.0-ci-dragonfly.pkg
             native-package-staging/dports/NATIVE-PACKAGE-MANIFEST.json
             native-package-staging/dports/root/usr/local/bin/leaguebridge
+            native-package-staging/dports/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-staging/dports/root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
             native-package-staging/dports/root/usr/local/share/doc/leaguebridge/LICENSE
             native-package-staging/dports/root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json
             native-package-staging/dports/root/usr/local/share/doc/leaguebridge/README.md
@@ -1319,7 +1399,7 @@ jobs:
       attestations: read
     steps:
       - name: Check out source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go

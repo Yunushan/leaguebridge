@@ -47,10 +47,24 @@ case "$(uname -s)" in
 	*) fail "install smoke requires a supported Linux or BSD kernel" ;;
 esac
 [ "$runtime_goos" = "$expected_goos" ] || fail "runtime kernel does not match the expected archive GOOS"
-case "$(uname -m)" in
+runtime_machine=$(uname -m)
+case "$runtime_machine" in
 	x86_64|amd64) runtime_goarch=amd64 ;;
 	aarch64|arm64) runtime_goarch=arm64 ;;
-	*) fail "install smoke is running on an unsupported machine architecture" ;;
+	*)
+		runtime_machine_arch=
+		if command -v sysctl >/dev/null 2>&1; then
+			runtime_machine_arch=$(sysctl -n hw.machine_arch 2>/dev/null || :)
+		fi
+		if [ -z "$runtime_machine_arch" ] || [ "$runtime_machine_arch" = "$runtime_machine" ]; then
+			runtime_machine_arch=$(uname -p 2>/dev/null || :)
+		fi
+		case "$runtime_machine_arch" in
+			x86_64|amd64) runtime_goarch=amd64 ;;
+			aarch64|arm64) runtime_goarch=arm64 ;;
+			*) fail "install smoke is running on an unsupported machine architecture: uname -m=$runtime_machine uname -p=$runtime_machine_arch" ;;
+		esac
+		;;
 esac
 [ "$runtime_goarch" = "$expected_goarch" ] || fail "runtime machine architecture does not match the expected archive GOARCH"
 
@@ -86,13 +100,15 @@ cleanup() {
 	# Every cleanup target is fixed beneath the scratch directory. Deliberately
 	# avoid recursive deletion so an unexpected object is left for inspection.
 	rm -f "$stage_root/usr/local/bin/leaguebridge" 2>/dev/null || :
+	rm -f "$stage_root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh" 2>/dev/null || :
+	rm -f "$stage_root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh" 2>/dev/null || :
 	rm -f "$stage_root/usr/local/libexec/leaguebridge/uninstall.sh" 2>/dev/null || :
 	rm -f "$stage_root/usr/local/share/doc/leaguebridge/README.md" 2>/dev/null || :
 	rm -f "$stage_root/usr/local/share/doc/leaguebridge/LICENSE" 2>/dev/null || :
 	rm -f "$stage_root/usr/local/share/doc/leaguebridge/SBOM.spdx.json" 2>/dev/null || :
 	rm -f "$stage_root/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" 2>/dev/null || :
 	rm -f "$payload/LICENSE" "$payload/PACKAGE-MANIFEST.json" "$payload/README.md" "$payload/SBOM.spdx.json" 2>/dev/null || :
-	rm -f "$payload/install.sh" "$payload/uninstall.sh" "$payload/leaguebridge" 2>/dev/null || :
+	rm -f "$payload/install.sh" "$payload/linux-bsd-client-smoke.sh" "$payload/linux-bsd-remote-session.sh" "$payload/uninstall.sh" "$payload/leaguebridge" 2>/dev/null || :
 	rm -f "$sentinel" 2>/dev/null || :
 	rm -f "$redirect_root" 2>/dev/null || :
 	rm -f "$stage_root/usr/local/bin/user-owned" 2>/dev/null || :
@@ -115,9 +131,9 @@ trap 'exit 1' 1 2 3 15
 
 mkdir "$payload" "$stage_root"
 tar -xzf "$archive" -C "$payload" \
-	LICENSE PACKAGE-MANIFEST.json README.md SBOM.spdx.json install.sh uninstall.sh leaguebridge || fail "cannot extract canonical archive members"
+	LICENSE PACKAGE-MANIFEST.json README.md SBOM.spdx.json install.sh linux-bsd-client-smoke.sh linux-bsd-remote-session.sh uninstall.sh leaguebridge || fail "cannot extract canonical archive members"
 
-for payload_member in LICENSE PACKAGE-MANIFEST.json README.md SBOM.spdx.json install.sh uninstall.sh leaguebridge; do
+for payload_member in LICENSE PACKAGE-MANIFEST.json README.md SBOM.spdx.json install.sh linux-bsd-client-smoke.sh linux-bsd-remote-session.sh uninstall.sh leaguebridge; do
 	payload_path=$payload/$payload_member
 	if [ -L "$payload_path" ] || [ ! -f "$payload_path" ]; then
 		fail "extracted member is not a regular, non-symlink file: $payload_member"
@@ -151,6 +167,8 @@ rm -f "$redirect_root"
 PREFIX=/usr/local DESTDIR="$stage_root" "$payload/install.sh" >/dev/null
 
 installed_binary=$stage_root/usr/local/bin/leaguebridge
+installed_client_smoke=$stage_root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
+installed_remote_session=$stage_root/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
 installed_uninstaller=$stage_root/usr/local/libexec/leaguebridge/uninstall.sh
 installed_readme=$stage_root/usr/local/share/doc/leaguebridge/README.md
 installed_license=$stage_root/usr/local/share/doc/leaguebridge/LICENSE
@@ -168,6 +186,8 @@ cmp "$payload/README.md" "$installed_readme" >/dev/null || fail "upgrade did not
 cmp "$payload/LICENSE" "$installed_license" >/dev/null || fail "installed LICENSE differs from the archive"
 cmp "$payload/SBOM.spdx.json" "$installed_sbom" >/dev/null || fail "installed SBOM differs from the archive"
 cmp "$payload/PACKAGE-MANIFEST.json" "$installed_package_manifest" >/dev/null || fail "installed package manifest differs from the archive"
+cmp "$payload/linux-bsd-client-smoke.sh" "$installed_client_smoke" >/dev/null || fail "installed client smoke helper differs from the archive"
+cmp "$payload/linux-bsd-remote-session.sh" "$installed_remote_session" >/dev/null || fail "installed remote session helper differs from the archive"
 cmp "$payload/uninstall.sh" "$installed_uninstaller" >/dev/null || fail "installed uninstaller differs from the archive"
 
 file_mode() {
@@ -184,6 +204,8 @@ file_mode() {
 }
 
 [ "$(file_mode "$installed_binary")" = 755 ] || fail "installed binary mode is not 0755"
+[ "$(file_mode "$installed_client_smoke")" = 755 ] || fail "installed client smoke helper mode is not 0755"
+[ "$(file_mode "$installed_remote_session")" = 755 ] || fail "installed remote session helper mode is not 0755"
 [ "$(file_mode "$installed_uninstaller")" = 755 ] || fail "installed uninstaller mode is not 0755"
 [ "$(file_mode "$installed_readme")" = 644 ] || fail "installed README.md mode is not 0644"
 [ "$(file_mode "$installed_license")" = 644 ] || fail "installed LICENSE mode is not 0644"
@@ -209,6 +231,7 @@ if (unset DESTDIR; PREFIX=/usr/local "$installed_uninstaller" >/dev/null 2>&1); 
 fi
 for retained_path in \
 	"$installed_binary" \
+	"$installed_remote_session" \
 	"$installed_uninstaller" \
 	"$installed_readme" \
 	"$installed_license" \
@@ -250,6 +273,7 @@ PREFIX=/usr/local DESTDIR="$stage_root" "$installed_uninstaller" >/dev/null
 
 for removed_path in \
 	"$installed_binary" \
+	"$installed_remote_session" \
 	"$installed_uninstaller" \
 	"$installed_readme" \
 	"$installed_license" \

@@ -38,7 +38,7 @@ func TestBuildMapsPortablePathsForEveryNativeFamily(t *testing.T) {
 			if manifest.Package.InstallRoot != test.root || manifest.Package.Architecture != test.architecture {
 				t.Fatalf("package identity = %+v; want root=%q architecture=%q", manifest.Package, test.root, test.architecture)
 			}
-			if len(manifest.Payload) != 5 || manifest.Payload[4].InstallPath != expectedBinaryPath(test.root) {
+			if len(manifest.Payload) != 7 || manifest.Payload[4].InstallPath != expectedBinaryPath(test.root) || manifest.Payload[5].InstallPath != expectedClientSmokePath(test.root) || manifest.Payload[6].InstallPath != expectedRemoteSessionPath(test.root) {
 				t.Fatalf("staged payload = %+v", manifest.Payload)
 			}
 			if manifest.Payload[1].SourcePath != "PACKAGE-MANIFEST.json" || manifest.Payload[1].SHA256 == "" {
@@ -136,6 +136,20 @@ func expectedBinaryPath(root string) string {
 		return "/usr/bin/leaguebridge"
 	}
 	return "/usr/local/bin/leaguebridge"
+}
+
+func expectedRemoteSessionPath(root string) string {
+	if root == "/" {
+		return "/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
+	}
+	return "/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh"
+}
+
+func expectedClientSmokePath(root string) string {
+	if root == "/" {
+		return "/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
+	}
+	return "/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh"
 }
 
 func sameFamilies(got, want []Family) bool {

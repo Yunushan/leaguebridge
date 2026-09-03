@@ -97,7 +97,7 @@
     "payload": {
       "type": "array",
       "minItems": 4,
-      "maxItems": 6,
+      "maxItems": 8,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/payloadFile" }
     }
@@ -109,14 +109,16 @@
         "default_prefix": { "const": "/usr/local" },
         "metadata_install_path": { "const": "/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json" },
         "payload": {
-          "minItems": 6,
-          "maxItems": 6,
+          "minItems": 7,
+          "maxItems": 8,
           "prefixItems": [
             { "$ref": "#/$defs/unixLicense" },
             { "$ref": "#/$defs/unixReadme" },
             { "$ref": "#/$defs/unixSBOM" },
             { "$ref": "#/$defs/unixInstaller" },
             { "$ref": "#/$defs/unixBinary" },
+            { "$ref": "#/$defs/unixClientSmoke" },
+            { "$ref": "#/$defs/unixRemoteSession" },
             { "$ref": "#/$defs/unixUninstaller" }
           ],
           "items": false
@@ -171,13 +173,13 @@
       "required": ["archive_path", "install_path", "role", "mode", "size", "sha256"],
       "properties": {
         "archive_path": {
-          "enum": ["LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "uninstall.sh"]
+          "enum": ["LICENSE", "README.md", "SBOM.spdx.json", "install.sh", "leaguebridge", "linux-bsd-client-smoke.sh", "linux-bsd-remote-session.sh", "uninstall.sh"]
         },
         "install_path": {
           "type": "string",
-          "pattern": "^(?:|/usr/local/(?:bin/leaguebridge|libexec/leaguebridge/uninstall\\.sh|share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json)))$"
+          "pattern": "^(?:|/usr/local/(?:bin/leaguebridge|libexec/leaguebridge/(?:linux-bsd-client-smoke|linux-bsd-remote-session|uninstall)\\.sh|share/doc/leaguebridge/(?:LICENSE|README\\.md|SBOM\\.spdx\\.json)))$"
         },
-        "role": { "enum": ["license", "documentation", "sbom", "installer", "executable", "uninstaller"] },
+        "role": { "enum": ["license", "documentation", "sbom", "installer", "executable", "client-smoke-helper", "remote-session-helper", "uninstaller"] },
         "mode": { "enum": ["0644", "0755"] },
         "size": { "type": "integer", "minimum": 0, "maximum": 134217728 },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
@@ -211,6 +213,18 @@
       "allOf": [
         { "$ref": "#/$defs/payloadFile" },
         { "properties": { "archive_path": { "const": "leaguebridge" }, "install_path": { "const": "/usr/local/bin/leaguebridge" }, "role": { "const": "executable" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "unixClientSmoke": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "linux-bsd-client-smoke.sh" }, "install_path": { "const": "/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh" }, "role": { "const": "client-smoke-helper" }, "mode": { "const": "0755" } } }
+      ]
+    },
+    "unixRemoteSession": {
+      "allOf": [
+        { "$ref": "#/$defs/payloadFile" },
+        { "properties": { "archive_path": { "const": "linux-bsd-remote-session.sh" }, "install_path": { "const": "/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh" }, "role": { "const": "remote-session-helper" }, "mode": { "const": "0755" } } }
       ]
     },
     "unixUninstaller": {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,31 @@ func (f fixtureFS) Stat(name string) (fs.FileInfo, error) {
 		return fixtureInfo{name: filepath.Base(name), mode: 0o644}, nil
 	}
 	return nil, fs.ErrNotExist
+}
+
+type resolvedFixtureFS struct {
+	fixtureFS
+	resolvedModes map[string]fs.FileMode
+}
+
+func (f resolvedFixtureFS) StatResolved(name string) (fs.FileInfo, error) {
+	key := fixturePath(name)
+	if mode, ok := f.resolvedModes[key]; ok {
+		return fixtureInfo{name: filepath.Base(name), mode: mode}, nil
+	}
+	return f.fixtureFS.Stat(name)
+}
+
+type fixtureWritableFS struct {
+	fixtureFS
+	openReadWriteErrors map[string]error
+}
+
+func (f fixtureWritableFS) OpenReadWrite(name string) (io.Closer, error) {
+	if err := f.openReadWriteErrors[fixturePath(name)]; err != nil {
+		return nil, err
+	}
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 type fixtureInfo struct {
@@ -79,6 +105,12 @@ type fixturePlatformInfo struct {
 func (f fixturePlatformInfo) NativeArchitecture() (string, bool) {
 	return f.architecture, f.known
 }
+
+type fixturePrivilegeInfo struct {
+	root bool
+}
+
+func (f fixturePrivilegeInfo) IsRoot() bool { return f.root }
 
 type commandCall struct {
 	name string
@@ -149,6 +181,10 @@ func commandKey(name string, args ...string) string {
 }
 
 func fixtureProber(goos, goarch string, files map[string]bool, env fixtureEnv, commands *fixtureCommands, modes ...map[string]fs.FileMode) *Prober {
+	return fixtureProberWithRoot(goos, goarch, files, env, commands, true, modes...)
+}
+
+func fixtureProberWithRoot(goos, goarch string, files map[string]bool, env fixtureEnv, commands *fixtureCommands, root bool, modes ...map[string]fs.FileMode) *Prober {
 	if files == nil {
 		files = map[string]bool{}
 	}
@@ -168,6 +204,7 @@ func fixtureProber(goos, goarch string, files map[string]bool, env fixtureEnv, c
 		Commands:       commands,
 		Services:       commands,
 		Platform:       fixturePlatformInfo{architecture: goarch, known: true},
+		Privilege:      fixturePrivilegeInfo{root: root},
 		GOOS:           goos,
 		GOARCH:         goarch,
 		CommandTimeout: 50 * time.Millisecond,
@@ -241,6 +278,7 @@ func TestGraphicalSessionChecks(t *testing.T) {
 		{name: "sdl-kmsdrm", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusPass},
 		{name: "qt-eglfs", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"QT_QPA_PLATFORM": "eglfs"}, want: StatusPass},
 		{name: "qt-linuxfb", files: fixturePaths(filepath.FromSlash("/dev/fb0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/fb0")), env: fixtureEnv{"QT_QPA_PLATFORM": "linuxfb"}, want: StatusPass},
+		{name: "qt-linuxfb-graphics-fallback", files: fixturePaths(filepath.FromSlash("/dev/graphics/fb0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/graphics/fb0")), env: fixtureEnv{"QT_QPA_PLATFORM": "linuxfb"}, want: StatusPass},
 		{name: "regular-placeholder-is-not-a-device", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
 		{name: "netbsd-sdl-kmsdrm-unsupported", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
 		{name: "netbsd-sdl-kmsdrm-unsupported-even-with-x11", goos: "netbsd", files: fixturePaths(filepath.FromSlash("/dev/dri/card0")), modes: fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0")), env: fixtureEnv{"DISPLAY": ":0", "SDL_VIDEODRIVER": "kmsdrm"}, want: StatusFail},
@@ -259,6 +297,30 @@ func TestGraphicalSessionChecks(t *testing.T) {
 				t.Fatalf("session status = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestWaylandDisplayCheckFollowsFinalDisplaySymlink(t *testing.T) {
+	t.Parallel()
+	endpoint := targetPathJoin("linux", "/run/user/1000", "wayland-0")
+	prober := New(Dependencies{
+		FS: resolvedFixtureFS{
+			fixtureFS:     fixtureFS{modes: fixtureModes(fs.ModeSymlink, endpoint)},
+			resolvedModes: fixtureModes(fs.ModeSocket, endpoint),
+		},
+		Env:       fixtureEnv{"WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1000"},
+		Commands:  &fixtureCommands{},
+		Platform:  fixturePlatformInfo{architecture: "amd64", known: true},
+		Privilege: fixturePrivilegeInfo{root: true},
+		GOOS:      "linux",
+		GOARCH:    "amd64",
+	})
+	report := prober.ClientForStreamWithQtPlatform(context.Background(), "", "", "wayland")
+	if got := checkStatus(t, report, "client.graphical-session"); got != StatusPass {
+		t.Fatalf("Wayland symlink endpoint status = %q, want %q", got, StatusPass)
+	}
+	if got := checkStatus(t, report, "client.input"); got != StatusPass {
+		t.Fatalf("Wayland symlink input status = %q, want %q", got, StatusPass)
 	}
 }
 
@@ -282,15 +344,31 @@ func TestStreamPlatformPreflightUsesSelectedEndpoint(t *testing.T) {
 			wantInput:   StatusFail,
 		},
 		{
-			name:        "x11 accepts its explicit endpoint",
+			name:        "x11 uses display-backed input without evdev",
 			platform:    "x11",
 			env:         fixtureEnv{"DISPLAY": ":0"},
 			wantDisplay: StatusPass,
 			wantInput:   StatusPass,
 		},
 		{
-			name:        "x11 vaapi accepts its explicit endpoint",
+			name:        "x11 accepts its endpoint with evdev",
+			platform:    "x11",
+			files:       fixturePaths(filepath.FromSlash("/dev/input/event0")),
+			modes:       fixtureDeviceModes(filepath.FromSlash("/dev/input/event0")),
+			env:         fixtureEnv{"DISPLAY": ":0"},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "x11 vaapi uses display-backed input without evdev",
 			platform:    "x11_vaapi",
+			env:         fixtureEnv{"DISPLAY": ":0"},
+			wantDisplay: StatusPass,
+			wantInput:   StatusPass,
+		},
+		{
+			name:        "x11 vdpau uses display-backed input without evdev",
+			platform:    "x11_vdpau",
 			env:         fixtureEnv{"DISPLAY": ":0"},
 			wantDisplay: StatusPass,
 			wantInput:   StatusPass,
@@ -337,6 +415,24 @@ func TestStreamPlatformPreflightUsesSelectedEndpoint(t *testing.T) {
 				t.Fatalf("input status = %q, want %q", got, tt.wantInput)
 			}
 		})
+	}
+}
+
+func TestDragonFlyKMSDRMRequiresRoot(t *testing.T) {
+	t.Parallel()
+	files := fixturePaths(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0"))
+	modes := fixtureDeviceModes(filepath.FromSlash("/dev/dri/card0"), filepath.FromSlash("/dev/input/event0"))
+	report := fixtureProberWithRoot("dragonfly", "amd64", files, fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, nil, false, modes).ClientForStream(context.Background(), "moonlight-embedded", "sdl")
+	if got := checkStatus(t, report, "client.graphical-session"); got != StatusFail {
+		t.Fatalf("DragonFly non-root graphical-session status = %q, want %q", got, StatusFail)
+	}
+	if got := checkSummary(t, report, "client.graphical-session"); !strings.Contains(got, "requires the root user") {
+		t.Fatalf("DragonFly non-root summary = %q; want root requirement", got)
+	}
+
+	rootReport := fixtureProberWithRoot("dragonfly", "amd64", files, fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}, nil, true, modes).ClientForStream(context.Background(), "moonlight-embedded", "sdl")
+	if got := checkStatus(t, rootReport, "client.graphical-session"); got != StatusPass {
+		t.Fatalf("DragonFly root graphical-session status = %q, want %q", got, StatusPass)
 	}
 }
 
@@ -511,6 +607,78 @@ func TestInputPathChecks(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDirectDeviceChecksRequireReadWriteAccess(t *testing.T) {
+	t.Parallel()
+	newWritableProber := func(goos string, env fixtureEnv, paths []string, denied ...string) *Prober {
+		openErrors := make(map[string]error, len(denied))
+		for _, path := range denied {
+			openErrors[fixturePath(path)] = errors.New("permission denied")
+		}
+		return New(Dependencies{
+			FS: fixtureWritableFS{
+				fixtureFS: fixtureFS{
+					paths: fixturePaths(paths...),
+					modes: fixtureDeviceModes(paths...),
+				},
+				openReadWriteErrors: openErrors,
+			},
+			Env:    env,
+			GOOS:   goos,
+			GOARCH: "amd64",
+		})
+	}
+
+	t.Run("Linux evdev", func(t *testing.T) {
+		path := filepath.FromSlash("/dev/input/event0")
+		if !newWritableProber("linux", nil, []string{path}).directEvdevInputAvailable() {
+			t.Fatal("read/write-accessible evdev device was rejected")
+		}
+		if newWritableProber("linux", nil, []string{path}, path).directEvdevInputAvailable() {
+			t.Fatal("read-only-only evdev device was accepted")
+		}
+	})
+
+	t.Run("OpenBSD WSCONS", func(t *testing.T) {
+		keyboard := filepath.FromSlash("/dev/wskbd0")
+		mouse := filepath.FromSlash("/dev/wsmouse")
+		paths := []string{keyboard, mouse}
+		if !newWritableProber("openbsd", nil, paths).wsconsInputAvailable() {
+			t.Fatal("read/write-accessible WSCONS devices were rejected")
+		}
+		if newWritableProber("openbsd", nil, paths, keyboard).wsconsInputAvailable() {
+			t.Fatal("read-only-only WSCONS keyboard was accepted")
+		}
+	})
+
+	t.Run("DRM", func(t *testing.T) {
+		path := filepath.FromSlash("/dev/dri/card0")
+		env := fixtureEnv{"SDL_VIDEODRIVER": "kmsdrm"}
+		if _, ok := newWritableProber("linux", env, []string{path}).directDisplayBackend(); !ok {
+			t.Fatal("read/write-accessible DRM device was rejected")
+		}
+		if _, ok := newWritableProber("linux", env, []string{path}, path).directDisplayBackend(); ok {
+			t.Fatal("read-only-only DRM device was accepted")
+		}
+	})
+
+	t.Run("Qt Linux framebuffer", func(t *testing.T) {
+		path := filepath.FromSlash("/dev/fb0")
+		env := fixtureEnv{"QT_QPA_PLATFORM": "linuxfb"}
+		if _, ok := newWritableProber("linux", env, []string{path}).directQtDisplayBackend("linuxfb"); !ok {
+			t.Fatal("read/write-accessible framebuffer device was rejected")
+		}
+		if _, ok := newWritableProber("linux", env, []string{path}, path).directQtDisplayBackend("linuxfb"); ok {
+			t.Fatal("read-only-only framebuffer device was accepted")
+		}
+		if _, ok := newWritableProber("linux", env, []string{path}).directDisplayBackend(); !ok {
+			t.Fatal("read/write-accessible ambient framebuffer device was rejected")
+		}
+		if _, ok := newWritableProber("linux", env, []string{path}, path).directDisplayBackend(); ok {
+			t.Fatal("read-only-only ambient framebuffer device was accepted")
+		}
+	})
 }
 
 func TestInputPathReportsBackendSpecificEndpoint(t *testing.T) {
@@ -867,6 +1035,26 @@ func TestMoonlightDiagnosticSelectionHonorsRequestedClient(t *testing.T) {
 				t.Fatalf("Moonlight check = %+v, want %q/%q", check, tt.wantStatus, tt.wantText)
 			}
 		})
+	}
+}
+
+func TestAutomaticGenericMoonlightPreflightUsesQtConvention(t *testing.T) {
+	t.Parallel()
+	commands := &fixtureCommands{paths: map[string]bool{"moonlight": true}}
+	prober := fixtureProber("linux", "amd64", nil, fixtureEnv{
+		"DISPLAY":         ":0",
+		"QT_QPA_PLATFORM": "offscreen",
+	}, commands)
+	automatic := prober.ClientForAutomatic(context.Background(), "moonlight", "", "")
+	if got := checkStatus(t, automatic, "client.graphical-session"); got != StatusFail {
+		t.Fatalf("automatic generic Qt graphical-session status = %q, want fail for offscreen", got)
+	}
+	if summary := checkSummary(t, automatic, "client.moonlight"); !strings.Contains(summary, "Moonlight Qt") {
+		t.Fatalf("automatic generic Moonlight summary = %q, want Qt flavor", summary)
+	}
+	explicit := prober.ClientFor(context.Background(), "moonlight")
+	if summary := checkSummary(t, explicit, "client.moonlight"); !strings.Contains(summary, "Moonlight Embedded") {
+		t.Fatalf("explicit generic Moonlight summary = %q, want Embedded alias", summary)
 	}
 }
 

@@ -84,7 +84,7 @@ var engineeringContract = []categoryContract{
 		Subcriteria: []subcriterionContract{
 			{ID: "scope-support-matrix", Name: "Support matrix", Weight: 4, EvidenceType: RepositoryContentV1, VerifierID: "docs-support-matrix-v1", Paths: []string{"README.md"}},
 			{ID: "scope-explicit-limitations", Name: "Explicit limitations", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "docs-explicit-limitations-v1", Paths: []string{"docs/SUPPORT_POLICY.md"}},
-			{ID: "scope-primary-source-research", Name: "Dated primary-source research", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "docs-primary-source-research-v1", Paths: []string{"docs/research/2026-08-26-platform-feasibility.md", "docs/research/2026-08-29-route-revalidation.md"}},
+			{ID: "scope-primary-source-research", Name: "Dated primary-source research", Weight: 3, EvidenceType: RepositoryContentV1, VerifierID: "docs-primary-source-research-v1", Paths: []string{"docs/research/2026-08-26-platform-feasibility.md", "docs/research/2026-09-03-route-revalidation.md"}},
 		},
 	},
 	{

@@ -159,12 +159,23 @@ func TestLoadDocumentRejectsRuntimePromotionFields(t *testing.T) {
 }
 
 func TestValidateSetShapeRequiresCompleteNativeRuntimeSet(t *testing.T) {
-	value := makeDocumentForSet("linux-runtime", "linux", "amd64", "hosted", "Linux", "X64")
-	if err := validateSetShape("linux-runtime", []loadedDocument{{Path: "linux-evidence/native-runtime.json", Value: value}}); err != nil {
+	values := []loadedDocument{
+		{Path: "linux-evidence/amd64/native-runtime.json", Value: makeDocumentForSet("linux-runtime", "linux", "amd64", "hosted", "Linux", "X64")},
+		{Path: "linux-evidence/arm64/native-runtime.json", Value: makeDocumentForSet("linux-runtime", "linux", "arm64", "hosted", "Linux", "ARM64")},
+	}
+	if err := validateSetShape("linux-runtime", values); err != nil {
 		t.Fatalf("complete Linux set rejected: %v", err)
 	}
-	value.Execution.Target.GOOS = "freebsd"
-	if err := validateSetShape("linux-runtime", []loadedDocument{{Path: "linux-evidence/native-runtime.json", Value: value}}); err == nil {
+	if err := validateSetShape("linux-runtime", values[:1]); err == nil {
+		t.Fatal("incomplete Linux set accepted")
+	}
+	values[1].Value.Execution.RunnerArchitecture = "X64"
+	if err := validateSetShape("linux-runtime", values); err == nil {
+		t.Fatal("Linux arm64 subject with an x64 runner identity accepted")
+	}
+	values[1].Value.Execution.RunnerArchitecture = "ARM64"
+	values[1].Value.Execution.Target.GOOS = "freebsd"
+	if err := validateSetShape("linux-runtime", values); err == nil {
 		t.Fatal("wrong target accepted for Linux runtime set")
 	}
 }
@@ -196,6 +207,14 @@ func TestValidateSetShapeRequiresAllSupportedBSDArchitectures(t *testing.T) {
 	if err := validateDocument(makeDocumentForSet("bsd-runtime", "freebsd", "arm64", "virtualized", "Linux", "X64")); err != nil {
 		t.Fatalf("FreeBSD arm64 document rejected: %v", err)
 	}
+	dragonfly := makeDocumentForSet("bsd-runtime", "dragonfly", "amd64", "virtualized", "Linux", "X64")
+	if err := validateDocument(dragonfly); err != nil {
+		t.Fatalf("DragonFly amd64 document rejected: %v", err)
+	}
+	dragonfly.Execution.Job = "bsd-runtime"
+	if err := validateDocument(dragonfly); err == nil {
+		t.Fatal("DragonFly runtime accepted the shared BSD job identity")
+	}
 }
 
 func TestVerifySetRejectsUnprovenPhysicalClaim(t *testing.T) {
@@ -214,45 +233,66 @@ func TestVerifySetRejectsUnprovenPhysicalClaim(t *testing.T) {
 func TestVerifySetAuthenticatesAndRehashesCompleteLinuxSet(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
-	if err := os.MkdirAll(filepath.Join(root, "linux-evidence"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "ci-bin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "linux-evidence", "result.txt"), []byte("runtime smoke passed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	binaryName := "leaguebridge"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
-	binaryPath := filepath.ToSlash(filepath.Join("ci-bin", binaryName))
-	if err := os.WriteFile(filepath.FromSlash(binaryPath), []byte("native runtime binary\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.FromSlash(binaryPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	request := request{
-		Kind: "linux-runtime", GeneratedAt: "2026-08-29T00:00:00Z",
-		Repository: "Yunushan/leaguebridge", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40),
-		Ref: "refs/heads/main", Workflow: "CI", WorkflowRef: "Yunushan/leaguebridge/.github/workflows/ci.yml@refs/heads/main",
-		WorkflowSHA: strings.Repeat("c", 40), RunID: "1234", RunAttempt: "1", Job: "linux-runtime",
-		RunnerOS: "Linux", RunnerArchitecture: "X64", HostClass: "hosted", GoVersion: "go1.27.0",
-		Command: "native runtime smoke", TargetGOOS: "linux", TargetGOARCH: "amd64",
-		EvidenceDir: "linux-evidence", OutputPath: "linux-evidence/native-runtime.json", SubjectPaths: []string{binaryPath},
-	}
-	value, err := build(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeNew(request.OutputPath, data); err != nil {
-		t.Fatal(err)
+	const (
+		repository  = "Yunushan/leaguebridge"
+		commit      = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		tree        = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		workflow    = ".github/workflows/ci.yml"
+		workflowRef = "Yunushan/leaguebridge/.github/workflows/ci.yml@refs/heads/main"
+		workflowSHA = "cccccccccccccccccccccccccccccccccccccccc"
+		ref         = "refs/heads/main"
+	)
+	var subjectPaths []string
+	for _, test := range []struct {
+		goarch             string
+		runnerArchitecture string
+	}{
+		{goarch: "amd64", runnerArchitecture: "X64"},
+		{goarch: "arm64", runnerArchitecture: "ARM64"},
+	} {
+		evidenceDir := filepath.ToSlash(filepath.Join("linux-evidence", test.goarch))
+		if err := os.MkdirAll(filepath.FromSlash(evidenceDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.FromSlash(filepath.Join(evidenceDir, "result.txt")), []byte("runtime smoke passed\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		binaryName := "leaguebridge-linux-" + test.goarch
+		if runtime.GOOS == "windows" {
+			binaryName += ".exe"
+		}
+		binaryPath := filepath.ToSlash(filepath.Join("ci-bin", binaryName))
+		if err := os.MkdirAll("ci-bin", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.FromSlash(binaryPath), []byte("native runtime binary\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.FromSlash(binaryPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		outputPath := filepath.ToSlash(filepath.Join(evidenceDir, "native-runtime.json"))
+		request := request{
+			Kind: "linux-runtime", GeneratedAt: "2026-08-29T00:00:00Z",
+			Repository: repository, Commit: commit, Tree: tree,
+			Ref: ref, Workflow: "CI", WorkflowRef: workflowRef,
+			WorkflowSHA: workflowSHA, RunID: "1234", RunAttempt: "1", Job: "linux-runtime",
+			RunnerOS: "Linux", RunnerArchitecture: test.runnerArchitecture, HostClass: "hosted", GoVersion: "go1.27.0",
+			Command: "native runtime smoke", TargetGOOS: "linux", TargetGOARCH: test.goarch,
+			EvidenceDir: evidenceDir, OutputPath: outputPath, SubjectPaths: []string{binaryPath},
+		}
+		value, err := build(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeNew(outputPath, data); err != nil {
+			t.Fatal(err)
+		}
+		subjectPaths = append(subjectPaths, outputPath)
 	}
 
 	originalRunner := runGitHubAttestation
@@ -265,10 +305,10 @@ func TestVerifySetAuthenticatesAndRehashesCompleteLinuxSet(t *testing.T) {
 		return json.Marshal([]ghVerification{validNativeGHVerification(sourceValue, artifact.SHA256)})
 	}
 	if err := verifySet(verifyRequest{
-		Kind: "linux-runtime", SubjectPaths: []string{"linux-evidence/native-runtime.json"},
-		ExpectedRepo: request.Repository, ExpectedWorkflow: ".github/workflows/ci.yml",
-		ExpectedCommit: request.Commit, ExpectedTree: request.Tree, ExpectedRef: request.Ref,
-		WorkflowSHA: request.WorkflowSHA, RunID: request.RunID, RunAttempt: request.RunAttempt,
+		Kind: "linux-runtime", SubjectPaths: subjectPaths,
+		ExpectedRepo: repository, ExpectedWorkflow: workflow,
+		ExpectedCommit: commit, ExpectedTree: tree, ExpectedRef: ref,
+		WorkflowSHA: workflowSHA, RunID: "1234", RunAttempt: "1",
 		ExpectedHostClass: "hosted", GHPath: "stub",
 	}); err != nil {
 		t.Fatalf("complete Linux native runtime set rejected: %v", err)
@@ -299,11 +339,15 @@ func validNativeGHVerification(value source, digest string) ghVerification {
 }
 
 func makeDocumentForSet(kind, goos, goarch, hostClass, runnerOS, runnerArch string) document {
+	job := kind
+	if kind == "bsd-runtime" && goos == "dragonfly" {
+		job = "dragonfly-runtime"
+	}
 	return document{
 		Schema: schemaID, SchemaVersion: schemaVersion, AttestationType: attestationType,
 		Kind: kind, GeneratedAt: time.Date(2026, time.August, 29, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
 		Source:    source{Repository: "Yunushan/leaguebridge", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40), Ref: "refs/heads/main", Workflow: "CI", WorkflowRef: "Yunushan/leaguebridge/.github/workflows/ci.yml@refs/heads/main", WorkflowSHA: strings.Repeat("c", 40), RunID: "1234", RunAttempt: "1"},
-		Execution: execution{Job: kind, RunnerOS: runnerOS, RunnerArchitecture: runnerArch, HostClass: hostClass, GoVersion: "go1.27.0", Command: "native runtime smoke", Target: target{GOOS: goos, GOARCH: goarch}},
+		Execution: execution{Job: job, RunnerOS: runnerOS, RunnerArchitecture: runnerArch, HostClass: hostClass, GoVersion: "go1.27.0", Command: "native runtime smoke", Target: target{GOOS: goos, GOARCH: goarch}},
 		Subjects:  []subject{{Path: "ci-bin/leaguebridge", Role: "runtime-binary", SizeBytes: 1, SHA256: strings.Repeat("d", 64)}, {Path: "linux-evidence/result.txt", Role: "runtime-evidence", SizeBytes: 1, SHA256: strings.Repeat("e", 64)}},
 	}
 }

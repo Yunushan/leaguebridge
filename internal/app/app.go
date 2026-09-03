@@ -116,7 +116,7 @@ Usage:
   leaguebridge evidence v2 prepare --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64|arm64 [--output FILE | --json]
   leaguebridge evidence v2 verify --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64|arm64 [--json]
   leaguebridge evidence v2 promote --envelope FILE --host FILE --client FILE --session FILE --host-artifacts DIR --client-artifacts DIR --session-artifacts DIR --route physical-windows-remote|physical-macos-remote --client-platform OS --client-arch amd64|arm64 [--json]
-  leaguebridge remote map|kvm|wake|pair|unpair|list|stream|quit [options]
+  leaguebridge remote map|kvm|wake|pair|unpair|list|play|stream|quit [options]
   leaguebridge version [--json]
 
 League does not run locally on Linux/BSD today: Riot says Wine cannot meet

@@ -243,8 +243,8 @@ for target in "${targets[@]}"; do
   chmod 0755 "$binary"
   chmod 0644 "$pack_stage/SBOM.spdx.json" "$pack_stage/LICENSE" "$pack_stage/README.md"
 
-  cp "$snapshot_root/scripts/install.sh" "$snapshot_root/scripts/uninstall.sh" "$pack_stage/"
-  chmod 0755 "$pack_stage/install.sh" "$pack_stage/uninstall.sh"
+  cp "$snapshot_root/scripts/install.sh" "$snapshot_root/scripts/linux-bsd-client-smoke.sh" "$snapshot_root/scripts/linux-bsd-remote-session.sh" "$snapshot_root/scripts/uninstall.sh" "$pack_stage/"
+  chmod 0755 "$pack_stage/install.sh" "$pack_stage/linux-bsd-client-smoke.sh" "$pack_stage/linux-bsd-remote-session.sh" "$pack_stage/uninstall.sh"
 
   (
     cd "$snapshot_root"

@@ -38,7 +38,8 @@ builders without changing the nine-archive release contract. The command
 package manifest and payload have been checked, then creates a new directory
 containing:
 
-- `root/`, with only the executable, documentation, SBOM, and package manifest;
+- `root/`, with the executable, host-free client-smoke and remote-session
+  helpers, documentation, SBOM, and package manifest;
 - `NATIVE-PACKAGE-MANIFEST.json`, a content-addressed staging inventory; and
 - no portable installer or uninstaller scripts.
 
@@ -209,6 +210,7 @@ The Linux and BSD tarballs install under `/usr/local` by default,
 support `PREFIX` and `DESTDIR`, and own only these paths:
 
 - `bin/leaguebridge`
+- `libexec/leaguebridge/{linux-bsd-client-smoke.sh,linux-bsd-remote-session.sh}`
 - `share/doc/leaguebridge/{README.md,LICENSE,SBOM.spdx.json,PACKAGE-MANIFEST.json}`
 - `libexec/leaguebridge/uninstall.sh`
 
