@@ -273,7 +273,14 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			*packetSize = 1392
 		}
 		if !optionProvided["codec"] {
-			*codec = "h264"
+			// H.264 cannot carry HDR. Let Moonlight negotiate the compatible
+			// codec for the HDR convenience path while retaining the explicit
+			// H.264 default for ordinary League sessions.
+			if *hdr {
+				*codec = "auto"
+			} else {
+				*codec = "h264"
+			}
 		}
 	}
 	if *absoluteMouse && *noAbsoluteMouse {

@@ -1551,6 +1551,21 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 	})
 
+	t.Run("play alias selects a HDR-compatible codec by default", func(t *testing.T) {
+		a, out, _, _, runner := newTestApp(t)
+		args := []string{"remote", "play", "--host", "gaming-pc.local", "--hdr", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
+		if code := a.Run(context.Background(), args); code != ExitOK {
+			t.Fatalf("code = %d; output=%q", code, out.String())
+		}
+		envelope := decodeEnvelope(t, out.Bytes())
+		plan := envelope.Data.(map[string]any)
+		arguments := plan["arguments"].([]any)
+		want := []any{"stream", "-1080", "-fps", "60", "-bitrate", "20000", "-packet-size", "1392", "-video-codec", "auto", "-no-absolute-mouse", "-hdr", "gaming-pc.local", config.DefaultRemoteApplication}
+		if envelope.Command != "remote play" || !reflect.DeepEqual(arguments, want) || runner.called != 0 {
+			t.Fatalf("envelope=%+v arguments=%#v runner.called=%d; want HDR-compatible defaults and no process", envelope, arguments, runner.called)
+		}
+	})
+
 	t.Run("play alias preserves explicit quality overrides", func(t *testing.T) {
 		a, out, _, _, runner := newTestApp(t)
 		args := []string{"remote", "play", "--host", "gaming-pc.local", "--resolution", "1440", "--fps", "120", "--bitrate", "30000", "--packet-size", "1408", "--codec", "hevc", "--confirm-physical-host", "--acknowledge-unverified-handoff", "--dry-run", "--json"}
