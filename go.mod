@@ -1,6 +1,6 @@
 module github.com/Yunushan/leaguebridge
 
-go 1.24.0
+go 1.25.12
 
 require (
 	filippo.io/edwards25519 v1.2.0

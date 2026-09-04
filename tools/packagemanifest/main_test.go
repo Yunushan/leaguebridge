@@ -105,7 +105,7 @@ func TestProductionBuilderIsExact(t *testing.T) {
 	if err := validateProductionBuilder(packageinfo.ProductionBuilderGoVersion); err != nil {
 		t.Fatalf("validateProductionBuilder(valid) error = %v", err)
 	}
-	for _, value := range []string{"", "go1.24.13", "go1.26.3", "go1.27.1"} {
+	for _, value := range []string{"", "go1.24.13", packageinfo.MinimumSupportedGoVersion, "go1.26.3", "go1.27.1"} {
 		if err := validateProductionBuilder(value); err == nil {
 			t.Errorf("validateProductionBuilder(%q) unexpectedly succeeded", value)
 		}

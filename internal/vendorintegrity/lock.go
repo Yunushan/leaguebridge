@@ -160,7 +160,7 @@ var expectedFiles = mustParseFileManifest(expectedFileManifest)
 var expectedDirectories = mustParseDirectoryManifest(expectedDirectoryManifest)
 
 var expectedMetadata = []fileRecord{
-	{path: "go.mod", size: 192, sha256: "0d94cc5daf7d5ed5b6882563d4f821242192f60dc38cae8847d58c18e17902bc"},
+	{path: "go.mod", size: 193, sha256: "c776235f38a2ce18c427d3fe4ce28b39d1d01b45e74d491fd70a195a6a228436"},
 	{path: "go.sum", size: 692, sha256: "abd71cc3df548cdb58029ed2928f478b8ff825faecb4aacdc635d193fd1b1ef3"},
 	{path: "vendor/modules.txt", size: 714, sha256: "3eb31844839ec73d7947a4b27c7cdad92348368ebe3c7165cc2fcf629fe0a629"},
 }

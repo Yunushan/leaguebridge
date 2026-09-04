@@ -688,7 +688,7 @@ func TestProductionBuilderVersionIsExact(t *testing.T) {
 	if err := validateProductionBuilderGoVersion(productionBuilderGoVersion); err != nil {
 		t.Fatalf("validateProductionBuilderGoVersion(valid) error = %v", err)
 	}
-	for _, value := range []string{"", "go1.24.13", "go1.26.3", "go1.27.1", "devel go1.28"} {
+	for _, value := range []string{"", "go1.24.13", packageinfo.MinimumSupportedGoVersion, "go1.26.3", "go1.27.1", "devel go1.28"} {
 		if err := validateProductionBuilderGoVersion(value); err == nil {
 			t.Errorf("validateProductionBuilderGoVersion(%q) unexpectedly succeeded", value)
 		}
@@ -956,8 +956,8 @@ func buildTestBinaryWithVCS(t *testing.T, repository, commit string, item artifa
 
 func buildTestBinaryMode(t *testing.T, repository, commit string, item artifact, trimpath, stripped, buildVCS bool, identity string) []byte {
 	t.Helper()
-	if testBuilderGoVersion != productionBuilderGoVersion && testBuilderGoVersion != "go1.24.13" {
-		t.Skipf("binary fixture tests require Go %s or the source-compatibility Go 1.24.13; running %s", productionBuilderGoVersion, testBuilderGoVersion)
+	if testBuilderGoVersion != productionBuilderGoVersion && testBuilderGoVersion != packageinfo.MinimumSupportedGoVersion {
+		t.Skipf("binary fixture tests require Go %s or the source-compatibility Go %s; running %s", productionBuilderGoVersion, packageinfo.MinimumSupportedGoVersion, testBuilderGoVersion)
 	}
 	binaryPath := filepath.Join(t.TempDir(), item.binaryName)
 	buildDate := time.Unix(testEpoch, 0).UTC().Format(time.RFC3339)

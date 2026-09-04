@@ -124,9 +124,9 @@ limited to the nine executable archives and `checksums.txt`.
 
 ## Reproducible production builder
 
-Production releases require Go `go1.27.0` exactly. Go 1.24 remains the minimum
-source-compatibility test and is not an authorized release builder. The builder
-version is checked in three places:
+Production releases require Go `go1.27.0` exactly. Go `go1.25.12` remains the
+minimum source-compatibility test and is not an authorized release builder.
+The builder version is checked in three places:
 
 1. `scripts/release.sh` refuses another toolchain before changing `dist`.
 2. The structured Go build-ID v4 contract binds the exact builder version,

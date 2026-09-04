@@ -177,7 +177,7 @@ func TestPackageManifestSchemaRejectsRuntimeAndBuilderOverclaims(t *testing.T) {
 		t.Fatal("package manifest schema accepted reordered payload inventory")
 	}
 	payload[0], payload[1] = payload[1], payload[0]
-	document["provenance"].(map[string]any)["builder_go_version"] = "go1.24.13"
+	document["provenance"].(map[string]any)["builder_go_version"] = packageinfo.MinimumSupportedGoVersion
 	if err := schema.Validate(document); err == nil {
 		t.Fatal("package manifest schema accepted a non-production release builder")
 	}

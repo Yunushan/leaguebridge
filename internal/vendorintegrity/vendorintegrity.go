@@ -42,7 +42,7 @@ const (
 	// ExpectedLockSHA256 binds the upstream module identity and sums, vendoring
 	// metadata, directory inventory, and every vendored path, size, and digest.
 	// It is populated only after independently verifying the v1.2.0 vendor tree.
-	ExpectedLockSHA256 = "561a14ef27b6bfc63ca98347a888bd376b428f1e054edd2f7b10c37bb34462b7"
+	ExpectedLockSHA256 = "71584e216ec9597086b57c9c40d033c0db4ea1b80325369f0f7c8803fa9e665f"
 
 	maximumMetadataSize = int64(1 << 20)
 	sha256HexLength     = sha256.Size * 2
