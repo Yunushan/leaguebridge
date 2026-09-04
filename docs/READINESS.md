@@ -50,8 +50,8 @@ promotion without a separate physical attestation. No native runtime job claims
 local League/Vanguard support. The corresponding rows remain zero until an
 actual run's externally authenticated evidence is retained for a scorecard
 assessment. Native package builders now have the same score-free boundary via
-`tools/nativepackageattestation`: it verifies the complete six-family Linux/BSD
-package set, exact package/staging/install-log digests, and source/run identity,
+`tools/nativepackageattestation`: it verifies the complete nine-target/architecture
+Linux/BSD package set, exact package/staging/install-log digests, and source/run identity,
 but it does not create package bytes or promote runtime support. The shared
 `tools/ciattestation` verifier also has a strict release mode that checks the
 exact nine Linux/BSD archives, `checksums.txt`, and each publication attestation

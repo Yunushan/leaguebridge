@@ -58,8 +58,8 @@
   hosted attestation cannot prove physical hardware. Physical promotion needs
   an independent attestation path.
 - Native-package subjects additionally hash the package bytes, every verified
-  staging-tree file, and the package install-test log. Their exact six-family
-  Linux/BSD set verifier binds those artifacts to one CI source/run and rejects
+  staging-tree file, and the package install-test log. Their exact nine-target/
+  architecture Linux/BSD set verifier binds those artifacts to one CI source/run and rejects
   physical claims; package-manager signatures and target-kernel behavior remain
   outside this repository's score-free subject contract.
 - Reports are constructed from an allowlist. Redaction is defense in depth, not
