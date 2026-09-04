@@ -82,7 +82,7 @@ if [[ -e "$info_attributes" || -L "$info_attributes" ]]; then
   exit 2
 fi
 
-required_builder_go_version=go1.27.0
+required_builder_go_version=go1.27.1
 builder_go_version="$(go env GOVERSION)"
 if [[ "$builder_go_version" != "$required_builder_go_version" ]]; then
   echo "release builds require Go $required_builder_go_version exactly; found $builder_go_version" >&2

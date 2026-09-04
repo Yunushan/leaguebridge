@@ -63,7 +63,7 @@
         "source_commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
         "source_tree": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
         "source_date_epoch": { "type": "integer", "minimum": 315532800, "maximum": 4354819199 },
-        "builder_go_version": { "const": "go1.27.0" },
+        "builder_go_version": { "const": "go1.27.1" },
         "build_environment": {
           "type": "object",
           "additionalProperties": false,

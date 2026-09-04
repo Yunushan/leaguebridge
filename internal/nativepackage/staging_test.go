@@ -138,7 +138,7 @@ func sourceManifest(t *testing.T, goos, goarch string) (packageinfo.Manifest, []
 	for _, name := range names {
 		bodies[name] = []byte("native-package fixture: " + name)
 	}
-	manifest, err := packageinfo.Build("v1.2.3", goos, goarch, 1787702400, testCommit, testTree, "go1.27.0", bodies)
+	manifest, err := packageinfo.Build("v1.2.3", goos, goarch, 1787702400, testCommit, testTree, "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}

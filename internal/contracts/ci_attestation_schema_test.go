@@ -20,7 +20,7 @@ func TestCIAttestationSubjectsConformToPublicSchema(t *testing.T) {
 			"workflow_sha": "fedcba9876543210fedcba9876543210fedcba98", "run_id": "123456789", "run_attempt": "1",
 		},
 		"execution": map[string]any{
-			"job": "cross-build", "runner_os": "Linux", "runner_architecture": "X64", "go_version": "go1.27.0",
+			"job": "cross-build", "runner_os": "Linux", "runner_architecture": "X64", "go_version": "go1.27.1",
 			"command": "go build -mod=vendor ./cmd/leaguebridge",
 			"target":  map[string]any{"goos": "freebsd", "goarch": "amd64"},
 		},

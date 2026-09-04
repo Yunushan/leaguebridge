@@ -182,7 +182,7 @@ approved external module, the vendored `filippo.io/edwards25519` v1.2.0,
 without replacements or additional compiled dependencies. Development tests
 also pin one offline Draft 2020-12 JSON-Schema validator (and its transitive
 modules) so schema drift fails CI. Go 1.25.12 or later is required.
-CI and release workflows pin Go 1.27.0; the lower version is the source-level
+CI and release workflows pin Go 1.27.1; the lower version is the source-level
 compatibility floor, not the release-builder version.
 
 ```sh

@@ -671,7 +671,7 @@ func validateSetShape(kind string, values []loadedDocument) error {
 		}
 		seen := make(map[string]struct{}, len(values))
 		for _, value := range values {
-			if value.Value.Execution.Job != "test" || value.Value.Execution.RunnerArchitecture != "X64" || value.Value.Execution.GoVersion != "go1.27.0" {
+			if value.Value.Execution.Job != "test" || value.Value.Execution.RunnerArchitecture != "X64" || value.Value.Execution.GoVersion != "go1.27.1" {
 				return fmt.Errorf("race-vet subject %q is not from the pinned test job contract", value.Path)
 			}
 			goos := value.Value.Execution.Target.GOOS
@@ -701,7 +701,7 @@ func validateSetShape(kind string, values []loadedDocument) error {
 	}
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		if value.Value.Execution.Job != "cross-build" || value.Value.Execution.RunnerOS != "Linux" || value.Value.Execution.RunnerArchitecture != "X64" || value.Value.Execution.GoVersion != "go1.27.0" {
+		if value.Value.Execution.Job != "cross-build" || value.Value.Execution.RunnerOS != "Linux" || value.Value.Execution.RunnerArchitecture != "X64" || value.Value.Execution.GoVersion != "go1.27.1" {
 			return fmt.Errorf("cross-build subject %q is not from the pinned cross-build job contract", value.Path)
 		}
 		key := value.Value.Execution.Target.GOOS + "/" + value.Value.Execution.Target.GOARCH

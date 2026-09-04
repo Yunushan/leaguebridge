@@ -116,7 +116,7 @@ func TestGeneratedPackageManifestsConformToPublicSchema(t *testing.T) {
 			for _, name := range names {
 				bodies[name] = []byte("schema fixture for " + name)
 			}
-			manifest, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, commit, tree, "go1.27.0", bodies)
+			manifest, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, commit, tree, "go1.27.1", bodies)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -147,7 +147,7 @@ func TestPackageManifestSchemaRejectsRuntimeAndBuilderOverclaims(t *testing.T) {
 	for _, name := range names {
 		bodies[name] = []byte(name)
 	}
-	manifest, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.0", bodies)
+	manifest, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestGeneratedNativePackageStagingManifestsConformToPublicSchema(t *testing.
 			for _, name := range names {
 				bodies[name] = []byte("native package schema fixture for " + name)
 			}
-			source, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.0", bodies)
+			source, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +263,7 @@ func TestNativePackageStagingSchemaRejectsCrossTargetFamily(t *testing.T) {
 	for _, name := range names {
 		bodies[name] = []byte(name)
 	}
-	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.0", bodies)
+	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}

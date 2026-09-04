@@ -53,7 +53,7 @@ func TestBuildNativeRuntimeSubjectInventoriesExecutableAndEvidence(t *testing.T)
 		RunnerOS:           "Linux",
 		RunnerArchitecture: "X64",
 		HostClass:          "hosted",
-		GoVersion:          "go1.27.0",
+		GoVersion:          "go1.27.1",
 		Command:            "native runtime smoke",
 		TargetGOOS:         "linux",
 		TargetGOARCH:       "amd64",
@@ -114,7 +114,7 @@ func TestLoadDocumentRejectsRuntimePromotionFields(t *testing.T) {
 		},
 		Execution: execution{
 			Job: "linux-runtime", RunnerOS: "Linux", RunnerArchitecture: "X64", HostClass: "hosted",
-			GoVersion: "go1.27.0", Command: "native runtime smoke", Target: target{GOOS: "linux", GOARCH: "amd64"},
+			GoVersion: "go1.27.1", Command: "native runtime smoke", Target: target{GOOS: "linux", GOARCH: "amd64"},
 		},
 		Subjects: []subject{
 			{Path: "ci-bin/leaguebridge", Role: "runtime-binary", SizeBytes: 1, SHA256: strings.Repeat("d", 64)},
@@ -277,7 +277,7 @@ func TestVerifySetAuthenticatesAndRehashesCompleteLinuxSet(t *testing.T) {
 			Repository: repository, Commit: commit, Tree: tree,
 			Ref: ref, Workflow: "CI", WorkflowRef: workflowRef,
 			WorkflowSHA: workflowSHA, RunID: "1234", RunAttempt: "1", Job: "linux-runtime",
-			RunnerOS: "Linux", RunnerArchitecture: test.runnerArchitecture, HostClass: "hosted", GoVersion: "go1.27.0",
+			RunnerOS: "Linux", RunnerArchitecture: test.runnerArchitecture, HostClass: "hosted", GoVersion: "go1.27.1",
 			Command: "native runtime smoke", TargetGOOS: "linux", TargetGOARCH: test.goarch,
 			EvidenceDir: evidenceDir, OutputPath: outputPath, SubjectPaths: []string{binaryPath},
 		}
@@ -347,7 +347,7 @@ func makeDocumentForSet(kind, goos, goarch, hostClass, runnerOS, runnerArch stri
 		Schema: schemaID, SchemaVersion: schemaVersion, AttestationType: attestationType,
 		Kind: kind, GeneratedAt: time.Date(2026, time.August, 29, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
 		Source:    source{Repository: "Yunushan/leaguebridge", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40), Ref: "refs/heads/main", Workflow: "CI", WorkflowRef: "Yunushan/leaguebridge/.github/workflows/ci.yml@refs/heads/main", WorkflowSHA: strings.Repeat("c", 40), RunID: "1234", RunAttempt: "1"},
-		Execution: execution{Job: job, RunnerOS: runnerOS, RunnerArchitecture: runnerArch, HostClass: hostClass, GoVersion: "go1.27.0", Command: "native runtime smoke", Target: target{GOOS: goos, GOARCH: goarch}},
+		Execution: execution{Job: job, RunnerOS: runnerOS, RunnerArchitecture: runnerArch, HostClass: hostClass, GoVersion: "go1.27.1", Command: "native runtime smoke", Target: target{GOOS: goos, GOARCH: goarch}},
 		Subjects:  []subject{{Path: "ci-bin/leaguebridge", Role: "runtime-binary", SizeBytes: 1, SHA256: strings.Repeat("d", 64)}, {Path: "linux-evidence/result.txt", Role: "runtime-evidence", SizeBytes: 1, SHA256: strings.Repeat("e", 64)}},
 	}
 }

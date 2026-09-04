@@ -91,7 +91,7 @@ func makeStagingFixture(t *testing.T) string {
 	for _, name := range names {
 		bodies[name] = []byte("native-package-check fixture: " + name)
 	}
-	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, strings.Repeat("0", 40), strings.Repeat("1", 40), "go1.27.0", bodies)
+	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, strings.Repeat("0", 40), strings.Repeat("1", 40), "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -670,7 +670,7 @@ func validateSetShape(values []loadedDocument) error {
 		}
 		seen[key] = struct{}{}
 		job, runner, arch, host := expectedExecution(value.Value.Execution.Target, artifact.Family)
-		if value.Value.Execution.Job != job || value.Value.Execution.RunnerOS != runner || value.Value.Execution.RunnerArchitecture != arch || value.Value.Execution.HostClass != host || value.Value.Execution.GoVersion != "go1.27.0" {
+		if value.Value.Execution.Job != job || value.Value.Execution.RunnerOS != runner || value.Value.Execution.RunnerArchitecture != arch || value.Value.Execution.HostClass != host || value.Value.Execution.GoVersion != "go1.27.1" {
 			return fmt.Errorf("subject %q is not from the pinned native package job contract", value.Path)
 		}
 		if version == "" {

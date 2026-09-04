@@ -171,7 +171,7 @@ func makeArchiveFixture(t *testing.T, goos, goarch string) archiveFixture {
 	for _, name := range names {
 		bodies[name] = []byte("native-package archive fixture: " + name)
 	}
-	source, err := packageinfo.Build("v1.2.3", goos, goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.0", bodies)
+	source, err := packageinfo.Build("v1.2.3", goos, goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ func TestNativePackageAttestationSchemaIsScoreFreeAndTargetBound(t *testing.T) {
 		},
 		"execution": map[string]any{
 			"job": "native-package-linux", "runner_os": "Linux", "runner_architecture": "X64",
-			"host_class": "hosted", "go_version": "go1.27.0", "command": "package build and install smoke",
+			"host_class": "hosted", "go_version": "go1.27.1", "command": "package build and install smoke",
 			"target": map[string]any{"goos": "linux", "goarch": "amd64"},
 			"package": map[string]any{
 				"family": "debian", "format": "deb", "version": "v1.2.3",

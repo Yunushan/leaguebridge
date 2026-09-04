@@ -207,7 +207,7 @@ func createPackageFixture(t *testing.T, name, goos, goarch string, family native
 	for _, sourcePath := range names {
 		bodies[sourcePath] = []byte("package fixture: " + name + ":" + sourcePath + "\n")
 	}
-	sourceManifest, err := packageinfo.Build("v1.2.3", goos, goarch, 1787702400, testCommit, testTree, "go1.27.0", bodies)
+	sourceManifest, err := packageinfo.Build("v1.2.3", goos, goarch, 1787702400, testCommit, testTree, "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func createPackageFixture(t *testing.T, name, goos, goarch string, family native
 		Tree: testTree, Ref: "refs/heads/main", Workflow: "CI",
 		WorkflowRef: "Yunushan/leaguebridge/.github/workflows/ci.yml@refs/heads/main",
 		WorkflowSHA: strings.Repeat("c", 40), RunID: "1234", RunAttempt: "1", Job: job,
-		RunnerOS: runner, RunnerArchitecture: architecture, HostClass: hostClass, GoVersion: "go1.27.0",
+		RunnerOS: runner, RunnerArchitecture: architecture, HostClass: hostClass, GoVersion: "go1.27.1",
 		Command:    "native package build; package-manager install; native install smoke",
 		TargetGOOS: goos, TargetGOARCH: goarch, Family: string(family), Format: format,
 		PackagePath: packagePath, StagingDir: stagingDir, InstallEvidence: installEvidence, OutputPath: outputPath,

@@ -23,7 +23,7 @@ const (
 	SchemaVersion              = 3
 	ValidationScope            = "artifact-integrity-only"
 	MinimumSupportedGoVersion  = "go1.25.12"
-	ProductionBuilderGoVersion = "go1.27.0"
+	ProductionBuilderGoVersion = "go1.27.1"
 	// ProductionDependency* is the sole compiled third-party module admitted
 	// by the production release contract. Vendored builds may omit the module
 	// sum from Go build information; release verification restores this pinned

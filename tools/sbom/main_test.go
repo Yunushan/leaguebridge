@@ -50,7 +50,7 @@ func TestDocumentContainsCanonicalBuildInventory(t *testing.T) {
 	if got := packageByID(t, doc, artifactPackageID); got.Checksums[0].ChecksumValue != hash || got.BuiltDate != "2026-08-26T00:00:00Z" || got.PackageFileName != "leaguebridge" {
 		t.Fatalf("artifact package = %+v", got)
 	}
-	if got := packageByID(t, doc, toolchainPackageID); got.VersionInfo != "go1.27.0" {
+	if got := packageByID(t, doc, toolchainPackageID); got.VersionInfo != "go1.27.1" {
 		t.Fatalf("toolchain package = %+v", got)
 	}
 	if got := packageByID(t, doc, mainModuleID); got.Name != expectedMainModule || got.VersionInfo != "v1.2.3-main" {
@@ -240,8 +240,8 @@ func TestRunRejectsBadArgumentsAndNonGoBinary(t *testing.T) {
 }
 
 func TestRunReadsEmbeddedReplacementAndIsReproducible(t *testing.T) {
-	if runtime.Version() != "go1.27.0" {
-		t.Skipf("focused production-toolchain integration requires go1.27.0; running %s", runtime.Version())
+	if runtime.Version() != "go1.27.1" {
+		t.Skipf("focused production-toolchain integration requires go1.27.1; running %s", runtime.Version())
 	}
 	binary := buildReplacementFixture(t)
 	hash, build, err := inspectBinary(binary)
@@ -304,7 +304,7 @@ func TestRunReadsEmbeddedReplacementAndIsReproducible(t *testing.T) {
 	if artifact.Checksums[0].ChecksumValue != hash {
 		t.Fatalf("artifact hash = %q; want %q", artifact.Checksums[0].ChecksumValue, hash)
 	}
-	if got := packageByID(t, doc, toolchainPackageID).VersionInfo; got != "go1.27.0" {
+	if got := packageByID(t, doc, toolchainPackageID).VersionInfo; got != "go1.27.1" {
 		t.Fatalf("toolchain version = %q", got)
 	}
 	if got := packagesNamed(doc, build.Deps[0].Path); len(got) != 1 || got[0].VersionInfo != build.Deps[0].Version {
@@ -436,7 +436,7 @@ func TestGoModulePURLIsConservative(t *testing.T) {
 
 func testBuildInfo() *debug.BuildInfo {
 	return &debug.BuildInfo{
-		GoVersion: "go1.27.0",
+		GoVersion: "go1.27.1",
 		Path:      expectedMainModule + "/cmd/leaguebridge",
 		Main: debug.Module{
 			Path:    expectedMainModule,

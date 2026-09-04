@@ -22,7 +22,7 @@ func TestNativeRuntimeAttestationSchemaIsScoreFreeAndHostClassBound(t *testing.T
 		},
 		"execution": map[string]any{
 			"job": "linux-runtime", "runner_os": "Linux", "runner_architecture": "X64",
-			"host_class": "hosted", "go_version": "go1.27.0", "command": "native runtime smoke",
+			"host_class": "hosted", "go_version": "go1.27.1", "command": "native runtime smoke",
 			"target": map[string]any{"goos": "linux", "goarch": "amd64"},
 		},
 		"subjects": []any{

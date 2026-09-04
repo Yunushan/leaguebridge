@@ -505,7 +505,7 @@ func validateSetShape(kind string, values []loadedDocument) error {
 		}
 		seen[key] = struct{}{}
 		expectedJob, expectedRunner, expectedArch := expectedExecution(kind, value.Value.Execution.Target)
-		if value.Value.Execution.Job != expectedJob || value.Value.Execution.RunnerOS != expectedRunner || value.Value.Execution.RunnerArchitecture != expectedArch || value.Value.Execution.GoVersion != "go1.27.0" {
+		if value.Value.Execution.Job != expectedJob || value.Value.Execution.RunnerOS != expectedRunner || value.Value.Execution.RunnerArchitecture != expectedArch || value.Value.Execution.GoVersion != "go1.27.1" {
 			return fmt.Errorf("subject %q is not from the pinned native runtime job contract", value.Path)
 		}
 	}

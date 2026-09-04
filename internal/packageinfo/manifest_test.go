@@ -12,7 +12,7 @@ const testTree = "89abcdef0123456789abcdef0123456789abcdef"
 
 func TestBuildBindsEveryUnixPayloadAndTarget(t *testing.T) {
 	bodies := unixBodies()
-	manifest, err := Build("v1.2.3", "freebsd", "amd64", 1787702400, testCommit, testTree, "go1.27.0", bodies)
+	manifest, err := Build("v1.2.3", "freebsd", "amd64", 1787702400, testCommit, testTree, "go1.27.1", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestBuildBindsEveryUnixPayloadAndTarget(t *testing.T) {
 }
 
 func TestBuildBindsArm64BuildEnvironment(t *testing.T) {
-	manifest, err := Build("v1.2.3", "linux", "arm64", 1787702400, testCommit, testTree, "go1.27.0", unixBodies())
+	manifest, err := Build("v1.2.3", "linux", "arm64", 1787702400, testCommit, testTree, "go1.27.1", unixBodies())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestBuildRejectsMissingUnexpectedAndUnsupportedPayload(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := Build("v1.2.3", test.goos, test.goarch, 1787702400, testCommit, testTree, "go1.27.0", test.bodies)
+			_, err := Build("v1.2.3", test.goos, test.goarch, 1787702400, testCommit, testTree, "go1.27.1", test.bodies)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Build() error = %v; want %q", err, test.want)
 			}
@@ -80,7 +80,7 @@ func TestBuildRejectsMissingUnexpectedAndUnsupportedPayload(t *testing.T) {
 }
 
 func TestBuildRejectsInvalidBuilderVersion(t *testing.T) {
-	for _, value := range []string{"", "1.27.0", "go1.27", "go2.0.0", "go1.27.0-rc1", "go1.27.0 toolchain"} {
+	for _, value := range []string{"", "1.27.1", "go1.27", "go2.0.0", "go1.27.1-rc1", "go1.27.1 toolchain"} {
 		if _, err := Build("v1.2.3", "linux", "amd64", 1787702400, testCommit, testTree, value, unixBodies()); err == nil {
 			t.Errorf("Build(builder=%q) unexpectedly succeeded", value)
 		}
@@ -96,7 +96,7 @@ func TestBuildRejectsInvalidCommitAndTree(t *testing.T) {
 		{commit: testCommit, tree: strings.Repeat("g", 40)},
 		{commit: testCommit, tree: strings.Repeat("a", 39)},
 	} {
-		if _, err := Build("v1.2.3", "linux", "amd64", 1787702400, test.commit, test.tree, "go1.27.0", unixBodies()); err == nil {
+		if _, err := Build("v1.2.3", "linux", "amd64", 1787702400, test.commit, test.tree, "go1.27.1", unixBodies()); err == nil {
 			t.Errorf("Build(commit=%q, tree=%q) unexpectedly succeeded", test.commit, test.tree)
 		}
 	}
@@ -104,14 +104,14 @@ func TestBuildRejectsInvalidCommitAndTree(t *testing.T) {
 
 func TestBuildRejectsEpochOutsideReleaseRange(t *testing.T) {
 	for _, epoch := range []int64{-1, 0, minimumEpoch - 1, maximumEpoch + 1} {
-		if _, err := Build("v1.2.3", "linux", "amd64", epoch, testCommit, testTree, "go1.27.0", unixBodies()); err == nil {
+		if _, err := Build("v1.2.3", "linux", "amd64", epoch, testCommit, testTree, "go1.27.1", unixBodies()); err == nil {
 			t.Errorf("Build(epoch=%d) unexpectedly succeeded", epoch)
 		}
 	}
 }
 
 func TestMarshalIsCanonicalAndNewlineTerminated(t *testing.T) {
-	manifest, err := Build("v1.2.3", "linux", "amd64", 1787702400, testCommit, testTree, "go1.27.0", unixBodies())
+	manifest, err := Build("v1.2.3", "linux", "amd64", 1787702400, testCommit, testTree, "go1.27.1", unixBodies())
 	if err != nil {
 		t.Fatal(err)
 	}
