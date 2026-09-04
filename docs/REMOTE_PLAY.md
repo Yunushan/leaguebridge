@@ -257,7 +257,9 @@ gameplay.
 - Linux: use Moonlight Qt from the project's documented Flatpak, Snap, AppImage,
   or trusted distribution package. For the official Flatpak, configure a
   trusted Flathub remote and run `flatpak install flathub
-  com.moonlight_stream.Moonlight`.
+  com.moonlight_stream.Moonlight`. Snap and AppImage installations must expose
+  a trusted `moonlight-qt` or `moonlight` launcher on `PATH`; LeagueBridge does
+  not execute arbitrary filenames or scan download directories.
 - FreeBSD: run `pkg install moonlight-qt` or `pkg install moonlight-embedded`
   from a configured signed repository, or build the official
   [Moonlight Qt port](https://github.com/freebsd/freebsd-ports/tree/main/games/moonlight-qt)
