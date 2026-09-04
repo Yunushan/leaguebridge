@@ -75,6 +75,26 @@ func TestVerifyInstallResolvesNetBSDMachineArchitecture(t *testing.T) {
 	}
 }
 
+func TestVerifyInstallUsesPortableBSDArchiveExtraction(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "verify-install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	for _, required := range []string{
+		"archive_path=$archive_directory/$(basename \"$archive\")",
+		"extract_archive_members() {",
+		"[ \"$runtime_goos\" != linux ] && command -v pax >/dev/null 2>&1",
+		"pax -r -z -f \"$archive_path\" \"$@\"",
+		"tar -xzf \"$archive\" -C \"$payload\" \"$@\"",
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("verify-install.sh is missing portable BSD archive extraction fragment %q", required)
+		}
+	}
+}
+
 func TestLinuxBSDRemoteSmokeResolvesNetBSDMachineArchitecture(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "linux-bsd-remote-smoke.sh"))

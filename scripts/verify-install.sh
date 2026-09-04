@@ -68,6 +68,9 @@ case "$runtime_machine" in
 esac
 [ "$runtime_goarch" = "$expected_goarch" ] || fail "runtime machine architecture does not match the expected archive GOARCH"
 
+archive_directory=$(CDPATH= cd -P "$(dirname "$archive")" 2>/dev/null && pwd -P) || fail "cannot resolve the archive directory"
+archive_path=$archive_directory/$(basename "$archive")
+
 temporary_base=${TMPDIR:-/tmp}
 case "$temporary_base" in
 	/*) ;;
@@ -130,7 +133,18 @@ trap cleanup 0
 trap 'exit 1' 1 2 3 15
 
 mkdir "$payload" "$stage_root"
-tar -xzf "$archive" -C "$payload" \
+
+extract_archive_members() {
+	if [ "$runtime_goos" != linux ] && command -v pax >/dev/null 2>&1; then
+		# pax is part of the BSD base systems and handles the gzip-compressed
+		# tar archive without relying on GNU tar extensions.
+		(cd "$payload" && pax -r -z -f "$archive_path" "$@")
+	else
+		tar -xzf "$archive" -C "$payload" "$@"
+	fi
+}
+
+extract_archive_members \
 	LICENSE PACKAGE-MANIFEST.json README.md SBOM.spdx.json install.sh linux-bsd-client-smoke.sh linux-bsd-remote-session.sh uninstall.sh leaguebridge || fail "cannot extract canonical archive members"
 
 for payload_member in LICENSE PACKAGE-MANIFEST.json README.md SBOM.spdx.json install.sh linux-bsd-client-smoke.sh linux-bsd-remote-session.sh uninstall.sh leaguebridge; do
