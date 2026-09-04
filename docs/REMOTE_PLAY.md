@@ -260,29 +260,36 @@ gameplay.
   com.moonlight_stream.Moonlight`.
 - FreeBSD: run `pkg install moonlight-qt` or `pkg install moonlight-embedded`
   from a configured signed repository, or build the official
-  [Moonlight Qt ports tree](https://cgit.freebsd.org/ports/tree/games/moonlight-qt)
-  or [Moonlight Embedded ports tree](https://cgit.freebsd.org/ports/tree/games/moonlight-embedded).
+  [Moonlight Qt port](https://github.com/freebsd/freebsd-ports/tree/main/games/moonlight-qt)
+  or [Moonlight Embedded port](https://github.com/freebsd/freebsd-ports/tree/main/games/moonlight-embedded).
+  The Qt package exposes `moonlight-qt`; the Embedded package exposes the
+  generic `moonlight` command.
 - OpenBSD: run `pkg_add moonlight-qt` from a configured signed repository, or
   build the `games/moonlight-qt` port from the
-  [official ports tree](https://cvsweb.openbsd.org/ports/games/moonlight-qt).
+  [official ports tree](https://github.com/openbsd/ports/tree/master/games/moonlight-qt).
+  The port exposes the generic `moonlight` command, which LeagueBridge treats
+  as Qt during automatic discovery on OpenBSD.
 - NetBSD: run `pkgin install moonlight-qt` from a configured signed pkgsrc
   binary repository, or build
-  [`games/moonlight-qt`](https://cdn.netbsd.org/pub/pkgsrc/current/pkgsrc/games/moonlight-qt/index.html)
-  from pkgsrc.
+  [`games/moonlight-qt`](https://github.com/NetBSD/pkgsrc/tree/trunk/games/moonlight-qt)
+  from pkgsrc. The package exposes the generic `moonlight` command, which
+  LeagueBridge treats as Qt during automatic discovery on NetBSD.
 - DragonFly BSD: run `pkg install moonlight-qt` or `pkg install
   moonlight-embedded` from a configured signed repository, or build
   [`games/moonlight-qt`](https://github.com/DragonFlyBSD/DPorts/tree/master/games/moonlight-qt)
   or [`games/moonlight-embedded`](https://github.com/DragonFlyBSD/DPorts/tree/master/games/moonlight-embedded)
-  from DPorts.
+  from DPorts. The Qt package exposes `moonlight-qt`; the Embedded package
+  exposes the generic `moonlight` command.
 
 The official Moonlight Flatpak is a Linux-only runtime. Do not use a Flatpak
 installation as a BSD client fallback: LeagueBridge rejects that selection on
 FreeBSD, OpenBSD, NetBSD, and DragonFly BSD, where a native signed Qt or
 Embedded package is required.
 
-The BSD package-source links and package names above were checked on 30 August
-2026. None of these entries is a completed LeagueBridge native runtime
-validation, so they are availability evidence—not support or gameplay claims.
+The BSD package-source links, package names, and executable conventions above
+were checked on 3 September 2026. None of these entries is a completed
+LeagueBridge native runtime validation, so they are availability evidence—not
+support or gameplay claims.
 
 After installation, run `leaguebridge doctor --profile client --json` and keep
 the launcher on `PATH`. A passing package-discovery check only proves that a
