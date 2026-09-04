@@ -508,11 +508,11 @@ score.
 ## Primary sources
 
 - [Riot — Vanguard x LoL](https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/)
-- [Riot Player Support — minimum and recommended system requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
+- [Riot Player Support — minimum and recommended system requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements)
 - [Riot — Patch 25.S1.2 notes and Embedded Vanguard on Mac](https://www.leagueoflegends.com/en-us/news/game-updates/patch-25-s1-2-notes/)
 - [Riot — Vanguard On-Demand](https://www.riotgames.com/en/news/vanguard-on-demand)
 - [Riot — Vanguard FAQ for third-party applications](https://www.riotgames.com/en/DevRel/vanguard-faq)
-- [Riot Player Support — Vanguard error codes](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes)
+- [Riot Player Support — Vanguard error codes](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/)
 - [NVIDIA — Is League of Legends available on GeForce NOW?](https://nvidia.custhelp.com/app/answers/detail/a_id/5539/~/is-league-of-legends-available-on-geforce-now)
 - [NVIDIA — GeForce NOW download and Linux/browser client](https://www.nvidia.com/en-us/geforce-now/download/)
 - [NVIDIA — GeForce NOW system requirements](https://www.nvidia.com/en-us/geforce-now/system-reqs/)

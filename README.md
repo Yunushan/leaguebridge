@@ -1138,9 +1138,9 @@ not this repository.
 
 ## Authoritative references
 
-- [Riot: League minimum and recommended requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
+- [Riot: League minimum and recommended requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements)
 - [Riot: Vanguard x LoL (Wine/Linux/VM explanation)](https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/)
-- [Riot: Vanguard error codes, including VAN 138 for VMs](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes)
+- [Riot: Vanguard error codes, including VAN 138 for VMs](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/)
 - [Riot: Vanguard On-Demand](https://www.riotgames.com/en/news/vanguard-on-demand)
 - [Riot: Vanguard FAQ for third-party applications](https://www.riotgames.com/en/DevRel/vanguard-faq)
 - [Valve: Proton anti-cheat guidance](https://partner.steamgames.com/doc/steamhardware/proton)

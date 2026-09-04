@@ -34,7 +34,7 @@ virtualization.
 ## Physical Windows host preparation
 
 1. Use an activated physical Windows PC that satisfies Riot's current
-   [system requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends).
+   [system requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements).
 2. Install League only from Riot and confirm a direct local Practice Tool session
    works before adding streaming.
 3. Install Sunshine from its

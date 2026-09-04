@@ -51,9 +51,9 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 
 	manifest := mustEmbedded(t)
 	want := map[string]string{
-		"riot-system-requirements":     "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
+		"riot-system-requirements":     "https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements",
 		"riot-macos-embedded-vanguard": "https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/",
-		"riot-vm-policy":               "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes",
+		"riot-vm-policy":               "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/",
 		"valve-proton":                 "https://partner.steamgames.com/doc/steamhardware/proton",
 		"dockur-environment":           "https://github.com/dockur/windows/blob/master/docs/environment.md",
 		"sunshine-docs":                "https://docs.lizardbyte.dev/projects/sunshine/latest/",
@@ -181,7 +181,7 @@ func TestCanonicalSHA256IgnoresLineEndings(t *testing.T) {
 	if lfDigest != crlfDigest {
 		t.Fatalf("line endings changed canonical digest: LF=%s CRLF=%s", lfDigest, crlfDigest)
 	}
-	const want = "0683fb8e6f92070ff3ae9d5434cfa1ed239983d115acc5010bce88e4079006a7"
+	const want = "1ea0ae2d5c6ad228bc1bc09c644b1a21c1efc18cccd90e4d8759ffb59ad140f0"
 	if lfDigest != want {
 		t.Fatalf("canonical digest = %s, want %s", lfDigest, want)
 	}

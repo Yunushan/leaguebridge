@@ -78,6 +78,6 @@ machine secrets, or private diagnostic bundles with an upstream request.
 
 Relevant references:
 
-- [Riot system requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
-- [Riot Vanguard error codes](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes)
+- [Riot system requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements)
+- [Riot Vanguard error codes](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/)
 - [LeagueBridge legal and authorization gates](LEGAL-AND-AUTHORIZATION.md)
