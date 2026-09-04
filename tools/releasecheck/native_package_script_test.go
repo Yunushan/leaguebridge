@@ -233,18 +233,22 @@ func TestBSDPackageSmokeHandlesGuestToolingVariants(t *testing.T) {
 		"*[!0-9A-Fa-f]*) fail \"SHA-256 utility returned an invalid package digest\"",
 		"printf '%s  %s\\n' \"$(printf '%s' \"$package_hash\" | tr 'A-F' 'a-f')\" \"$package_path\"",
 		"pkg_command=",
-		"elif command -v pkg-static >/dev/null 2>&1; then",
+		"if command -v pkg-static >/dev/null 2>&1; then",
 		"pkg_command=$(command -v pkg)",
 		"pkg_command=$(command -v pkg-static)",
 		"BSD package tool did not resolve to an absolute path",
 		"as_root \"$pkg_command\" delete -y \"$package_name\"",
 		"native-package-bsd-smoke: command output before failure:",
+		"for candidate in \"$generated\"/*.pkg \"$generated\"/*.txz; do",
+		"pkg create did not produce a .pkg or .txz file",
 		"if command -v pkg_create >/dev/null 2>&1; then",
 		"runtime_machine=$(uname -m)",
 		"aarch64|arm64) expected_goarch=arm64 ;;",
 		"package_architecture=aarch64",
 		"package_root=\"$temporary_root/netbsd-package-root\"",
+		"package_archiver=pax",
 		"tar -czf \"$package_path_absolute\" \\",
+		"pax -w -z -f \"$package_path_absolute\" \\",
 		"+CONTENTS +COMMENT +DESC \\",
 	} {
 		if !strings.Contains(script, required) {
@@ -258,6 +262,9 @@ func TestBSDPackageSmokeHandlesGuestToolingVariants(t *testing.T) {
 	}
 	if strings.Contains(script[openBSDStart:netBSDStart], "@name $package_name") {
 		t.Fatal("OpenBSD packing list must not duplicate the package name supplied to pkg_create")
+	}
+	if strings.Contains(script[openBSDStart:netBSDStart], "@arch $package_architecture") {
+		t.Fatal("OpenBSD packing list must not duplicate the architecture supplied through pkg_create -A")
 	}
 	for _, required := range []string{
 		"installed_package_name=$package_name",

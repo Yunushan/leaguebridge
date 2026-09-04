@@ -269,10 +269,13 @@ esac
 
 case "$expected_goos" in
   freebsd|dragonfly)
-    if command -v pkg >/dev/null 2>&1; then
-      pkg_command=$(command -v pkg)
-    elif command -v pkg-static >/dev/null 2>&1; then
+    # Prefer the static client. On FreeBSD-family guests, pkg can be a
+    # bootstrap wrapper whose interpreter or downloaded client is absent even
+    # though the static package tool is already available.
+    if command -v pkg-static >/dev/null 2>&1; then
       pkg_command=$(command -v pkg-static)
+    elif command -v pkg >/dev/null 2>&1; then
+      pkg_command=$(command -v pkg)
     else
       fail "pkg and pkg-static are unavailable in the BSD guest"
     fi
@@ -301,17 +304,17 @@ case "$expected_goos" in
     "$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n
     generated_package=
     set +f
-    for candidate in "$generated"/*.pkg; do
+    for candidate in "$generated"/*.pkg "$generated"/*.txz; do
       if [ ! -f "$candidate" ]; then
         continue
       fi
       if [ -n "$generated_package" ]; then
-        fail "pkg create produced more than one .pkg file"
+        fail "pkg create produced more than one package file"
       fi
       generated_package=$candidate
     done
     set -f
-    [ -n "$generated_package" ] || fail "pkg create did not produce a .pkg file"
+    [ -n "$generated_package" ] || fail "pkg create did not produce a .pkg or .txz file"
     mv "$generated_package" "$package"
     ;;
   openbsd)
@@ -326,7 +329,6 @@ case "$expected_goos" in
     packlist="$temporary_root/packing-list"
     description="$temporary_root/description"
     printf '%s\n' \
-      "@arch $package_architecture" \
       '@cwd /usr/local' \
       '@mode 0755' \
       'bin/leaguebridge' \
@@ -374,8 +376,16 @@ case "$expected_goos" in
         -I /usr/local -p "$root_abs/usr/local" -F gzip \
         -c "$comment" -d "$description" -f "$packlist" "$package"
     else
-      command -v tar >/dev/null 2>&1 || fail "pkg_create is unavailable and tar is unavailable in the NetBSD guest"
-      command -v gzip >/dev/null 2>&1 || fail "pkg_create is unavailable and gzip is unavailable in the NetBSD guest"
+      package_archiver=
+      if command -v tar >/dev/null 2>&1 && command -v gzip >/dev/null 2>&1; then
+        package_archiver=tar
+      elif command -v pax >/dev/null 2>&1; then
+        # NetBSD ships pax in the base system; it can write gzip-compressed
+        # tar archives even when the optional pkg_create utility is absent.
+        package_archiver=pax
+      else
+        fail "pkg_create is unavailable and neither tar/gzip nor pax is available in the NetBSD guest"
+      fi
       package_root="$temporary_root/netbsd-package-root"
       package_path_absolute=$(pwd -P)/$package
       mkdir -p "$package_root/bin" "$package_root/libexec/leaguebridge" "$package_root/share/doc/leaguebridge"
@@ -394,15 +404,27 @@ case "$expected_goos" in
       # NetBSD's pkg_install format treats +CONTENTS as the package table of
       # contents. Put it first so the tar fallback remains consumable by
       # pkg_add implementations that stream metadata instead of seeking.
-      (cd "$package_root" && tar -czf "$package_path_absolute" \
-        +CONTENTS +COMMENT +DESC \
-        bin/leaguebridge \
-        libexec/leaguebridge/linux-bsd-client-smoke.sh \
-        libexec/leaguebridge/linux-bsd-remote-session.sh \
-        share/doc/leaguebridge/LICENSE \
-        share/doc/leaguebridge/README.md \
-        share/doc/leaguebridge/SBOM.spdx.json \
-        share/doc/leaguebridge/PACKAGE-MANIFEST.json)
+      if [ "$package_archiver" = tar ]; then
+        (cd "$package_root" && tar -czf "$package_path_absolute" \
+          +CONTENTS +COMMENT +DESC \
+          bin/leaguebridge \
+          libexec/leaguebridge/linux-bsd-client-smoke.sh \
+          libexec/leaguebridge/linux-bsd-remote-session.sh \
+          share/doc/leaguebridge/LICENSE \
+          share/doc/leaguebridge/README.md \
+          share/doc/leaguebridge/SBOM.spdx.json \
+          share/doc/leaguebridge/PACKAGE-MANIFEST.json)
+      else
+        (cd "$package_root" && pax -w -z -f "$package_path_absolute" \
+          +CONTENTS +COMMENT +DESC \
+          bin/leaguebridge \
+          libexec/leaguebridge/linux-bsd-client-smoke.sh \
+          libexec/leaguebridge/linux-bsd-remote-session.sh \
+          share/doc/leaguebridge/LICENSE \
+          share/doc/leaguebridge/README.md \
+          share/doc/leaguebridge/SBOM.spdx.json \
+          share/doc/leaguebridge/PACKAGE-MANIFEST.json)
+      fi
     fi
     ;;
 esac
