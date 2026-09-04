@@ -25,6 +25,18 @@ and macOS; it explicitly names Linux, SteamOS, and Bazzite among operating
 systems Riot cannot support. This is the current platform contract and keeps
 the local Linux/BSD gameplay gate separate from the Linux/BSD client handoff.
 
+## 2026-09-04 upstream status recheck
+
+The public [RiotVanguard/Vanguard issue tracker](https://github.com/RiotVanguard/Vanguard/issues)
+still lists [issue #84](https://github.com/RiotVanguard/Vanguard/issues/84),
+"still not working with linux," as open; it was opened on 2026-05-04 and has
+no assignee, milestone, branch, or pull request. This is a user report rather
+than a Riot support commitment, implementation, or authorization. It therefore
+does not change the local Linux/BSD decision or justify importing a driver,
+DLL, kernel module, or compatibility workaround. A future Riot-published
+client, Vanguard path, or explicit authorization would require a new dated
+review and a separate end-to-end validation before any backend promotion.
+
 ## Option audit
 
 | Option | Current finding | Project decision |

@@ -366,6 +366,10 @@ and releases use semantic versioning.
 - Rechecked Riot's current Player Support and Vanguard pages on 31 August
   2026; League remains supported only on Windows and macOS, and no authorized
   Linux/BSD, Wine, Proton, or virtual-machine gameplay route was added.
+- Rechecked Riot's public Vanguard issue tracker on 4 September 2026; the
+  Linux request remains an unassigned user report with no implementation or
+  authorization, and the readiness assessment window was refreshed to bind
+  that dated status.
 
 ### Security
 
