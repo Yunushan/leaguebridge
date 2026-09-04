@@ -79,6 +79,16 @@ it passed with `doctor_exit=3` and `client_preflight=blocked`. This validates
 both supported diagnostic states and the non-network handoff plan, not League
 gameplay.
 
+On 2026-09-04, host access was available again and the same route was rerun in
+the running Ubuntu WSL2 guest. The repository's Go 1.27.1 Linux/amd64 binary,
+stamped with the current scorecard digest, passed both the Linux runtime smoke
+and the host-free Linux/BSD client smoke. The guest exposed a Wayland socket,
+`/dev/dxg`, and the Flathub Moonlight Flatpak 6.1.0; it did not expose
+`/dev/dri`. The client smoke therefore confirmed local preflight and the fixed
+physical-Windows remote plan only. It again recorded `network=not-used` and
+`gameplay=not-tested`; no host, League process, or Vanguard process was
+contacted or started.
+
 The follow-up WSL package check installed Debian's Moonlight Flatpak 6.1.0,
 `vainfo`, and FFmpeg. The client smoke still passed, but `vainfo` could not
 initialize VA-API: this WSL instance exposes `/dev/dxg` but no `/dev/dri`

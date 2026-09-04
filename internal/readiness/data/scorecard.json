@@ -10,7 +10,7 @@
       "subcriteria": [
         {"id":"scope-support-matrix","name":"Support matrix","weight":4,"evidence_type":"repository-content-v1","verifier_id":"docs-support-matrix-v1","evidence":[{"path":"README.md","sha256":"80e0289e206e04aea4af84783bd84a0a38a7736959cd4d4ee1079d9cacf29e21"}]},
         {"id":"scope-explicit-limitations","name":"Explicit limitations","weight":3,"evidence_type":"repository-content-v1","verifier_id":"docs-explicit-limitations-v1","evidence":[{"path":"docs/SUPPORT_POLICY.md","sha256":"058e3843829d07bbaa857dd147548ee659764f18022d7252a4ccc4d5fbfd97a6"}]},
-        {"id":"scope-primary-source-research","name":"Dated primary-source research","weight":3,"evidence_type":"repository-content-v1","verifier_id":"docs-primary-source-research-v1","evidence":[{"path":"docs/research/2026-08-26-platform-feasibility.md","sha256":"0f86ce807cd057dd9cfd8bed137bb09fc5435e21181dc900bfa3d164af559a52"},{"path":"docs/research/2026-09-03-route-revalidation.md","sha256":"6c33bbe94645781d01a3e6b0ca963543dd976d2d2ddb008d6864644685adf2be"}]}
+        {"id":"scope-primary-source-research","name":"Dated primary-source research","weight":3,"evidence_type":"repository-content-v1","verifier_id":"docs-primary-source-research-v1","evidence":[{"path":"docs/research/2026-08-26-platform-feasibility.md","sha256":"0f86ce807cd057dd9cfd8bed137bb09fc5435e21181dc900bfa3d164af559a52"},{"path":"docs/research/2026-09-03-route-revalidation.md","sha256":"2451ea1886078d0949df77219a39b0a07d5681b5f9740c51f0941309ef4621f8"}]}
       ]
     },
     {
