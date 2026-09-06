@@ -103,6 +103,13 @@ file, including when a guest shell runs its exit trap inside that redirection.
 OpenBSD package tools are part of the recorded base-system release; their
 `pkg_add -V` option reports installation progress, not a tool version.
 
+NetBSD packages include `+BUILD_INFO` with the guest's OS release, package-tool
+version, and pkgsrc architecture (`x86_64` or `aarch64`). The same metadata is
+included when the builder uses the tar or pax fallback. The normal builder's
+packing list assigns payloads to `root:wheel`; fallback builders set that
+ownership on their private payload copies before archiving, independently of
+staging ownership. Their temporary directories remain caller-owned for cleanup.
+
 FreeBSD and DragonFly package creation supplies an explicit packing list for
 the seven staged payload files and the two owned directories. The `pkg create
 -r` argument only selects the source root; the packing list determines which

@@ -66,6 +66,72 @@ package_installed=0
 	}
 }
 
+func TestNetBSDPackageBuildersIncludeRequiredPlatformMetadata(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-bsd-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	start := strings.Index(script, "  netbsd)\n    command -v pkg_add")
+	end := strings.Index(script, "\n    ;;\nesac\n\nif [ -L \"$package\"")
+	if start < 0 || end < start {
+		t.Fatal("NetBSD builder absent")
+	}
+	body := script[start+len("  netbsd)\n") : end]
+	for _, arch := range []string{"amd64", "arm64"} {
+		for _, native := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/native=%t", arch, native), func(t *testing.T) {
+				setup := fmt.Sprintf(`expected_goarch=%s
+package_name=leaguebridge-0.0.0-ci
+package=package.tgz
+temporary_root="$PWD/work"
+staging="$PWD/staging"
+mkdir "$temporary_root"
+mkdir -p "$staging/root/usr/local/bin" "$staging/root/usr/local/libexec/leaguebridge" "$staging/root/usr/local/share/doc/leaguebridge"
+for relative in bin/leaguebridge libexec/leaguebridge/linux-bsd-client-smoke.sh libexec/leaguebridge/linux-bsd-remote-session.sh share/doc/leaguebridge/LICENSE share/doc/leaguebridge/README.md share/doc/leaguebridge/SBOM.spdx.json share/doc/leaguebridge/PACKAGE-MANIFEST.json; do
+  printf 'payload\n' > "$staging/root/usr/local/$relative"
+done
+fail() { echo "$*" >&2; exit 41; }
+assert_clean_install_paths() { :; }
+as_root() { test "$#" -eq 9 && test "$1" = chown && test "$2" = root:wheel; }
+pkg_add() { test "$1" = -V; echo 20260227; }
+pkg_delete() { :; }
+pkg_info() { return 1; }
+uname() { test "$1" = -r; echo 11.0; }
+command() {
+  if [ "$1" = -v ] && [ "$2" = pkg_create ]; then %t; return; fi
+  builtin command "$@"
+}
+pkg_create() {
+  info=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in -B) shift; info=$1;; esac
+    shift
+  done
+  test -n "$info" && test -f "$info" || exit 42
+  cp "$info" observed-build-info
+}
+`, arch, native)
+				dir := runShellFixture(t, setup+body)
+				var metadata []byte
+				if native {
+					metadata, err = os.ReadFile(filepath.Join(dir, "observed-build-info"))
+				} else {
+					metadata, err = exec.Command("tar", "-xOzf", filepath.Join(dir, "package.tgz"), "+BUILD_INFO").Output()
+				}
+				if err != nil {
+					t.Fatalf("build metadata absent from builder output: %v", err)
+				}
+				packageArch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[arch]
+				want := "OPSYS=NetBSD\nOS_VERSION=11.0\nMACHINE_ARCH=" + packageArch + "\nPKGTOOLS_VERSION=20260227\n"
+				if string(metadata) != want {
+					t.Fatalf("platform metadata=%q, want %q", metadata, want)
+				}
+			})
+		}
+	}
+}
+
 func TestLinuxPackageCleanupRemovesPrivilegedRootsAndPreservesFailures(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a native Unix shell")
