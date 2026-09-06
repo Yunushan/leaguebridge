@@ -97,7 +97,9 @@ postprocessing is disabled for these prebuilt, verified release payloads:
 stripping an executable's ELF notes would invalidate its bound hash. After
 each actual Debian and RPM installation, the smoke compares all seven files
 to verified staging and checks their modes and root ownership before running
-the CLI. Cleanup removes the private package-manager roots with the same
+the CLI. The private Debian install explicitly includes the complete payload,
+overriding minimal-image documentation exclusions for that invocation only.
+Cleanup removes the private package-manager roots with the same
 privilege used to create their databases. A cleanup failure fails the smoke
 run while preserving any earlier failure status.
 

@@ -207,8 +207,10 @@ fi
 cp "$generated_rpm" "$rpm_package"
 
 mkdir -p "$debian_scratch/var/lib/dpkg" "$rpm_scratch"
+# Minimal images can globally exclude documentation. This private install
+# must exercise every verified payload member, regardless of those filters.
 sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
-  --instdir="$debian_scratch" --unpack "$debian_package"
+  --instdir="$debian_scratch" --path-include='/*' --unpack "$debian_package"
 {
   echo 'package=debian'
   echo "version=$version"
