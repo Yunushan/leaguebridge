@@ -97,6 +97,12 @@ payload processing invokes it. Cleanup removes the private package-manager
 roots with the same privilege used to create their databases. A cleanup
 failure fails the smoke run while preserving any earlier failure status.
 
+The BSD smoke preserves the caller's stderr before redirecting package output.
+On failure it reports at most the first 64 KiB without writing into the evidence
+file, including when a guest shell runs its exit trap inside that redirection.
+OpenBSD package tools are part of the recorded base-system release; their
+`pkg_add -V` option reports installation progress, not a tool version.
+
 FreeBSD and DragonFly package creation supplies an explicit packing list for
 the seven staged payload files and the two owned directories. The `pkg create
 -r` argument only selects the source root; the packing list determines which

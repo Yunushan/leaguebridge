@@ -216,12 +216,16 @@ hash_package() {
 }
 
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/leaguebridge-native-package.XXXXXXXX")
+# ksh can run an EXIT trap before unwinding the evidence block's redirection.
+# Keep the caller's stderr so failure diagnostics cannot append to their input.
+exec 3>&2
 cleanup() {
   cleanup_status=$?
   set +e
+  exec 2>&3
   if [ "$cleanup_status" -ne 0 ] && [ -f "${evidence:-}" ]; then
     echo "native-package-bsd-smoke: command output before failure:" >&2
-    cat "$evidence" >&2
+    dd if="$evidence" bs=1024 count=64 >&2 2>/dev/null
   fi
   case "$expected_goos" in
     freebsd|dragonfly)
@@ -483,7 +487,8 @@ case "$expected_goos" in
       echo "filename=$(basename "$package")"
       echo "target=$expected_goos/$expected_goarch"
       uname -a
-      pkg_add -V
+      # OpenBSD ships these tools in base; -V is package progress, not version.
+      echo 'package-tools=OpenBSD-base'
       package_installed=1
       as_root pkg_add -D unsigned -I "$package"
       as_root pkg_info -e "$installed_package_name"

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,7 +10,61 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestBSDPackageFailureDiagnosticsDoNotWriteIntoTheirInput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a native Unix shell")
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh unavailable")
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-bsd-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	start := strings.Index(script, "temporary_root=$(mktemp -d ")
+	end := strings.Index(script, "trap cleanup EXIT HUP INT TERM\n")
+	if start < 0 || end < start {
+		t.Fatal("BSD cleanup trap absent")
+	}
+	cleanup := script[start : end+len("trap cleanup EXIT HUP INT TERM\n")]
+	dir := t.TempDir()
+	evidence := bytes.Repeat([]byte("package tool failed\n"), 10000)
+	if err := os.WriteFile(filepath.Join(dir, "evidence.log"), evidence, 0600); err != nil {
+		t.Fatal(err)
+	}
+	setup := `export TMPDIR="$PWD"
+evidence="$PWD/evidence.log"
+expected_goos=openbsd
+package_installed=0
+`
+	// ksh can retain a failing brace group's redirects when running EXIT.
+	// Retain them explicitly to exercise that state on every Unix test host.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, shell, "-eu", "-c", setup+cleanup+"exec >>\"$evidence\" 2>&1\nexit 17\n")
+	cmd.Dir = dir
+	output, _ := cmd.CombinedOutput()
+	if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 17 {
+		t.Fatalf("cleanup did not preserve failure status: %v", cmd.ProcessState)
+	}
+	want := append([]byte("native-package-bsd-smoke: command output before failure:\n"), evidence[:64*1024]...)
+	if !bytes.Equal(output, want) {
+		t.Fatalf("diagnostics must reach original stderr and be bounded: got %d bytes, want %d", len(output), len(want))
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "evidence.log"))
+	if err != nil || !bytes.Equal(after, evidence) {
+		t.Fatalf("failure reporting changed its evidence input: %v", err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, "leaguebridge-native-package.*"))
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("cleanup left private scratch directories: %v, %v", leftovers, err)
+	}
+}
 
 func TestLinuxPackageCleanupRemovesPrivilegedRootsAndPreservesFailures(t *testing.T) {
 	if runtime.GOOS == "windows" {
