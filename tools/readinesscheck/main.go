@@ -103,7 +103,7 @@ func readRegularBoundedFromRoot(root *os.Root, name string, maximum int64) ([]by
 			return nil, fmt.Errorf("scorecard exceeds %d bytes", maximum)
 		}
 	}
-	file, err := root.Open(clean)
+	file, err := fileinput.OpenRegularFromRoot(root, clean)
 	if err != nil {
 		return nil, err
 	}

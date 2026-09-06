@@ -103,6 +103,73 @@ func TestReadRegularBoundedFromRoot(t *testing.T) {
 	}
 }
 
+func TestOpenRegularFromRoot(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join("nested", "payload")
+	if err := os.WriteFile(filepath.Join(directory, name), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenDirectoryRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	file, err := OpenRegularFromRoot(root, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, unsafe := range []string{"", ".", "..", filepath.Join("..", "payload"), filepath.Join(directory, name), "nested"} {
+		if file, err := OpenRegularFromRoot(root, unsafe); err == nil {
+			_ = file.Close()
+			t.Errorf("accepted unsafe or non-regular path %q", unsafe)
+		}
+	}
+	if _, err := OpenRegularFromRoot(nil, name); err == nil {
+		t.Fatal("accepted nil root")
+	}
+	if err := os.Symlink("nested", filepath.Join(directory, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if file, err := OpenRegularFromRoot(root, filepath.Join("linked", "payload")); err == nil {
+		_ = file.Close()
+		t.Fatal("accepted symlinked parent within root")
+	}
+}
+
+func TestOpenRegularFromRootRejectsRedirectToSameFile(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "input")
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenDirectoryRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	var replacementErr error
+	file, err := openRegularFromRoot(root, "input", func() {
+		if replacementErr = os.Rename(path, filepath.Join(directory, "original")); replacementErr == nil {
+			replacementErr = os.Symlink("original", path)
+		}
+	})
+	if file != nil {
+		_ = file.Close()
+	}
+	if replacementErr != nil {
+		t.Skipf("symlink replacement unavailable: %v", replacementErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("accepted symlink redirection to original file: %v", err)
+	}
+}
+
 func TestCreateTempDirectory(t *testing.T) {
 	parent, err := OpenDirectoryRoot(t.TempDir())
 	if err != nil {

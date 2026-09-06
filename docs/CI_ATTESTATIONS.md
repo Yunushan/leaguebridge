@@ -74,6 +74,18 @@ authorized, signed, publishable package bytes and retain the trusted package
 attestation before the native-package or install-smoke rows can receive
 credit.
 
+CI transports executable evidence and package staging trees in canonical tar
+containers because GitHub's ZIP artifact transport removes executable modes.
+`tools/ciartifact` defines the exact runtime or native-package inventory for
+each target. It rejects missing, duplicate, extra, reordered, oversized,
+non-regular, linked, or noncanonical members before creating any output, then
+restores files exclusively beneath a new directory with their expected modes.
+Runtime artifacts also retain the individual files consumed by the separate
+attestation jobs; the verification jobs restore the tar container and verify
+those same bytes against their individual signatures. The tar container adds
+no trust or readiness credit. Native-package artifacts contain the tar
+containers after the original package, staging, and evidence files are signed.
+
 Release publication uses the same executable verifier in `-kind release` mode.
 It derives exactly ten subjects from the v-prefixed release version: the nine
 Linux/BSD target archives and `checksums.txt`. It rejects extra or missing files,
@@ -83,6 +95,13 @@ release workflow, tag ref, tested commit, workflow revision, run, and hosted
 runner policy. The preceding `tools/releasecheck` step binds each archive's
 embedded package manifest to the tested source tree; publication still remains
 unverified until an actual tagged run produces retained external evidence.
+
+Immediately before publication, `tools/cireleasegate -commit SHA` also requires
+a completed, successful main-branch CI run for the exact tested source commit,
+including every required target runtime, package, and attestation verification
+job. The publish token therefore includes read access to Actions. A successful
+Linux release build alone cannot authorize publication while target CI is
+missing, running, skipped, or failing.
 
 The release-mode invocation has the following shape inside the publish job:
 

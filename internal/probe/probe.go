@@ -129,12 +129,7 @@ func (r Report) ReadyForControl() bool {
 	if !ok || moonlight.Status != StatusPass {
 		return false
 	}
-	graphicalSession, ok := r.Check("client.graphical-session")
-	if !ok {
-		return false
-	}
-
-	// A headless report is allowed to fail only at the graphical-session gate;
+	// A control report may fail at the graphical-session and input gates;
 	// platform and Moonlight failures must remain blocking. Recompute the
 	// aggregate status so hand-built or stale reports cannot claim pass while
 	// omitting a required check or carrying an unrelated failure.
@@ -145,17 +140,12 @@ func (r Report) ReadyForControl() bool {
 	if r.Status != expectedStatus {
 		return false
 	}
-	if graphicalSession.Status == StatusFail {
-		for _, check := range r.Checks {
-			if check.Status == StatusFail && check.ID != "client.graphical-session" {
-				return false
-			}
+	for _, check := range r.Checks {
+		if check.Status == StatusFail && check.ID != "client.graphical-session" && check.ID != "client.input" {
+			return false
 		}
 	}
-	if graphicalSession.Status == StatusFail {
-		return true
-	}
-	return r.Status == StatusPass || r.Status == StatusWarn
+	return true
 }
 
 func aggregateStatus(checks []Check) (Status, bool) {

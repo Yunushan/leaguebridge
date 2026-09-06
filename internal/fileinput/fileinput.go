@@ -282,6 +282,72 @@ func OpenRegular(path string) (*os.File, error) {
 	return openRegular(path, nil)
 }
 
+// OpenRegularFromRoot opens a regular file beneath a held directory root.
+// Every path component must be non-symlinked, and the final file must keep its
+// identity across opening. Unix opens are nonblocking so a raced-in FIFO is
+// rejected before it can wait for a writer.
+func OpenRegularFromRoot(root *os.Root, name string) (*os.File, error) {
+	return openRegularFromRoot(root, name, nil)
+}
+
+// beforeOpen is test-only and permits deterministic replacement after path
+// inspection but before opening. Production callers always pass nil.
+func openRegularFromRoot(root *os.Root, name string, beforeOpen func()) (*os.File, error) {
+	if root == nil {
+		return nil, errors.New("directory root is nil")
+	}
+	clean := filepath.Clean(name)
+	if name == "" || filepath.IsAbs(name) || filepath.VolumeName(name) != "" || clean != name || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("root-relative file path %q is unsafe", name)
+	}
+	components := strings.Split(clean, string(filepath.Separator))
+	current := ""
+	var before os.FileInfo
+	for index, component := range components {
+		current = filepath.Join(current, component)
+		info, err := root.Lstat(current)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("root-relative path %q is a symlink", current)
+		}
+		if index < len(components)-1 {
+			if !info.IsDir() {
+				return nil, fmt.Errorf("root-relative parent %q is not a directory", current)
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("root-relative path %q is not a regular file", current)
+		}
+		before = info
+	}
+	if beforeOpen != nil {
+		beforeOpen()
+	}
+	file, err := openReadOnlyFromRoot(root, clean)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("inspect opened rooted file: %w", err)
+	}
+	pathAfter, err := root.Lstat(clean)
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("reinspect rooted input path: %w", err)
+	}
+	if !opened.Mode().IsRegular() || !pathAfter.Mode().IsRegular() ||
+		!os.SameFile(before, opened) || !os.SameFile(before, pathAfter) {
+		_ = file.Close()
+		return nil, fmt.Errorf("root-relative file %q changed or is not a regular file", clean)
+	}
+	return file, nil
+}
+
 // ReadRegularBoundedFromRoot reads one regular, non-symlink file beneath a
 // pinned directory root. The name must identify a single child of root; the
 // file identity and size are checked before and after the read.
@@ -305,7 +371,7 @@ func ReadRegularBoundedFromRoot(root *os.Root, name string, maximum int64) ([]by
 	if before.Size() > maximum {
 		return nil, fmt.Errorf("size %d exceeds limit %d", before.Size(), maximum)
 	}
-	file, err := root.Open(name)
+	file, err := OpenRegularFromRoot(root, name)
 	if err != nil {
 		return nil, err
 	}

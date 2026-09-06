@@ -223,6 +223,7 @@ func BuildPlan(launcher Launcher, request Request) (Plan, error) {
 		"The KVM browser route is a manual candidate; League and Vanguard remain on the physical Windows or macOS host.",
 		"LeagueBridge does not authenticate to, validate, or control the KVM device; use its own protected browser session on a private LAN or VPN.",
 		"USB HID behavior and Riot/Vanguard acceptance remain unvalidated; stop immediately if Riot software reports an error.",
+		"A newly started browser may keep this command running for the KVM session; close the browser or interrupt the command when finished.",
 	}
 	if strings.HasPrefix(strings.ToLower(request.Endpoint), "http://") {
 		warnings = append(warnings, "The KVM endpoint uses unencrypted HTTP because --allow-http was supplied; limit it to a trusted LAN bootstrap and prefer HTTPS.")

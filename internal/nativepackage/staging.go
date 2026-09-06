@@ -462,7 +462,7 @@ func readStagedFile(root *os.Root, name string, maximum int64) ([]byte, os.FileI
 		before = info
 	}
 
-	file, err := root.Open(filepath.FromSlash(name))
+	file, err := fileinput.OpenRegularFromRoot(root, filepath.FromSlash(name))
 	if err != nil {
 		return nil, nil, err
 	}

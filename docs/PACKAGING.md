@@ -92,6 +92,13 @@ or `.pkg` bytes and retain the builder's exact package attestation. The
 staging manifest is therefore `staging-integrity-only` evidence and cannot
 promote the native-package or native-runtime readiness rows.
 
+FreeBSD and DragonFly package creation supplies an explicit packing list for
+the seven staged payload files and the two owned directories. The `pkg create
+-r` argument only selects the source root; the packing list determines which
+files enter the package. CI creates each family staging parent before the
+exclusive staging command and preserves executable modes across artifact
+upload/download using the fixed-inventory `tools/ciartifact` tar transport.
+
 `tools/nativepackagecheck` reopens an existing staging directory and verifies
 the manifest with exact field names, duplicate-key rejection, canonical JSON,
 the expected `root/` layout, regular non-symlink files, payload sizes, modes

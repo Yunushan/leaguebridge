@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Yunushan/leaguebridge/internal/config"
 )
@@ -247,8 +248,8 @@ type Request struct {
 	// Moonlight Embedded. It is deliberately not persisted or emitted in
 	// dry-run output.
 	PairingPIN string `json:"-"`
-	// QtPlatform is an invocation-only QT_QPA_PLATFORM override for a live
-	// Moonlight Qt or Qt-based Flatpak stream. It is deliberately not persisted.
+	// QtPlatform is an invocation-only QT_QPA_PLATFORM override for Moonlight
+	// Qt/Flatpak streaming or control commands. It is deliberately not persisted.
 	QtPlatform              string `json:"-"`
 	PhysicalHostConfirmed   bool
 	AcceptUnverifiedHandoff bool
@@ -260,6 +261,9 @@ const (
 	maxCustomResolutionWidth  = 7680
 	minCustomResolutionHeight = 360
 	maxCustomResolutionHeight = 4320
+	// Embedded through v2.7.1 formats "hosts/<address>.conf" into a
+	// 128-byte stack buffer. Bound its address separately from Qt/DNS limits.
+	maxEmbeddedHostAddressBytes = 116
 )
 
 // StreamOptions is the small bounded quality, display, audio, input-mode, and
@@ -1168,18 +1172,20 @@ func BuildPlan(client Client, req Request) (Plan, error) {
 	if err != nil {
 		return Plan{}, fmt.Errorf("host: %w", err)
 	}
+	if client.Flavor == FlavorEmbedded {
+		if err := validateEmbeddedHostAddress(endpoint.Address); err != nil {
+			return Plan{}, err
+		}
+	}
 	if req.Operation != Pair && req.Operation != Unpair && req.Operation != List && req.Operation != Stream && req.Operation != Quit {
 		return Plan{}, fmt.Errorf("unsupported remote operation %q", req.Operation)
 	}
 	qtPlatform := ""
 	if req.QtPlatform != "" {
-		if req.Operation != Stream {
-			return Plan{}, errors.New("Qt platform selection is only valid for the stream operation")
-		}
 		if client.Flavor != FlavorQt && client.Flavor != FlavorFlatpak {
 			return Plan{}, fmt.Errorf("Qt platform selection is supported only by Moonlight Qt; select --client moonlight-qt or flatpak (got %q)", client.Flavor)
 		}
-		if err := ValidateQtPlatform(req.QtPlatform); err != nil {
+		if err := ValidateQtPlatformForOperation(req.QtPlatform, req.Operation); err != nil {
 			return Plan{}, err
 		}
 		qtPlatform = normalizeQtPlatform(req.QtPlatform)
@@ -1193,6 +1199,9 @@ func BuildPlan(client Client, req Request) (Plan, error) {
 		}
 		if err := validatePairingPIN(req.PairingPIN); err != nil {
 			return Plan{}, err
+		}
+		if client.Flavor == FlavorEmbedded && req.PairingPIN == "0000" {
+			return Plan{}, errors.New("Moonlight Embedded cannot use pairing PIN 0000; choose 0001-9999 or omit --pin to let the client choose")
 		}
 	}
 	if req.Operation != Stream && !req.Stream.empty() {
@@ -1424,7 +1433,7 @@ func splitFlatpakPrefix(args []string) (rest []string, qtPlatform string, err er
 		if qtPlatform == "auto" {
 			return nil, "", errors.New("Moonlight Flatpak QT_QPA_PLATFORM override must be a concrete backend")
 		}
-		if err := ValidateQtPlatform(qtPlatform); err != nil {
+		if err := validateQtPlatformValue(qtPlatform); err != nil {
 			return nil, "", fmt.Errorf("Moonlight Flatpak QT_QPA_PLATFORM override: %w", err)
 		}
 		position++
@@ -1432,7 +1441,22 @@ func splitFlatpakPrefix(args []string) (rest []string, qtPlatform string, err er
 	if len(args) <= position || args[position] != moonlightFlatpakAppID {
 		return nil, "", errors.New("Moonlight Flatpak argument vector must begin with the fixed run com.moonlight_stream.Moonlight prefix")
 	}
+	if qtPlatform != "" {
+		if len(args) <= position+1 {
+			return nil, "", errors.New("Moonlight Flatpak environment override requires an operation")
+		}
+		if err := ValidateQtPlatformForOperation(qtPlatform, Operation(args[position+1])); err != nil {
+			return nil, "", err
+		}
+	}
 	return args[position+1:], qtPlatform, nil
+}
+
+func validateEmbeddedHostAddress(address string) error {
+	if len(address) > maxEmbeddedHostAddressBytes {
+		return fmt.Errorf("Moonlight Embedded host address exceeds its safe %d-byte limit; use a shorter DNS name, an IP address, or Moonlight Qt", maxEmbeddedHostAddressBytes)
+	}
+	return nil
 }
 
 func validatePlanHostArguments(flavor Flavor, args []string) error {
@@ -1449,6 +1473,9 @@ func validatePlanHostArguments(flavor Flavor, args []string) error {
 		// caller cannot inject a client-incompatible bracketed or inline-port host.
 		if endpoint.Address != args[0] || endpoint.Port != 0 {
 			return errors.New("Embedded host must use a bare address with an optional separate -port argument")
+		}
+		if err := validateEmbeddedHostAddress(endpoint.Address); err != nil {
+			return err
 		}
 		if len(args) == 3 {
 			if args[1] != "-port" {
@@ -1493,6 +1520,27 @@ func ValidateQtPlatform(value string) error {
 	}
 }
 
+// ValidateQtPlatformForOperation permits an explicit offscreen QPA plugin for
+// Qt control commands. It never makes offscreen a valid streaming backend or
+// assumes that an optional plugin is installed in the user's Qt package.
+func ValidateQtPlatformForOperation(value string, operation Operation) error {
+	switch operation {
+	case Pair, List, Quit:
+		return validateQtPlatformValue(value)
+	case Stream:
+		return ValidateQtPlatform(value)
+	default:
+		return errors.New("Qt platform selection requires pair, list, quit, or stream")
+	}
+}
+
+func validateQtPlatformValue(value string) error {
+	if normalizeQtPlatform(value) == "offscreen" {
+		return nil
+	}
+	return ValidateQtPlatform(value)
+}
+
 func normalizeQtPlatform(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
@@ -1502,19 +1550,19 @@ func validatePairingPIN(value string) error {
 }
 
 func validatePairArguments(flavor Flavor, args []string) error {
-	if flavor != FlavorEmbedded && flavor != FlavorQt {
-		return validatePlanHostArguments(flavor, args)
+	if len(args) > 0 && args[0] == "-pin" {
+		if len(args) < 3 {
+			return fmt.Errorf("Moonlight %s pair arguments require -pin PIN HOST", flavor)
+		}
+		if err := validatePairingPIN(args[1]); err != nil {
+			return err
+		}
+		if flavor == FlavorEmbedded && args[1] == "0000" {
+			return errors.New("Moonlight Embedded cannot use pairing PIN 0000")
+		}
+		args = args[2:]
 	}
-	if len(args) == 1 {
-		return validatePlanHostArguments(flavor, args)
-	}
-	if len(args) != 3 || args[0] != "-pin" {
-		return fmt.Errorf("Moonlight %s pair arguments require HOST or -pin PIN HOST", flavor)
-	}
-	if err := validatePairingPIN(args[1]); err != nil {
-		return err
-	}
-	return validatePlanHostArguments(flavor, args[2:])
+	return validatePlanHostArguments(flavor, args)
 }
 
 func validateMoonlightPort(value string) error {
@@ -2182,7 +2230,7 @@ func (ExecRunner) Run(ctx context.Context, stdin io.Reader, stdout, stderr io.Wr
 }
 
 func (ExecRunner) RunWithQtPlatform(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, qtPlatform, name string, args ...string) error {
-	if err := ValidateQtPlatform(qtPlatform); err != nil {
+	if err := validateQtPlatformValue(qtPlatform); err != nil {
 		return err
 	}
 	qtPlatform = normalizeQtPlatform(qtPlatform)
@@ -2213,6 +2261,9 @@ func runExecutable(ctx context.Context, stdin io.Reader, stdout, stderr io.Write
 		ctx = context.Background()
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
+	// A launcher may exit while a descendant still owns an inherited pipe.
+	// Reap the direct child and bound pipe cleanup instead of waiting forever.
+	cmd.WaitDelay = 2 * time.Second
 	if len(overrides) > 0 {
 		cmd.Env = environmentWithOverrides(os.Environ(), overrides)
 	}
@@ -2276,14 +2327,14 @@ func Execute(ctx context.Context, runner Runner, stdin io.Reader, stdout, stderr
 		return errors.New("refusing to execute a plan whose Qt platform was changed after planning")
 	}
 	if plan.QtPlatform != "" {
-		if err := ValidateQtPlatform(plan.QtPlatform); err != nil {
-			return fmt.Errorf("refusing to execute an invalid Qt platform: %w", err)
-		}
 		if plan.Client.Flavor != FlavorQt && plan.Client.Flavor != FlavorFlatpak {
 			return errors.New("refusing to execute a Qt platform plan with a non-Qt Moonlight client")
 		}
-		if len(operationArguments) == 0 || operationArguments[0] != string(Stream) {
-			return errors.New("refusing to execute a Qt platform plan for a non-stream operation")
+		if len(operationArguments) == 0 {
+			return errors.New("refusing to execute a Qt platform plan without an operation")
+		}
+		if err := ValidateQtPlatformForOperation(plan.QtPlatform, Operation(operationArguments[0])); err != nil {
+			return fmt.Errorf("refusing to execute an invalid Qt platform: %w", err)
 		}
 	}
 	if plan.local {
@@ -2324,6 +2375,12 @@ func Execute(ctx context.Context, runner Runner, stdin io.Reader, stdout, stderr
 	if !os.SameFile(plan.clientBinding.executableInfo, current) {
 		return errors.New("refusing to execute a plan whose Moonlight executable changed after discovery")
 	}
+	var controlStdout, controlStderr *controlCapture
+	if plan.Client.Flavor == FlavorEmbedded && (operationArguments[0] == string(Pair) || operationArguments[0] == string(Unpair)) {
+		controlStdout, controlStderr = &controlCapture{}, &controlCapture{}
+		stdout = captureControlOutput(stdout, controlStdout)
+		stderr = captureControlOutput(stderr, controlStderr)
+	}
 	var runErr error
 	if plan.QtPlatform != "" && normalizeQtPlatform(plan.QtPlatform) != "auto" {
 		platformRunner, ok := runner.(QtPlatformRunner)
@@ -2336,6 +2393,11 @@ func Execute(ctx context.Context, runner Runner, stdin io.Reader, stdout, stderr
 	}
 	if runErr != nil {
 		return fmt.Errorf("Moonlight handoff failed: %w", runErr)
+	}
+	if controlStdout != nil {
+		if err := verifyEmbeddedControl(Operation(operationArguments[0]), controlStdout, controlStderr); err != nil {
+			return fmt.Errorf("Moonlight handoff failed: %w", err)
+		}
 	}
 	return nil
 }

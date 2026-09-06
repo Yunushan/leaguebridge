@@ -32,7 +32,7 @@ The Linux/BSD machine is only the viewer/controller in either route.
 
 ## Current result
 
-Scorecard assessed **30 August 2026**; route audit refreshed **3 September 2026**.
+Scorecard assessed **6 September 2026**; route audit refreshed **3 September 2026**.
 Wine, Proton/UMU, VM/Dockur, anti-cheat, and cloud-provider routes were
 revalidated against current primary sources:
 
@@ -174,6 +174,11 @@ starting a process. On a bare BSD desktop, `--browser firefox` or
 `--browser chromium` can be used when no desktop URL opener is installed. The
 KVM device, browser session, physical host, and League/Vanguard behavior remain
 manually validated and are not included in the readiness score.
+
+A newly started KVM browser may keep the command attached for the session.
+It has no 60-second session deadline; close the browser or interrupt the command
+when finished. A desktop opener may exit after handing the URL to an existing
+browser.
 
 ## Build and inspect
 
@@ -382,6 +387,9 @@ a POSIX shell, for example `leaguebridge config init --host gaming-pc.local:4798
 or `leaguebridge config init --host '[2001:db8::10]:47989'`. For a link-local
 interface zone, URL-escape the zone delimiter inside the brackets, for example
 `[fe80::10%25em0]:47989`; Embedded receives `fe80::10%em0`.
+Embedded addresses are limited to 116 bytes to fit the host-path buffer in
+released clients. Use a shorter DNS alias, an IP address, or Moonlight Qt for
+longer names; Qt retains the normal 253-byte host limit.
 
 For a first pairing where the host-side flow requires a known four-digit code,
 Moonlight Qt, Moonlight Embedded, and the official Qt-based Flatpak can receive
@@ -396,6 +404,11 @@ client as `-pin`, and is never written to LeagueBridge configuration or JSON
 dry-run output. `--pin` is available only for a live `remote pair`; if omitted,
 the selected client uses its normal pairing flow. Moonlight Embedded's current
 parser accepts this form as well; see its [current parser source](https://raw.githubusercontent.com/moonlight-stream/moonlight-embedded/master/src/config.c).
+
+Embedded PINs must be `0001`–`9999`: that client treats zero as a request for a
+random PIN. Qt and Flatpak also accept `0000`. Because released Embedded clients
+can exit zero after pairing or unpairing fails, LeagueBridge additionally
+requires their explicit success message before returning success.
 
 If the host supports Wake-on-LAN and is already paired, `remote stream` can
 perform the wake and bounded startup wait before its required host-application
@@ -861,6 +874,13 @@ used. For Qt's `linuxfb` backend, the probe recognizes both the conventional
 `/dev/fb0` node and Qt's `/dev/graphics/fb0` fallback path, and requires
 read/write access because Qt opens and maps the framebuffer for live output.
 
+The mandatory application-list process receives the stream's explicit Qt
+backend too. Qt `pair`, `list`, and `quit` also accept `--qt-platform`; use
+`offscreen` explicitly for headless control only if the installed Qt package
+provides that plugin. A missing plugin is a client launch error. Offscreen is
+never accepted for streaming. With no override, controls retain Moonlight's
+inherited environment and backend defaults.
+
 Qt and Flatpak stream plans explicitly select relative pointer capture by
 default (`-no-absolute-mouse`); `--absolute-mouse` opts into Moonlight's
 documented absolute mode and `--no-absolute-mouse` makes the default explicit.
@@ -869,7 +889,8 @@ mode for the documented physical-host Raw Input experiment, but neither mode
 fixes Riot/Vanguard compatibility.
 
 `remote pair`, `remote unpair`, `remote list`, and `remote quit` are control-plane operations and
-only require an eligible Linux/BSD client plus a launchable Moonlight client. A
+require an eligible Linux/BSD client plus a launchable Moonlight client; Qt
+must also be able to initialize its selected QPA plugin at runtime. A
 `remote stream --dry-run` uses the same control-plane prerequisites and can
 inspect its fixed argv from a headless SSH session because it never contacts
 the host or starts Moonlight. A live `remote stream` additionally requires a

@@ -301,7 +301,24 @@ case "$expected_goos" in
       '}' > "$metadata/+MANIFEST"
     generated="$temporary_root/generated"
     mkdir "$generated"
-    "$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n
+    # pkg create only includes files named by metadata or a packing list;
+    # -r supplies their source root and does not enumerate that directory.
+    packlist="$temporary_root/packing-list"
+    printf '%s\n' \
+      '@cwd /usr/local' \
+      '@mode 0755' \
+      'bin/leaguebridge' \
+      'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
+      'libexec/leaguebridge/linux-bsd-remote-session.sh' \
+      '@mode 0644' \
+      'share/doc/leaguebridge/LICENSE' \
+      'share/doc/leaguebridge/README.md' \
+      'share/doc/leaguebridge/SBOM.spdx.json' \
+      'share/doc/leaguebridge/PACKAGE-MANIFEST.json' \
+      '@mode 0755' \
+      '@dir libexec/leaguebridge' \
+      '@dir share/doc/leaguebridge' > "$packlist"
+    "$pkg_command" create -m "$metadata" -p "$packlist" -r "$staging/root" -o "$generated" -f txz -n
     generated_package=
     set +f
     for candidate in "$generated"/*.pkg "$generated"/*.txz; do
