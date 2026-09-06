@@ -97,6 +97,7 @@ type recordingRemoteRunner struct {
 	name        string
 	args        []string
 	qtPlatform  string
+	qtPlatforms []string
 	stdin       io.Reader
 	ctx         context.Context
 	called      int
@@ -126,6 +127,9 @@ func (r *recordingRemoteRunner) Run(ctx context.Context, stdin io.Reader, stdout
 		}
 		if output == "" {
 			output = "moonlight output\n"
+			if len(args) > 0 && (args[0] == "pair" || args[0] == "unpair") {
+				output += "Succesfully " + args[0] + "ed\n"
+			}
 		}
 		_, _ = io.WriteString(stdout, output)
 		if r.errorOutput != "" {
@@ -137,6 +141,7 @@ func (r *recordingRemoteRunner) Run(ctx context.Context, stdin io.Reader, stdout
 
 func (r *recordingRemoteRunner) RunWithQtPlatform(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, qtPlatform, name string, args ...string) error {
 	r.qtPlatform = qtPlatform
+	r.qtPlatforms = append(r.qtPlatforms, qtPlatform)
 	return r.Run(ctx, stdin, stdout, stderr, name, args...)
 }
 
@@ -1991,6 +1996,9 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		if runner.qtPlatform != "xcb" || runner.called != 2 {
 			t.Fatalf("runner Qt platform=%q calls=%d; want xcb and list preflight plus stream", runner.qtPlatform, runner.called)
 		}
+		if !reflect.DeepEqual(runner.qtPlatforms, []string{"xcb", "xcb"}) {
+			t.Fatalf("Qt platforms=%#v; both application listing and streaming need the selected backend", runner.qtPlatforms)
+		}
 		want := []string{"stream", "-no-absolute-mouse", "gaming-pc.local", config.DefaultRemoteApplication}
 		if !reflect.DeepEqual(runner.args, want) {
 			t.Fatalf("stream args=%#v; want %#v", runner.args, want)
@@ -2010,10 +2018,10 @@ func TestRemoteDryRunAndExecution(t *testing.T) {
 		}
 	})
 
-	t.Run("Qt platform rejects non-stream operations", func(t *testing.T) {
+	t.Run("Qt platform rejects Embedded-only operations", func(t *testing.T) {
 		a, _, errOut, _, runner := newTestApp(t)
-		code := a.Run(context.Background(), []string{"remote", "pair", "--host", "gaming-pc.local", "--qt-platform", "xcb"})
-		if code != ExitUsage || !strings.Contains(errOut.String(), "requires the stream operation") || runner.called != 0 {
+		code := a.Run(context.Background(), []string{"remote", "unpair", "--host", "gaming-pc.local", "--qt-platform", "xcb"})
+		if code != ExitUsage || !strings.Contains(errOut.String(), "requires pair, list, quit, or stream") || runner.called != 0 {
 			t.Fatalf("code=%d stderr=%q runner.called=%d; want stream-only rejection", code, errOut.String(), runner.called)
 		}
 	})
@@ -2940,8 +2948,7 @@ func TestRemoteStreamDryRunDoesNotProbeAutomaticFallback(t *testing.T) {
 	}}
 	blocked := readyClientReport()
 	blocked.Status = probe.StatusFail
-	blocked.Checks[1].Status = probe.StatusFail
-	blocked.Checks[2].Status = probe.StatusFail
+	blocked.Checks[3].Status = probe.StatusFail // Missing client still blocks a passive plan.
 	prober.clientReports = map[string]probe.Report{
 		"auto":               blocked,
 		"moonlight-qt":       readyClientReport(),
@@ -3455,8 +3462,8 @@ func TestRemoteKVMOpensOnlyAnExplicitCleanEndpoint(t *testing.T) {
 		if runner.ctx == nil {
 			t.Fatal("KVM runner did not receive a context")
 		}
-		if deadline, ok := runner.ctx.Deadline(); !ok || time.Until(deadline) <= 0 || time.Until(deadline) > remoteControlTimeout {
-			t.Fatalf("KVM runner deadline = %v; want a %s deadline", deadline, remoteControlTimeout)
+		if deadline, ok := runner.ctx.Deadline(); ok {
+			t.Fatalf("KVM session must not acquire a launch deadline: %v", deadline)
 		}
 	})
 

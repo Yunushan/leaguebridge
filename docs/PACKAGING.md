@@ -92,6 +92,37 @@ or `.pkg` bytes and retain the builder's exact package attestation. The
 staging manifest is therefore `staging-integrity-only` evidence and cannot
 promote the native-package or native-runtime readiness rows.
 
+The Linux smoke requires `file` alongside the package tools. RPM distribution
+postprocessing is disabled for these prebuilt, verified release payloads:
+stripping an executable's ELF notes would invalidate its bound hash. After
+each actual Debian and RPM installation, the smoke compares all seven files
+to verified staging and checks their modes and root ownership before running
+the CLI. The private Debian install explicitly includes the complete payload,
+overriding minimal-image documentation exclusions for that invocation only.
+Cleanup removes the private package-manager roots with the same
+privilege used to create their databases. A cleanup failure fails the smoke
+run while preserving any earlier failure status.
+
+The BSD smoke preserves the caller's stderr before redirecting package output.
+On failure it reports at most the first 64 KiB without writing into the evidence
+file, including when a guest shell runs its exit trap inside that redirection.
+OpenBSD package tools are part of the recorded base-system release; their
+`pkg_add -V` option reports installation progress, not a tool version.
+
+NetBSD packages include `+BUILD_INFO` with the guest's OS release, package-tool
+version, and pkgsrc architecture (`x86_64` or `aarch64`). The same metadata is
+included when the builder uses the tar or pax fallback. The normal builder's
+packing list assigns payloads to `root:wheel`; fallback builders set that
+ownership on their private payload copies before archiving, independently of
+staging ownership. Their temporary directories remain caller-owned for cleanup.
+
+FreeBSD and DragonFly package creation supplies an explicit packing list for
+the seven staged payload files and the two owned directories. The `pkg create
+-r` argument only selects the source root; the packing list determines which
+files enter the package. CI creates each family staging parent before the
+exclusive staging command and preserves executable modes across artifact
+upload/download using the fixed-inventory `tools/ciartifact` tar transport.
+
 `tools/nativepackagecheck` reopens an existing staging directory and verifies
 the manifest with exact field names, duplicate-key rejection, canonical JSON,
 the expected `root/` layout, regular non-symlink files, payload sizes, modes

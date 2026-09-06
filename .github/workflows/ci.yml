@@ -562,6 +562,12 @@ jobs:
             -host-class virtualized \
             -subject "bsd-ci/leaguebridge-${{ matrix.goos }}-${{ matrix.goarch }}" \
             -command 'BSD kernel runtime smoke; shipped archive install lifecycle'
+      - name: Preserve BSD runtime executable modes
+        if: success()
+        run: |
+          go run -mod=vendor ./tools/ciartifact -kind runtime \
+            -goos "${{ matrix.goos }}" -goarch "${{ matrix.goarch }}" \
+            -archive runtime-transport.tar
       - name: Retain BSD runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -570,6 +576,7 @@ jobs:
           path: |
             bsd-evidence/${{ matrix.goos }}/
             bsd-ci/leaguebridge-${{ matrix.goos }}-${{ matrix.goarch }}
+            runtime-transport.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -679,6 +686,11 @@ jobs:
             -host-class virtualized \
             -subject bsd-ci/leaguebridge-dragonfly-amd64 \
             -command 'DragonFly BSD kernel runtime smoke; shipped archive install lifecycle'
+      - name: Preserve DragonFly runtime executable modes
+        if: success()
+        run: |
+          go run -mod=vendor ./tools/ciartifact -kind runtime \
+            -goos dragonfly -goarch amd64 -archive runtime-transport.tar
       - name: Retain DragonFly runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -687,6 +699,7 @@ jobs:
           path: |
             bsd-evidence/dragonfly/
             bsd-ci/leaguebridge-dragonfly-amd64
+            runtime-transport.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -859,6 +872,11 @@ jobs:
             -host-class hosted \
             -subject ci-bin/leaguebridge-linux-${{ matrix.goarch }} \
             -command 'hosted Linux runtime smoke; shipped archive install lifecycle'
+      - name: Preserve Linux runtime executable modes
+        if: success()
+        run: |
+          go run -mod=vendor ./tools/ciartifact -kind runtime \
+            -goos linux -goarch "${{ matrix.goarch }}" -archive runtime-transport.tar
       - name: Retain hosted Linux runtime evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -867,6 +885,7 @@ jobs:
           path: |
             linux-evidence/
             ci-bin/leaguebridge-linux-${{ matrix.goarch }}
+            runtime-transport.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -944,12 +963,17 @@ jobs:
           mkdir -p linux-evidence ci-bin bsd-evidence bsd-ci
           for arch in amd64 arm64; do
             source_root="native-runtime-input/linux/linux-runtime-$arch"
+            restored="native-runtime-input/restored-linux-$arch"
+            go run -mod=vendor ./tools/ciartifact -unpack -kind runtime \
+              -goos linux -goarch "$arch" \
+              -archive "$source_root/runtime-transport.tar" -root "$restored"
+            source_root="$restored"
             destination="linux-evidence/$arch"
             mkdir -p "$destination"
             for file in native-runtime.json kernel.txt version.json status.json readiness.json manifest-verify.json doctor.json result.txt install-lifecycle.txt; do
               cp "$source_root/linux-evidence/$arch/$file" "$destination/$file"
             done
-            cp "$source_root/ci-bin/leaguebridge-linux-$arch" "ci-bin/leaguebridge-linux-$arch"
+            cp -p "$source_root/ci-bin/leaguebridge-linux-$arch" "ci-bin/leaguebridge-linux-$arch"
           done
           for target in freebsd openbsd netbsd dragonfly; do
             case "$target" in
@@ -960,12 +984,17 @@ jobs:
             esac
             for arch in $arches; do
               source_root="native-runtime-input/bsd/bsd-runtime-${target}-${version}-${arch}"
+              restored="native-runtime-input/restored-$target-$arch"
+              go run -mod=vendor ./tools/ciartifact -unpack -kind runtime \
+                -goos "$target" -goarch "$arch" \
+                -archive "$source_root/runtime-transport.tar" -root "$restored"
+              source_root="$restored"
               destination="bsd-evidence/$target/$arch"
               mkdir -p "$destination"
               for file in native-runtime.json kernel.txt version.json status.json readiness.json manifest-verify.json doctor.json result.txt install-lifecycle.txt; do
                 cp "$source_root/bsd-evidence/$target/$arch/$file" "$destination/$file"
               done
-              cp "$source_root/bsd-ci/leaguebridge-${target}-${arch}" "bsd-ci/leaguebridge-${target}-${arch}"
+              cp -p "$source_root/bsd-ci/leaguebridge-${target}-${arch}" "bsd-ci/leaguebridge-${target}-${arch}"
             done
           done
       - name: Verify signed native runtime attestations
@@ -1031,7 +1060,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends rpm
+          sudo apt-get install --yes --no-install-recommends rpm file
       - name: Download validated release archive
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1093,14 +1122,20 @@ jobs:
             native-package-staging/rpm/root/usr/share/doc/leaguebridge/README.md
             native-package-staging/rpm/root/usr/share/doc/leaguebridge/SBOM.spdx.json
             native-package-evidence/rpm/install.txt
+      - name: Preserve native Linux package staging modes
+        run: |
+          for family in debian rpm; do
+            go run -mod=vendor ./tools/ciartifact -kind package \
+              -goos linux -goarch amd64 -family "$family" \
+              -archive "package-transport-$family.tar"
+          done
       - name: Retain native Linux package evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-package-linux
           path: |
-            native-package-output/
-            native-package-staging/
-            native-package-evidence/
+            package-transport-debian.tar
+            package-transport-rpm.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -1185,7 +1220,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p native-package-staging
+          mkdir -p "native-package-staging/${{ matrix.family }}"
           go run -mod=vendor ./tools/nativepackagestage \
             -archive "dist/leaguebridge_0.0.0-ci_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz" \
             -family "${{ matrix.family }}" \
@@ -1274,15 +1309,18 @@ jobs:
             native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/share/doc/leaguebridge/README.md
             native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json
             native-package-evidence/${{ matrix.family }}/${{ matrix.goarch }}/install.txt
+      - name: Preserve native BSD package staging modes
+        if: success()
+        run: |
+          go run -mod=vendor ./tools/ciartifact -kind package \
+            -goos "${{ matrix.goos }}" -goarch "${{ matrix.goarch }}" \
+            -family "${{ matrix.family }}" -archive package-transport.tar
       - name: Retain native BSD package evidence
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-package-bsd-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: |
-            native-package-output/
-            native-package-staging/
-            native-package-evidence/
+          path: package-transport.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -1315,7 +1353,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p native-package-staging
+          mkdir -p native-package-staging/dports
           go run -mod=vendor ./tools/nativepackagestage \
             -archive dist/leaguebridge_0.0.0-ci_dragonfly_amd64.tar.gz \
             -family dports \
@@ -1407,15 +1445,17 @@ jobs:
             native-package-staging/dports/amd64/root/usr/local/share/doc/leaguebridge/README.md
             native-package-staging/dports/amd64/root/usr/local/share/doc/leaguebridge/SBOM.spdx.json
             native-package-evidence/dports/amd64/install.txt
+      - name: Preserve DragonFly package staging modes
+        if: success()
+        run: |
+          go run -mod=vendor ./tools/ciartifact -kind package \
+            -goos dragonfly -goarch amd64 -family dports -archive package-transport.tar
       - name: Retain DragonFly native package evidence
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-package-bsd-dragonfly
-          path: |
-            native-package-output/
-            native-package-staging/
-            native-package-evidence/
+          path: package-transport.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -1454,9 +1494,13 @@ jobs:
           set -euo pipefail
           mkdir -p native-package-output native-package-staging native-package-evidence
           for family in debian rpm; do
-            cp -a "native-package-input/linux/native-package-output/$family" native-package-output/
-            cp -a "native-package-input/linux/native-package-staging/$family" native-package-staging/
-            cp -a "native-package-input/linux/native-package-evidence/$family" native-package-evidence/
+            source_root="native-package-input/restored-$family"
+            go run -mod=vendor ./tools/ciartifact -unpack -kind package \
+              -goos linux -goarch amd64 -family "$family" \
+              -archive "native-package-input/linux/package-transport-$family.tar" -root "$source_root"
+            cp -a "$source_root/native-package-output/$family" native-package-output/
+            cp -a "$source_root/native-package-staging/$family" native-package-staging/
+            cp -a "$source_root/native-package-evidence/$family" native-package-evidence/
           done
           for target in freebsd openbsd netbsd; do
             case "$target" in
@@ -1465,14 +1509,22 @@ jobs:
               netbsd) family=pkgsrc ;;
             esac
             for arch in amd64 arm64; do
-              source_root="native-package-input/bsd/native-package-bsd-$target-$arch"
+              archive="native-package-input/bsd/native-package-bsd-$target-$arch/package-transport.tar"
+              source_root="native-package-input/restored-$target-$arch"
+              go run -mod=vendor ./tools/ciartifact -unpack -kind package \
+                -goos "$target" -goarch "$arch" -family "$family" \
+                -archive "$archive" -root "$source_root"
               mkdir -p "native-package-output/$family" "native-package-staging/$family" "native-package-evidence/$family"
               cp -a "$source_root/native-package-output/$family/$arch" "native-package-output/$family/"
               cp -a "$source_root/native-package-staging/$family/$arch" "native-package-staging/$family/"
               cp -a "$source_root/native-package-evidence/$family/$arch" "native-package-evidence/$family/"
             done
           done
-          source_root=native-package-input/bsd/native-package-bsd-dragonfly
+          source_root=native-package-input/restored-dragonfly
+          go run -mod=vendor ./tools/ciartifact -unpack -kind package \
+            -goos dragonfly -goarch amd64 -family dports \
+            -archive native-package-input/bsd/native-package-bsd-dragonfly/package-transport.tar \
+            -root "$source_root"
           mkdir -p native-package-output/dports native-package-staging/dports native-package-evidence/dports
           cp -a "$source_root/native-package-output/dports/amd64" native-package-output/dports/
           cp -a "$source_root/native-package-staging/dports/amd64" native-package-staging/dports/

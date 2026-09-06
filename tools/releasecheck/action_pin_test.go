@@ -13,7 +13,7 @@ import (
 func TestWorkflowsUseOnlyResolvedActionPins(t *testing.T) {
 	expected := map[string]string{
 		"actions/checkout":              "3d3c42e5aac5ba805825da76410c181273ba90b1",
-		"actions/setup-go":              "924ae3a1cded613372ab5595356fb5720e22ba16",
+		"actions/setup-go":              "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
 		"actions/upload-artifact":       "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 		"actions/download-artifact":     "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
 		"actions/attest":                "1e69f48acb82d1966a394da916b4c1698aa569d6",

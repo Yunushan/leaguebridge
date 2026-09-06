@@ -5,6 +5,41 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Share CI attestation generation and verification through a reusable internal
+  Go package while preserving the existing command interface and authentication
+  checks. Verification remains separate from readiness scoring and publication
+  evidence.
+
+### Fixed
+
+- Require an explicit Moonlight Embedded success message before reporting
+  successful pairing or unpairing, including when the client exits zero after
+  a failure. Bound verification capture and serialize combined stdout/stderr
+  forwarding while preserving complete output and destination errors.
+- Reject Moonlight Embedded hostnames exceeding 116 bytes and pairing PIN
+  `0000` before launch, matching the client's accepted inputs.
+- Preserve the selected Qt backend during control preflight, and keep KVM
+  browser sessions alive for the caller's session instead of stopping them
+  after 60 seconds. Bound waits for inherited subprocess pipes.
+- Reject rooted file reads when ancestor directories change during opening,
+  including replacements that lead back to the original file. Reject raced
+  FIFOs during both file and directory opens without blocking.
+- Create missing BSD package staging parents and preserve required artifact
+  paths and executable modes during CI transport. Include complete
+  FreeBSD/DragonFly package inventories and correct NetBSD metadata and root
+  ownership across its native, tar, and pax builders.
+- Correct OpenBSD package-tool version checks and prevent BSD failure handling
+  from appending a log to itself under ksh; diagnostics remain bounded.
+- Preserve verified payload bytes during RPM creation and check every installed
+  Linux package file against staging for contents, type, mode, and root
+  ownership. Include documentation in private Debian smoke installations and
+  remove privileged temporary package roots without hiding cleanup failures.
+- Require a complete successful CI attempt for the exact main-branch commit
+  before release attestation and publication, including all target runtime,
+  native-package, and attestation-verification jobs.
+
 ### Added
 
 - Hardened BSD native-package smoke jobs by invoking the discovered FreeBSD/

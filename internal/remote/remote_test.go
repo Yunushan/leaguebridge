@@ -333,7 +333,7 @@ func TestPairingPINIsSupportedByNativeClientsAndValidated(t *testing.T) {
 	}
 }
 
-func TestQtPlatformIsStreamOnlyAndBounded(t *testing.T) {
+func TestQtPlatformIsOperationAwareAndBounded(t *testing.T) {
 	base := Request{
 		Route:                   config.RouteWindows,
 		Operation:               Stream,
@@ -369,11 +369,11 @@ func TestQtPlatformIsStreamOnlyAndBounded(t *testing.T) {
 			wantError: "only by Moonlight Qt",
 		},
 		{
-			name:      "pair rejects Qt platform",
+			name:      "pair accepts Qt platform",
 			client:    Client{Flavor: FlavorQt, Binary: "/usr/bin/moonlight-qt"},
 			operation: Pair,
 			platform:  "xcb",
-			wantError: "only valid for the stream operation",
+			want:      "xcb",
 		},
 		{
 			name:      "invalid platform",
