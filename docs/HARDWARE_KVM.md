@@ -69,6 +69,10 @@ leaguebridge remote kvm --browser firefox --url https://kvm.lan/ \
 Direct-browser mode passes only the clean KVM URL; it does not accept profile,
 extension, script, or arbitrary command arguments.
 
+The command remains attached while a newly started browser is running, with no
+60-second session deadline. Close the browser or interrupt the command when
+finished. An opener that hands the URL to an existing browser may exit sooner.
+
 If the physical host supports Wake-on-LAN, the wake and browser launch can be
 combined after the endpoint is configured:
 

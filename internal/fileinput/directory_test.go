@@ -103,6 +103,144 @@ func TestReadRegularBoundedFromRoot(t *testing.T) {
 	}
 }
 
+func TestOpenRegularFromRoot(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join("nested", "payload")
+	if err := os.WriteFile(filepath.Join(directory, name), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenDirectoryRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	file, err := OpenRegularFromRoot(root, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, unsafe := range []string{"", ".", "..", filepath.Join("..", "payload"), filepath.Join(directory, name), "nested"} {
+		if file, err := OpenRegularFromRoot(root, unsafe); err == nil {
+			_ = file.Close()
+			t.Errorf("accepted unsafe or non-regular path %q", unsafe)
+		}
+	}
+	if _, err := OpenRegularFromRoot(nil, name); err == nil {
+		t.Fatal("accepted nil root")
+	}
+	if err := os.Symlink("nested", filepath.Join(directory, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if file, err := OpenRegularFromRoot(root, filepath.Join("linked", "payload")); err == nil {
+		_ = file.Close()
+		t.Fatal("accepted symlinked parent within root")
+	}
+}
+
+func TestOpenRegularFromRootRejectsRedirectToSameFile(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "input")
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenDirectoryRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	var replacementErr error
+	file, err := openRegularFromRoot(root, "input", func() {
+		if replacementErr = os.Rename(path, filepath.Join(directory, "original")); replacementErr == nil {
+			replacementErr = os.Symlink("original", path)
+		}
+	}, nil)
+	if file != nil {
+		_ = file.Close()
+	}
+	if replacementErr != nil {
+		t.Skipf("symlink replacement unavailable: %v", replacementErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("accepted symlink redirection to original file: %v", err)
+	}
+}
+
+func TestOpenRegularFromRootRejectsChangedAncestors(t *testing.T) {
+	for _, phase := range []string{"before open", "after open"} {
+		for _, change := range []string{"symlink to original", "replacement with same leaf", "moved outside root"} {
+			for _, depth := range []string{"ancestor", "immediate parent"} {
+				t.Run(phase+"/"+change+"/"+depth, func(t *testing.T) {
+					directory := t.TempDir()
+					name := filepath.Join("nested", "deeper", "payload")
+					if err := os.MkdirAll(filepath.Dir(filepath.Join(directory, name)), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(directory, name), []byte("original payload"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					parentName, leafName := "nested", filepath.Join("deeper", "payload")
+					if depth == "immediate parent" {
+						parentName, leafName = filepath.Join("nested", "deeper"), "payload"
+					}
+					parentPath := filepath.Join(directory, parentName)
+					movedPath := filepath.Join(directory, "moved")
+					if change == "moved outside root" {
+						movedPath = filepath.Join(t.TempDir(), "moved")
+					}
+					root, err := OpenDirectoryRoot(directory)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer root.Close()
+					var replacementErr error
+					replace := func() {
+						if replacementErr = os.Rename(parentPath, movedPath); replacementErr != nil {
+							return
+						}
+						switch change {
+						case "symlink to original":
+							// Keep the redirected leaf's inode unchanged. Checking
+							// only the final file would accept this parent symlink.
+							var target string
+							target, replacementErr = filepath.Rel(filepath.Dir(parentPath), movedPath)
+							if replacementErr == nil {
+								replacementErr = os.Symlink(target, parentPath)
+							}
+						case "replacement with same leaf":
+							if replacementErr = os.MkdirAll(filepath.Dir(filepath.Join(parentPath, leafName)), 0o700); replacementErr == nil {
+								replacementErr = os.Link(filepath.Join(movedPath, leafName), filepath.Join(parentPath, leafName))
+							}
+						case "moved outside root":
+							// A held child root still names the moved directory.
+							// The original root must remain the final-open boundary.
+							replacementErr = os.Symlink(movedPath, parentPath)
+						}
+					}
+					beforeOpen, afterOpen := replace, (func())(nil)
+					if phase == "after open" {
+						beforeOpen, afterOpen = nil, replace
+					}
+					file, err := openRegularFromRoot(root, name, beforeOpen, afterOpen)
+					if file != nil {
+						_ = file.Close()
+					}
+					if replacementErr != nil {
+						t.Skipf("directory replacement unavailable: %v", replacementErr)
+					}
+					if file != nil || err == nil || !strings.Contains(err.Error(), "root-relative parent") {
+						t.Fatalf("accepted changed ancestor: file=%v, error=%v", file, err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestCreateTempDirectory(t *testing.T) {
 	parent, err := OpenDirectoryRoot(t.TempDir())
 	if err != nil {

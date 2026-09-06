@@ -27,6 +27,20 @@ post-verification file hash. The subject's fields are still claims and hashes,
 not signatures; no copied JSON, uploaded artifact, or verifier output can
 promote a scorecard row by itself.
 
+Go callers can use `internal/ciattestation.VerifySet` with a typed
+`VerifyRequest` instead of invoking the command and interpreting its printed
+output. The package applies the same complete-set, source/run identity,
+GitHub authentication, and post-verification digest checks. The existing CLI
+remains the workflow interface and retains its flags and output.
+
+A successful return verifies the supplied set against the caller's expected
+identity. It is not an awardable readiness receipt, proof of release
+publication, or a source-selection policy. A future engineering assessment
+must independently establish its authoritative checkout or release, expected
+run/attempt, freshness, and the relevant production trust rules. The repository
+score, external-evidence restrictions, and physical/gameplay gates remain
+unchanged.
+
 Non-PR CI runs also execute this verifier in the `Verify signed CI attestations`
 job after the test and cross-build matrices complete. That job downloads the
 retained subjects and binaries, arranges the exact one-run set, and verifies
@@ -74,6 +88,18 @@ authorized, signed, publishable package bytes and retain the trusted package
 attestation before the native-package or install-smoke rows can receive
 credit.
 
+CI transports executable evidence and package staging trees in canonical tar
+containers because GitHub's ZIP artifact transport removes executable modes.
+`tools/ciartifact` defines the exact runtime or native-package inventory for
+each target. It rejects missing, duplicate, extra, reordered, oversized,
+non-regular, linked, or noncanonical members before creating any output, then
+restores files exclusively beneath a new directory with their expected modes.
+Runtime artifacts also retain the individual files consumed by the separate
+attestation jobs; the verification jobs restore the tar container and verify
+those same bytes against their individual signatures. The tar container adds
+no trust or readiness credit. Native-package artifacts contain the tar
+containers after the original package, staging, and evidence files are signed.
+
 Release publication uses the same executable verifier in `-kind release` mode.
 It derives exactly ten subjects from the v-prefixed release version: the nine
 Linux/BSD target archives and `checksums.txt`. It rejects extra or missing files,
@@ -83,6 +109,13 @@ release workflow, tag ref, tested commit, workflow revision, run, and hosted
 runner policy. The preceding `tools/releasecheck` step binds each archive's
 embedded package manifest to the tested source tree; publication still remains
 unverified until an actual tagged run produces retained external evidence.
+
+Immediately before publication, `tools/cireleasegate -commit SHA` also requires
+a completed, successful main-branch CI run for the exact tested source commit,
+including every required target runtime, package, and attestation verification
+job. The publish token therefore includes read access to Actions. A successful
+Linux release build alone cannot authorize publication while target CI is
+missing, running, skipped, or failing.
 
 The release-mode invocation has the following shape inside the publish job:
 

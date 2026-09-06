@@ -253,7 +253,7 @@ func TestNativePackageSmokeUsesTargetPackageManagerContracts(t *testing.T) {
 	script := string(data)
 	for _, required := range []string{
 		`pkg_command=`,
-		`"$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n`,
+		`"$pkg_command" create -m "$metadata" -p "$packlist" -r "$staging/root" -o "$generated" -f txz -n`,
 		`as_root "$pkg_command" add -f "$package"`,
 		`as_root "$pkg_command" delete -y "$package_name"`,
 		`pkg_create -A "$package_architecture" -B "$staging/root" -p /usr/local \`,

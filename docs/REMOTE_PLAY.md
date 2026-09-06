@@ -505,6 +505,10 @@ endpoint directly; Embedded receives the bare address plus its documented
 separate `-port` argument. Quote bracketed endpoints in a POSIX shell. For a
 link-local interface zone, URL-escape the zone delimiter inside the brackets,
 for example `[fe80::10%25em0]:47989`; Embedded receives `fe80::10%em0`.
+Embedded addresses are limited to 116 bytes because released Embedded clients
+use a fixed buffer for their host configuration path. Use a shorter DNS alias,
+an IP address, or Moonlight Qt for a longer address; Qt retains the normal
+253-byte host limit.
 
 For a first pairing where the host-side flow requires a known four-digit code,
 Moonlight Qt, Moonlight Embedded, and the official Qt-based Flatpak accept an
@@ -522,6 +526,12 @@ does not list it; see the [current Embedded parser](https://raw.githubuserconten
 If omitted, the selected client uses its normal pairing flow. Treat the code
 as short-lived pairing material and do not place it in evidence or support
 records.
+
+Embedded accepts predefined PINs from `0001` through `9999`; `0000` is rejected
+because that client treats zero as a request to generate a random PIN. Qt and
+Flatpak retain support for `0000`. Embedded pair/unpair operations require the
+client's explicit success message before LeagueBridge returns success, because
+released Embedded clients can exit zero after reporting failure.
 
 For a stream, the controller exposes only bounded common Moonlight quality
 settings; arbitrary client flags are rejected at the execution boundary. For
@@ -885,6 +895,11 @@ anything. LeagueBridge does not authenticate to or validate the KVM device,
 and this command does not change the hardware-KVM
 candidate's unvalidated status or readiness score.
 
+A newly launched browser can remain attached for the entire KVM session.
+There is no 60-second browser-session deadline: close the browser or interrupt
+the command when finished. If the selected desktop opener hands the URL to an
+existing browser and exits, LeagueBridge exits with it.
+
 [Configuration schema v2](../schemas/config.schema.json) stores one exact
 `route_id` and one `remote_host`; it has no parallel Windows/macOS target
 fields. Existing schema-v1 Windows configs are accepted strictly and normalized
@@ -1014,6 +1029,15 @@ prevent a stale alternate display variable from winning. Qt's `linuxfb`
 preflight recognizes both `/dev/fb0` and the plugin's `/dev/graphics/fb0`
 fallback path and requires read/write access because Qt opens and maps the
 framebuffer for live output.
+
+The mandatory application-list process inherits the stream's explicit Qt
+backend, including Flatpak's in-sandbox override. Qt creates its graphical
+application before parsing control commands, so `pair`, `list`, and `quit`
+also accept `--qt-platform`. In a headless session, explicitly choose
+`--qt-platform offscreen` only when the installed Qt package provides that
+plugin. An unavailable plugin is reported as a client launch failure; this
+option never authorizes a headless stream. Without an explicit choice, control
+commands retain Moonlight's inherited environment and backend defaults.
 Embedded's SDL backend discovers controllers and owns its audio path, so
 `--platform sdl` cannot be combined with `--input-device` (including repeated
 uses) or `--audio-device`; choose an X11/VA-API/VDPAU backend when a specific

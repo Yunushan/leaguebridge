@@ -518,7 +518,7 @@ func openReleaseFileFromRoot(root *os.Root, name string, maximum int64) (*os.Fil
 	if before.Size() > maximum {
 		return nil, nil, fmt.Errorf("size %d exceeds limit %d", before.Size(), maximum)
 	}
-	file, err := root.Open(name)
+	file, err := fileinput.OpenRegularFromRoot(root, name)
 	if err != nil {
 		return nil, nil, err
 	}

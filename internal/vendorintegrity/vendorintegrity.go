@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/Yunushan/leaguebridge/internal/fileinput"
 	"github.com/Yunushan/leaguebridge/internal/packageinfo"
@@ -182,7 +183,7 @@ func verifyDirectory(root *os.Root, name string) error {
 	if !before.IsDir() {
 		return fmt.Errorf("path %q is not a directory", name)
 	}
-	opened, err := root.Open(platformName)
+	opened, err := root.OpenFile(platformName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return fmt.Errorf("open directory %q: %w", name, err)
 	}
@@ -213,7 +214,7 @@ func readRegularBounded(root *os.Root, name string, maximum int64) ([]byte, erro
 		return nil, fmt.Errorf("%q exceeds %d bytes", name, maximum)
 	}
 
-	file, err := root.Open(platformName)
+	file, err := fileinput.OpenRegularFromRoot(root, platformName)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +566,7 @@ func openCheckedDirectory(root *os.Root, name string) (*os.File, os.FileInfo, er
 	if !before.IsDir() {
 		return nil, nil, fmt.Errorf("vendored path %q is not a directory", name)
 	}
-	opened, err := root.Open(platformName)
+	opened, err := root.OpenFile(platformName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open vendored directory %q: %w", name, err)
 	}

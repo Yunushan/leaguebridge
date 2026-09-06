@@ -216,12 +216,16 @@ hash_package() {
 }
 
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/leaguebridge-native-package.XXXXXXXX")
+# ksh can run an EXIT trap before unwinding the evidence block's redirection.
+# Keep the caller's stderr so failure diagnostics cannot append to their input.
+exec 3>&2
 cleanup() {
   cleanup_status=$?
   set +e
+  exec 2>&3
   if [ "$cleanup_status" -ne 0 ] && [ -f "${evidence:-}" ]; then
     echo "native-package-bsd-smoke: command output before failure:" >&2
-    cat "$evidence" >&2
+    dd if="$evidence" bs=1024 count=64 >&2 2>/dev/null
   fi
   case "$expected_goos" in
     freebsd|dragonfly)
@@ -301,7 +305,24 @@ case "$expected_goos" in
       '}' > "$metadata/+MANIFEST"
     generated="$temporary_root/generated"
     mkdir "$generated"
-    "$pkg_command" create -m "$metadata" -r "$staging/root" -o "$generated" -f txz -n
+    # pkg create only includes files named by metadata or a packing list;
+    # -r supplies their source root and does not enumerate that directory.
+    packlist="$temporary_root/packing-list"
+    printf '%s\n' \
+      '@cwd /usr/local' \
+      '@mode 0755' \
+      'bin/leaguebridge' \
+      'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
+      'libexec/leaguebridge/linux-bsd-remote-session.sh' \
+      '@mode 0644' \
+      'share/doc/leaguebridge/LICENSE' \
+      'share/doc/leaguebridge/README.md' \
+      'share/doc/leaguebridge/SBOM.spdx.json' \
+      'share/doc/leaguebridge/PACKAGE-MANIFEST.json' \
+      '@mode 0755' \
+      '@dir libexec/leaguebridge' \
+      '@dir share/doc/leaguebridge' > "$packlist"
+    "$pkg_command" create -m "$metadata" -p "$packlist" -r "$staging/root" -o "$generated" -f txz -n
     generated_package=
     set +f
     for candidate in "$generated"/*.pkg "$generated"/*.txz; do
@@ -359,6 +380,8 @@ case "$expected_goos" in
     printf '%s\n' \
       "@name $package_name" \
       '@cwd /usr/local' \
+      '@owner root' \
+      '@group wheel' \
       '@mode 0755' \
       'bin/leaguebridge' \
       'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
@@ -370,11 +393,23 @@ case "$expected_goos" in
       'share/doc/leaguebridge/PACKAGE-MANIFEST.json' > "$packlist"
     printf '%s\n' 'LeagueBridge remote handoff controller' > "$comment"
     printf '%s\n' 'A bounded, read-only compatibility and remote handoff controller.' > "$description"
+    # pkg_add requires platform build metadata, including when pkg_create is
+    # unavailable. NetBSD's package architecture names differ from GOARCH.
+    case "$expected_goarch" in
+      amd64) build_architecture=x86_64 ;;
+      arm64) build_architecture=aarch64 ;;
+    esac
+    build_info="$temporary_root/build-info"
+    printf '%s\n' \
+      'OPSYS=NetBSD' \
+      "OS_VERSION=$(uname -r)" \
+      "MACHINE_ARCH=$build_architecture" \
+      "PKGTOOLS_VERSION=$(pkg_add -V)" > "$build_info"
     if command -v pkg_create >/dev/null 2>&1; then
       root_abs=$(cd "$staging/root" && pwd -P)
       pkg_create \
         -I /usr/local -p "$root_abs/usr/local" -F gzip \
-        -c "$comment" -d "$description" -f "$packlist" "$package"
+        -B "$build_info" -c "$comment" -d "$description" -f "$packlist" "$package"
     else
       package_archiver=
       if command -v tar >/dev/null 2>&1 && command -v gzip >/dev/null 2>&1; then
@@ -401,12 +436,24 @@ case "$expected_goos" in
       cp "$packlist" "$package_root/+CONTENTS"
       cp "$comment" "$package_root/+COMMENT"
       cp "$description" "$package_root/+DESC"
+      cp "$build_info" "$package_root/+BUILD_INFO"
+      # pkg_add extracts fallback payload ownership from the archive headers.
+      # Keep directories caller-owned so unprivileged cleanup can unlink files.
+      as_root chown root:wheel \
+        "$package_root/bin/leaguebridge" \
+        "$package_root/libexec/leaguebridge/linux-bsd-client-smoke.sh" \
+        "$package_root/libexec/leaguebridge/linux-bsd-remote-session.sh" \
+        "$package_root/share/doc/leaguebridge/LICENSE" \
+        "$package_root/share/doc/leaguebridge/README.md" \
+        "$package_root/share/doc/leaguebridge/SBOM.spdx.json" \
+        "$package_root/share/doc/leaguebridge/PACKAGE-MANIFEST.json"
       # NetBSD's pkg_install format treats +CONTENTS as the package table of
       # contents. Put it first so the tar fallback remains consumable by
       # pkg_add implementations that stream metadata instead of seeking.
       if [ "$package_archiver" = tar ]; then
         (cd "$package_root" && tar -czf "$package_path_absolute" \
           +CONTENTS +COMMENT +DESC \
+          +BUILD_INFO \
           bin/leaguebridge \
           libexec/leaguebridge/linux-bsd-client-smoke.sh \
           libexec/leaguebridge/linux-bsd-remote-session.sh \
@@ -417,6 +464,7 @@ case "$expected_goos" in
       else
         (cd "$package_root" && pax -w -z -f "$package_path_absolute" \
           +CONTENTS +COMMENT +DESC \
+          +BUILD_INFO \
           bin/leaguebridge \
           libexec/leaguebridge/linux-bsd-client-smoke.sh \
           libexec/leaguebridge/linux-bsd-remote-session.sh \
@@ -466,7 +514,8 @@ case "$expected_goos" in
       echo "filename=$(basename "$package")"
       echo "target=$expected_goos/$expected_goarch"
       uname -a
-      pkg_add -V
+      # OpenBSD ships these tools in base; -V is package progress, not version.
+      echo 'package-tools=OpenBSD-base'
       package_installed=1
       as_root pkg_add -D unsigned -I "$package"
       as_root pkg_info -e "$installed_package_name"

@@ -156,7 +156,7 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 	set.Var(&inputDevices, "input-device", "Moonlight Embedded evdev input device (repeat for multiple /dev/input/eventN devices)")
 	inputMapping := set.String("input-mapping", "", "Moonlight Embedded SDL controller mapping file (absolute Linux/BSD path)")
 	networkMode := set.String("network-mode", "", "Moonlight Embedded network mode: auto, lan, or wan")
-	qtPlatform := set.String("qt-platform", "", "Moonlight Qt display backend: auto, xcb, wayland, eglfs, or linuxfb (live stream only)")
+	qtPlatform := set.String("qt-platform", "", "Moonlight Qt backend: auto, xcb, wayland, eglfs, linuxfb; offscreen is also available for pair/list/quit when its Qt plugin is installed")
 	framePacing := set.String("frame-pacing", "", "Moonlight Qt frame pacing: auto, on, or off")
 	vsync := set.String("vsync", "", "Moonlight Qt VSync: auto, on, or off")
 	keepAwake := set.Bool("keep-awake", false, "ask Moonlight Qt to prevent display sleep while streaming")
@@ -298,10 +298,7 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		}
 	}
 	if qtPlatformOverridden {
-		if operation != remote.Stream {
-			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "--qt-platform requires the stream operation")
-		}
-		if err := remote.ValidateQtPlatform(*qtPlatform); err != nil {
+		if err := remote.ValidateQtPlatformForOperation(*qtPlatform, operation); err != nil {
 			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
 		}
 	}
@@ -504,6 +501,12 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		// owns the selector; otherwise preflight and discovery can choose different
 		// Moonlight clients when both are installed.
 		target.Client = effectiveClient
+	} else if qtPlatformOverridden {
+		effectiveClient, err := effectiveRemoteStreamClientSelection(target.Client, "", *qtPlatform, remote.StreamOptions{})
+		if err != nil {
+			return a.commandError("remote "+args[0], *asJSON, ExitUsage, "%v", err)
+		}
+		target.Client = effectiveClient
 	}
 	automaticClientSelection := automaticClientSelectionRequested
 	var automaticStreamFlavor remote.Flavor
@@ -582,8 +585,8 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 		// readiness gate before declaring the handoff blocked.
 		discoveryCtx, cancelDiscovery = context.WithTimeout(ctx, 3*time.Second)
 		defer cancelDiscovery()
-		candidate, candidatePreflight, selection, found := discoverAutomaticControlClient(
-			discoveryCtx, prober, environment, a.GOOS,
+		candidate, candidatePreflight, selection, found := discoverAutomaticControlClientWithQtPlatformExcluding(
+			discoveryCtx, prober, environment, a.GOOS, *qtPlatform, "",
 		)
 		if found {
 			preflight = candidatePreflight
@@ -668,8 +671,8 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			// PATH update. Give the remaining supported clients one bounded chance
 			// before returning the resolver error.
 			retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
-			candidate, candidatePreflight, selection, found := discoverAutomaticControlClient(
-				retryCtx, prober, environment, a.GOOS,
+			candidate, candidatePreflight, selection, found := discoverAutomaticControlClientWithQtPlatformExcluding(
+				retryCtx, prober, environment, a.GOOS, *qtPlatform, "",
 			)
 			cancelRetry()
 			if found {
@@ -854,6 +857,7 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 				Operation:             remote.List,
 				Host:                  target.Host,
 				PhysicalHostConfirmed: target.PhysicalHostConfirmed,
+				QtPlatform:            *qtPlatform,
 			})
 			if applicationErr != nil {
 				return fmt.Errorf("cannot build the application-list preflight after automatic client recovery: %w", applicationErr)
@@ -979,8 +983,8 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			if automaticClientSelection && !automaticClientFallbackTried && attempt == 0 && !remoteReconnectStopped(ctx, err) {
 				automaticClientFallbackTried = true
 				retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
-				candidate, candidatePreflight, selection, found := discoverAutomaticControlClientExcluding(
-					retryCtx, prober, environment, a.GOOS, client.Binary,
+				candidate, candidatePreflight, selection, found := discoverAutomaticControlClientWithQtPlatformExcluding(
+					retryCtx, prober, environment, a.GOOS, *qtPlatform, client.Binary,
 				)
 				cancelRetry()
 				if found {
@@ -1028,8 +1032,8 @@ func (a *App) runRemote(ctx context.Context, args []string) int {
 			if automaticClientSelection && !automaticClientFallbackTried && attempt == 0 && !remoteReconnectStopped(ctx, err) {
 				automaticClientFallbackTried = true
 				retryCtx, cancelRetry := context.WithTimeout(ctx, 3*time.Second)
-				candidate, candidatePreflight, selection, found := discoverAutomaticControlClientExcluding(
-					retryCtx, prober, environment, a.GOOS, client.Binary,
+				candidate, candidatePreflight, selection, found := discoverAutomaticControlClientWithQtPlatformExcluding(
+					retryCtx, prober, environment, a.GOOS, *qtPlatform, client.Binary,
 				)
 				cancelRetry()
 				if found {
@@ -1185,6 +1189,10 @@ func discoverAutomaticControlClient(ctx context.Context, prober ProbeRunner, env
 // has failed a list operation. Excluding the failed executable prevents a
 // generic package alias from immediately resolving back to the same launcher.
 func discoverAutomaticControlClientExcluding(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, excludedBinary string) (remote.Client, probe.Report, string, bool) {
+	return discoverAutomaticControlClientWithQtPlatformExcluding(ctx, prober, environment, goos, "", excludedBinary)
+}
+
+func discoverAutomaticControlClientWithQtPlatformExcluding(ctx context.Context, prober ProbeRunner, environment remote.Environment, goos, qtPlatform, excludedBinary string) (remote.Client, probe.Report, string, bool) {
 	excludedBinary = strings.TrimSpace(excludedBinary)
 	for _, selection := range remote.AutomaticClientSelections(goos) {
 		candidatePreflight := remoteAutomaticClientPreflight(ctx, prober, remote.List, selection, "", "")
@@ -1193,6 +1201,9 @@ func discoverAutomaticControlClientExcluding(ctx context.Context, prober ProbeRu
 		}
 		candidate, err := remote.DiscoverAutomaticClientForPlatform(ctx, environment, selection, goos)
 		if err != nil {
+			continue
+		}
+		if qtPlatform != "" && !streamClientFlavorMatches(remote.FlavorQt, candidate.Flavor) {
 			continue
 		}
 		if excludedBinary != "" && candidate.Binary == excludedBinary {
@@ -1567,12 +1578,10 @@ func (a *App) runRemoteKVM(ctx context.Context, args []string) int {
 	if runner == nil {
 		runner = remote.ExecRunner{}
 	}
-	executionCtx, cancelExecution := context.WithTimeout(ctx, remoteControlTimeout)
-	defer cancelExecution()
-	if err := kvm.Execute(executionCtx, runner, a.Stdin, a.Stdout, a.Stderr, plan); err != nil {
-		if ctx.Err() == nil && errors.Is(executionCtx.Err(), context.DeadlineExceeded) {
-			return a.commandError("remote kvm", false, ExitInternal, "KVM browser launch timed out after %s; verify the desktop session and selected launcher", remoteControlTimeout)
-		}
+	// A direct browser (or an opener that waits for it) may remain active for
+	// the entire KVM session. Keep the caller's lifetime, as for streaming;
+	// applying the finite Moonlight-control deadline would kill a healthy UI.
+	if err := kvm.Execute(ctx, runner, a.Stdin, a.Stdout, a.Stderr, plan); err != nil {
 		return a.commandError("remote kvm", false, ExitInternal, "%v", err)
 	}
 	return ExitOK
