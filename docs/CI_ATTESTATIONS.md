@@ -27,6 +27,20 @@ post-verification file hash. The subject's fields are still claims and hashes,
 not signatures; no copied JSON, uploaded artifact, or verifier output can
 promote a scorecard row by itself.
 
+Go callers can use `internal/ciattestation.VerifySet` with a typed
+`VerifyRequest` instead of invoking the command and interpreting its printed
+output. The package applies the same complete-set, source/run identity,
+GitHub authentication, and post-verification digest checks. The existing CLI
+remains the workflow interface and retains its flags and output.
+
+A successful return verifies the supplied set against the caller's expected
+identity. It is not an awardable readiness receipt, proof of release
+publication, or a source-selection policy. A future engineering assessment
+must independently establish its authoritative checkout or release, expected
+run/attempt, freshness, and the relevant production trust rules. The repository
+score, external-evidence restrictions, and physical/gameplay gates remain
+unchanged.
+
 Non-PR CI runs also execute this verifier in the `Verify signed CI attestations`
 job after the test and cross-build matrices complete. That job downloads the
 retained subjects and binaries, arranges the exact one-run set, and verifies
