@@ -2378,8 +2378,7 @@ func Execute(ctx context.Context, runner Runner, stdin io.Reader, stdout, stderr
 	var controlStdout, controlStderr *controlCapture
 	if plan.Client.Flavor == FlavorEmbedded && (operationArguments[0] == string(Pair) || operationArguments[0] == string(Unpair)) {
 		controlStdout, controlStderr = &controlCapture{}, &controlCapture{}
-		stdout = captureControlOutput(stdout, controlStdout)
-		stderr = captureControlOutput(stderr, controlStderr)
+		stdout, stderr = captureControlOutputs(stdout, stderr, controlStdout, controlStderr)
 	}
 	var runErr error
 	if plan.QtPlatform != "" && normalizeQtPlatform(plan.QtPlatform) != "auto" {

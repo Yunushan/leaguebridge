@@ -143,6 +143,66 @@ func TestEmbeddedControlChecksRealZeroExitProcessOutput(t *testing.T) {
 	}
 }
 
+// The detector protects its own state while deliberately allowing Write calls
+// to overlap. A racy destination such as bytes.Buffer would hide the regression
+// behind undefined test behavior instead of reporting the forwarding contract.
+type overlapDetectingControlWriter struct {
+	mutex      sync.Mutex
+	active     int
+	overlapped bool
+	output     bytes.Buffer
+}
+
+func (w *overlapDetectingControlWriter) Write(data []byte) (int, error) {
+	w.mutex.Lock()
+	w.active++
+	w.overlapped = w.overlapped || w.active > 1
+	w.mutex.Unlock()
+	// Give the other os/exec pipe copier time to enter the same destination.
+	time.Sleep(50 * time.Millisecond)
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	w.active--
+	return w.output.Write(data)
+}
+
+func TestEmbeddedControlSerializesSharedOutputWithRealChild(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEAGUEBRIDGE_REMOTE_PROCESS_FIXTURE", "1")
+	t.Setenv("LEAGUEBRIDGE_REMOTE_FIXTURE_STDERR", "diagnostic\n")
+	client, err := Discover(context.Background(), executableFixtureEnvironment{executable: executable}, "moonlight-embedded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []Operation{Pair, Unpair} {
+		t.Run(string(operation), func(t *testing.T) {
+			confirmation := "Succesfully " + string(operation) + "ed\n"
+			t.Setenv("LEAGUEBRIDGE_REMOTE_FIXTURE_STDOUT", confirmation)
+			plan, err := BuildDiscoveredPlan(client, Request{Route: config.RouteWindows, Operation: operation, Host: "fixture.invalid", PhysicalHostConfirmed: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := &overlapDetectingControlWriter{}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := Execute(ctx, ExecRunner{}, nil, output, output, plan); err != nil {
+				t.Fatal(err)
+			}
+			output.mutex.Lock()
+			defer output.mutex.Unlock()
+			if output.overlapped || output.active != 0 {
+				t.Fatal("stdout and stderr writes overlapped at their shared destination")
+			}
+			if got := output.output.String(); got != confirmation+"diagnostic\n" && got != "diagnostic\n"+confirmation {
+				t.Fatalf("forwarding changed output: %q", got)
+			}
+		})
+	}
+}
+
 func TestExecRunnerReapsCanceledProcess(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {

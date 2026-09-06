@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 )
 
 const maximumControlOutput = 64 << 10
@@ -28,11 +29,29 @@ func (c *controlCapture) Write(data []byte) (int, error) {
 	return n, nil
 }
 
-func captureControlOutput(output io.Writer, capture *controlCapture) io.Writer {
-	if output == nil {
-		output = io.Discard
+type serializedControlWriter struct {
+	mutex  *sync.Mutex
+	writer io.Writer
+}
+
+func (w serializedControlWriter) Write(data []byte) (int, error) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	return w.writer.Write(data)
+}
+
+func captureControlOutputs(stdout, stderr io.Writer, stdoutCapture, stderrCapture *controlCapture) (io.Writer, io.Writer) {
+	// Separate captures give os/exec distinct writers even when both original
+	// destinations are the same. Preserve its same-destination serialization
+	// with one lock for this invocation, without comparing arbitrary writers.
+	mutex := &sync.Mutex{}
+	wrap := func(output io.Writer, capture *controlCapture) io.Writer {
+		if output == nil {
+			output = io.Discard
+		}
+		return serializedControlWriter{mutex: mutex, writer: io.MultiWriter(output, capture)}
 	}
-	return io.MultiWriter(output, capture)
+	return wrap(stdout, stdoutCapture), wrap(stderr, stderrCapture)
 }
 
 func verifyEmbeddedControl(operation Operation, stdout, stderr *controlCapture) error {

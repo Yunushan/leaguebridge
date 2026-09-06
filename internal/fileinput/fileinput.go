@@ -74,7 +74,7 @@ func OpenDirectoryRoot(path string) (*os.Root, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("directory %q is not a directory", clean)
 	}
-	root, err := os.OpenRoot(clean)
+	root, err := os.OpenRoot(directoryOnlyPath(clean))
 	if err != nil {
 		return nil, fmt.Errorf("open directory %q: %w", clean, err)
 	}
@@ -88,6 +88,22 @@ func OpenDirectoryRoot(path string) (*os.Root, error) {
 		return nil, fmt.Errorf("directory %q changed while opening", clean)
 	}
 	return root, nil
+}
+
+// Preserve the final dot instead of using filepath.Join, which would clean it
+// away. On Unix, OpenRoot otherwise opens the last component before checking
+// that it is a directory and can block if a FIFO replaces an inspected path.
+// Making that component an ancestor forces a directory-only traversal. Windows
+// may clean the dot away, but its Root directory opens already enforce the type.
+func directoryOnlyPath(path string) string {
+	if strings.HasSuffix(path, string(filepath.Separator)) {
+		return path + "."
+	}
+	return path + string(filepath.Separator) + "."
+}
+
+func openChildDirectoryRoot(parent *os.Root, name string) (*os.Root, error) {
+	return parent.OpenRoot(directoryOnlyPath(name))
 }
 
 // CreateTempFile creates a regular, exclusive temporary file beneath a
@@ -163,7 +179,7 @@ func CreateTempDirectory(root *os.Root, prefix string, perm os.FileMode) (*os.Ro
 		if created.Mode()&os.ModeSymlink != 0 || !created.IsDir() {
 			return nil, "", errors.New("created temporary directory is not a directory")
 		}
-		child, err := root.OpenRoot(name)
+		child, err := openChildDirectoryRoot(root, name)
 		if err != nil {
 			return nil, "", fmt.Errorf("open temporary directory: %w", err)
 		}
@@ -287,12 +303,31 @@ func OpenRegular(path string) (*os.File, error) {
 // identity across opening. Unix opens are nonblocking so a raced-in FIFO is
 // rejected before it can wait for a writer.
 func OpenRegularFromRoot(root *os.Root, name string) (*os.File, error) {
-	return openRegularFromRoot(root, name, nil)
+	return openRegularFromRoot(root, name, nil, nil)
 }
 
-// beforeOpen is test-only and permits deterministic replacement after path
-// inspection but before opening. Production callers always pass nil.
-func openRegularFromRoot(root *os.Root, name string, beforeOpen func()) (*os.File, error) {
+type rootedInputParent struct {
+	parent *os.Root
+	child  *os.Root
+	name   string
+	path   string
+	info   os.FileInfo
+}
+
+func (parent rootedInputParent) verify() error {
+	current, err := parent.parent.Lstat(parent.name)
+	if err != nil {
+		return fmt.Errorf("reinspect root-relative parent %q: %w", parent.path, err)
+	}
+	if !current.IsDir() || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(parent.info, current) {
+		return fmt.Errorf("root-relative parent %q changed or is not a non-symlink directory", parent.path)
+	}
+	return nil
+}
+
+// The hooks are test-only and permit deterministic replacement immediately
+// before and after the final open. Production callers always pass nil.
+func openRegularFromRoot(root *os.Root, name string, beforeOpen, afterOpen func()) (*os.File, error) {
 	if root == nil {
 		return nil, errors.New("directory root is nil")
 	}
@@ -301,11 +336,20 @@ func openRegularFromRoot(root *os.Root, name string, beforeOpen func()) (*os.Fil
 		return nil, fmt.Errorf("root-relative file path %q is unsafe", name)
 	}
 	components := strings.Split(clean, string(filepath.Separator))
+	parents := make([]rootedInputParent, 0, len(components)-1)
+	defer func() {
+		for index := len(parents) - 1; index >= 0; index-- {
+			_ = parents[index].child.Close()
+		}
+	}()
+	parentRoot := root
 	current := ""
 	var before os.FileInfo
 	for index, component := range components {
 		current = filepath.Join(current, component)
-		info, err := root.Lstat(current)
+		// Inspect one component relative to its pinned parent, so a replaced
+		// ancestor cannot redirect subsequent path inspection.
+		info, err := parentRoot.Lstat(component)
 		if err != nil {
 			return nil, err
 		}
@@ -316,6 +360,23 @@ func openRegularFromRoot(root *os.Root, name string, beforeOpen func()) (*os.Fil
 			if !info.IsDir() {
 				return nil, fmt.Errorf("root-relative parent %q is not a directory", current)
 			}
+			child, err := openChildDirectoryRoot(parentRoot, component)
+			if err != nil {
+				return nil, fmt.Errorf("open root-relative parent %q: %w", current, err)
+			}
+			parent := rootedInputParent{parent: parentRoot, child: child, name: component, path: current, info: info}
+			parents = append(parents, parent)
+			opened, err := child.Stat(".")
+			if err != nil {
+				return nil, fmt.Errorf("inspect opened root-relative parent %q: %w", current, err)
+			}
+			if !opened.IsDir() || !os.SameFile(info, opened) {
+				return nil, fmt.Errorf("root-relative parent %q changed while opening", current)
+			}
+			if err := parent.verify(); err != nil {
+				return nil, err
+			}
+			parentRoot = child
 			continue
 		}
 		if !info.Mode().IsRegular() {
@@ -326,9 +387,26 @@ func openRegularFromRoot(root *os.Root, name string, beforeOpen func()) (*os.Fil
 	if beforeOpen != nil {
 		beforeOpen()
 	}
+	for _, parent := range parents {
+		if err := parent.verify(); err != nil {
+			return nil, err
+		}
+	}
+	// Keep the actual open on the original root. A pinned child directory may
+	// have been moved outside that root since inspection; using that child to
+	// open the file would give it a different containment boundary.
 	file, err := openReadOnlyFromRoot(root, clean)
 	if err != nil {
 		return nil, err
+	}
+	if afterOpen != nil {
+		afterOpen()
+	}
+	for _, parent := range parents {
+		if err := parent.verify(); err != nil {
+			_ = file.Close()
+			return nil, err
+		}
 	}
 	opened, err := file.Stat()
 	if err != nil {

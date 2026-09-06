@@ -74,7 +74,7 @@ func TestOpenRegularFromRootRejectsRacedFIFOWithoutBlocking(t *testing.T) {
 			if replacementErr = os.Remove(path); replacementErr == nil {
 				replacementErr = syscall.Mkfifo(path, 0o600)
 			}
-		})
+		}, nil)
 		if file != nil {
 			_ = file.Close()
 		}
@@ -101,5 +101,67 @@ func TestOpenRegularFromRootRejectsRacedFIFOWithoutBlocking(t *testing.T) {
 			}
 		}
 		t.Fatalf("rooted input open blocked on raced FIFO; release error: %v", releaseErr)
+	}
+}
+
+func TestDirectoryRootOpenRejectsRacedFIFOWithoutBlocking(t *testing.T) {
+	for _, rooted := range []bool{false, true} {
+		name := "absolute directory"
+		if rooted {
+			name = "rooted parent directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "parent")
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root, err := OpenDirectoryRoot(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			// Reproduce the interval between a successful directory inspection
+			// and the exact primitive used to pin that inspected directory.
+			if info, err := root.Lstat("parent"); err != nil || !info.IsDir() {
+				t.Fatalf("inspect directory before replacement: %v", err)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := syscall.Mkfifo(path, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			finished := make(chan error, 1)
+			go func() {
+				var child *os.Root
+				var openErr error
+				if rooted {
+					child, openErr = openChildDirectoryRoot(root, "parent")
+				} else {
+					child, openErr = os.OpenRoot(directoryOnlyPath(path))
+				}
+				if child != nil {
+					_ = child.Close()
+				}
+				finished <- openErr
+			}()
+			select {
+			case err := <-finished:
+				if err == nil {
+					t.Fatal("accepted directory replaced by FIFO")
+				}
+			case <-time.After(2 * time.Second):
+				writer, releaseErr := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+				if releaseErr == nil {
+					_ = writer.Close()
+					select {
+					case <-finished:
+					case <-time.After(time.Second):
+					}
+				}
+				t.Fatalf("directory root open blocked on raced FIFO; release error: %v", releaseErr)
+			}
+		})
 	}
 }
