@@ -132,6 +132,77 @@ pkg_create() {
 	}
 }
 
+func TestLinuxPackageInstalledPayloadRejectsMutation(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux stat and bash")
+	}
+	shell, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-linux-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	start := strings.Index(script, "verify_installed_payload() {\n")
+	end := strings.Index(script, "\nensure_directory native-package-staging\n")
+	if start < 0 || end < start {
+		t.Fatal("installed payload verification absent")
+	}
+	for _, family := range []string{"debian", "rpm"} {
+		call := "verify_installed_payload native-package-staging/" + family + "/root \"$" + family + "_scratch\""
+		if !strings.Contains(script, call) {
+			t.Fatalf("%s installation does not verify payload", family)
+		}
+	}
+	for _, test := range []struct {
+		name, mutation, diagnostic string
+	}{
+		{"unchanged", ":", ""},
+		{"binary bytes", "printf changed >> installed/usr/bin/leaguebridge", "differs from verified staging"},
+		{"document bytes", "printf changed >> installed/usr/share/doc/leaguebridge/README.md", "differs from verified staging"},
+		{"mode", "chmod 600 installed/usr/bin/leaguebridge", "mode or root ownership differs"},
+		{"owner", "fixture_owner=1000:1000", "mode or root ownership differs"},
+		{"missing", "rm installed/usr/share/doc/leaguebridge/SBOM.spdx.json", "not a regular file"},
+		{"symlink", "rm installed/usr/bin/leaguebridge; ln -s ../../staging/usr/bin/leaguebridge installed/usr/bin/leaguebridge", "not a regular file"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setup := `fail() { echo "$*" >&2; exit 41; }
+mkdir -p staging/usr/bin staging/usr/libexec/leaguebridge staging/usr/share/doc/leaguebridge
+for relative in bin/leaguebridge libexec/leaguebridge/linux-bsd-client-smoke.sh libexec/leaguebridge/linux-bsd-remote-session.sh share/doc/leaguebridge/LICENSE share/doc/leaguebridge/README.md share/doc/leaguebridge/SBOM.spdx.json share/doc/leaguebridge/PACKAGE-MANIFEST.json; do
+  printf 'verified payload\n' > "staging/usr/$relative"
+  case "$relative" in bin/*|libexec/*) chmod 755 "staging/usr/$relative";; *) chmod 644 "staging/usr/$relative";; esac
+done
+cp -a staging installed
+fixture_owner=0:0
+# The unit fixture runs without root. Keep real modes and byte comparisons;
+# supply the installed UID/GID independently of the test runner's account.
+stat() {
+  if [ "$2" = '%a:%u:%g' ]; then
+    printf '%s:%s\n' "$(command stat -c '%a' "$3")" "$fixture_owner"
+  else
+    command stat "$@"
+  fi
+}
+`
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, shell, "-eu", "-o", "pipefail", "-c", setup+script[start:end]+"\n"+test.mutation+"\nverify_installed_payload staging installed\n")
+			cmd.Dir = dir
+			output, err := cmd.CombinedOutput()
+			if test.diagnostic == "" {
+				if err != nil || string(output) != "payload=pass\n" {
+					t.Fatalf("unchanged payload rejected: %v: %s", err, output)
+				}
+			} else if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 41 || !strings.Contains(string(output), test.diagnostic) {
+				t.Fatalf("mutation was not rejected with its diagnostic: %v: %s", err, output)
+			}
+		})
+	}
+}
+
 func TestLinuxPackageCleanupRemovesPrivilegedRootsAndPreservesFailures(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a native Unix shell")

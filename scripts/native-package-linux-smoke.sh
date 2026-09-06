@@ -34,7 +34,7 @@ fi
 if [[ -L "$archive" || ! -f "$archive" ]]; then
   fail "release archive must be a regular, non-symlink file"
 fi
-for command_name in go dpkg-deb dpkg rpm rpmbuild file sudo sha256sum; do
+for command_name in go dpkg-deb dpkg rpm rpmbuild file sudo sha256sum cmp stat; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
 done
 if ! go run -mod=vendor ./tools/versioncheck "$version" >/dev/null 2>&1; then
@@ -51,6 +51,28 @@ ensure_directory() {
   if [[ -L "$directory" || ! -d "$directory" ]]; then
     fail "path changed into a non-directory after creation: $directory"
   fi
+}
+
+verify_installed_payload() {
+  local staging_root=$1 installed_root=$2 relative expected_mode
+  for relative in \
+    usr/bin/leaguebridge \
+    usr/libexec/leaguebridge/linux-bsd-client-smoke.sh \
+    usr/libexec/leaguebridge/linux-bsd-remote-session.sh \
+    usr/share/doc/leaguebridge/LICENSE \
+    usr/share/doc/leaguebridge/README.md \
+    usr/share/doc/leaguebridge/SBOM.spdx.json \
+    usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json; do
+    if [[ -L "$installed_root/$relative" || ! -f "$installed_root/$relative" ]]; then
+      fail "installed payload is not a regular file: $relative"
+    fi
+    cmp -s "$staging_root/$relative" "$installed_root/$relative" || \
+      fail "installed payload differs from verified staging: $relative"
+    expected_mode=$(stat -c '%a' "$staging_root/$relative")
+    [[ $(stat -c '%a:%u:%g' "$installed_root/$relative") == "$expected_mode:0:0" ]] || \
+      fail "installed payload mode or root ownership differs: $relative"
+  done
+  echo 'payload=pass'
 }
 
 ensure_directory native-package-staging
@@ -169,11 +191,14 @@ printf '%s\n' \
   '%attr(0644,root,root) /usr/share/doc/leaguebridge/SBOM.spdx.json' \
   '%attr(0644,root,root) /usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json' \
   > "$rpm_spec"
+# These are already verified release payloads. Distribution postprocessing
+# (including stripping ELF comments/notes) would invalidate their bound hashes.
 rpmbuild \
   --define "_topdir $rpm_top" \
   --define "_leaguebridge_payload $rpm_payload" \
   --define '_build_id_links none' \
   --define '_binary_payload w9.gzdio' \
+  --define '__os_install_post %{nil}' \
   -bb "$rpm_spec" >/dev/null
 generated_rpm="$rpm_top/RPMS/x86_64/leaguebridge-${rpm_version}-${rpm_release}.x86_64.rpm"
 if [[ -L "$generated_rpm" || ! -f "$generated_rpm" ]]; then
@@ -191,6 +216,7 @@ sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
   echo 'target=linux/amd64'
   dpkg-deb --info "$debian_package"
   sudo dpkg-query --admindir="$debian_scratch/var/lib/dpkg" -W leaguebridge
+  verify_installed_payload native-package-staging/debian/root "$debian_scratch"
   test -x "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
   test -x "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   "$debian_scratch/usr/bin/leaguebridge" status
@@ -215,6 +241,7 @@ sudo rpm --root "$rpm_scratch" --install "$rpm_package"
   rpm --version
   rpm -qip "$rpm_package"
   sudo rpm --root "$rpm_scratch" -q leaguebridge
+  verify_installed_payload native-package-staging/rpm/root "$rpm_scratch"
   test -x "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
   test -x "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   "$rpm_scratch/usr/bin/leaguebridge" status

@@ -92,10 +92,14 @@ or `.pkg` bytes and retain the builder's exact package attestation. The
 staging manifest is therefore `staging-integrity-only` evidence and cannot
 promote the native-package or native-runtime readiness rows.
 
-The Linux smoke requires `file` alongside the package tools because RPM's
-payload processing invokes it. Cleanup removes the private package-manager
-roots with the same privilege used to create their databases. A cleanup
-failure fails the smoke run while preserving any earlier failure status.
+The Linux smoke requires `file` alongside the package tools. RPM distribution
+postprocessing is disabled for these prebuilt, verified release payloads:
+stripping an executable's ELF notes would invalidate its bound hash. After
+each actual Debian and RPM installation, the smoke compares all seven files
+to verified staging and checks their modes and root ownership before running
+the CLI. Cleanup removes the private package-manager roots with the same
+privilege used to create their databases. A cleanup failure fails the smoke
+run while preserving any earlier failure status.
 
 The BSD smoke preserves the caller's stderr before redirecting package output.
 On failure it reports at most the first 64 KiB without writing into the evidence
