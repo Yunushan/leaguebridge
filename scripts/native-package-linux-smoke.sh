@@ -34,7 +34,7 @@ fi
 if [[ -L "$archive" || ! -f "$archive" ]]; then
   fail "release archive must be a regular, non-symlink file"
 fi
-for command_name in go dpkg-deb dpkg rpm rpmbuild sudo sha256sum; do
+for command_name in go dpkg-deb dpkg rpm rpmbuild file sudo sha256sum; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
 done
 if ! go run -mod=vendor ./tools/versioncheck "$version" >/dev/null 2>&1; then
@@ -106,13 +106,23 @@ rpm_payload=$temporary_root/rpm-payload
 debian_scratch=$temporary_root/debian-install
 rpm_scratch=$temporary_root/rpm-install
 cleanup() {
+  cleanup_status=$?
   set +e
   sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
     --instdir="$debian_scratch" --purge leaguebridge >/dev/null 2>&1
   sudo rpm --root "$rpm_scratch" --erase leaguebridge >/dev/null 2>&1
   if [[ -n "${temporary_root:-}" && -e "$temporary_root" && ! -L "$temporary_root" ]]; then
-    rm -rf -- "$temporary_root"
+    # Package managers create root-owned databases and directories even when
+    # the caller owns the private parent. Remove those roots with the same
+    # privilege used to create them, and do not hide a cleanup failure.
+    if ! sudo rm -rf -- "$temporary_root"; then
+      echo "native-package-linux-smoke: could not remove private package roots" >&2
+      if [[ "$cleanup_status" -eq 0 ]]; then
+        cleanup_status=1
+      fi
+    fi
   fi
+  exit "$cleanup_status"
 }
 trap cleanup EXIT
 

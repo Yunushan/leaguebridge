@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,73 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestLinuxPackageCleanupRemovesPrivilegedRootsAndPreservesFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a native Unix shell")
+	}
+	shell, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "native-package-linux-smoke.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	start := strings.Index(script, "cleanup() {\n")
+	end := strings.Index(script, "trap cleanup EXIT\n")
+	if start < 0 || end < start {
+		t.Fatal("package cleanup trap absent")
+	}
+	cleanup := script[start : end+len("trap cleanup EXIT\n")]
+	for _, test := range []struct {
+		name           string
+		original, want int
+		cleanupFails   bool
+	}{
+		{"success", 0, 0, false},
+		{"preserve original failure", 17, 17, false},
+		{"report cleanup failure", 0, 1, true},
+		{"preserve failure when cleanup also fails", 17, 17, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setup := fmt.Sprintf(`temporary_root="$PWD/private package roots"
+mkdir "$temporary_root"
+printf 'database' > "$temporary_root/root-owned-database"
+debian_scratch="$temporary_root/debian"
+rpm_scratch="$temporary_root/rpm"
+rm() { echo 'unprivileged removal refused' >&2; return 81; }
+sudo() {
+  case "$1" in
+    dpkg|rpm) return 0 ;;
+    rm)
+      test "$#" -eq 4 && test "$2" = -rf && test "$3" = -- && test "$4" = "$temporary_root" || return 82
+      if %t; then return 83; fi
+      shift
+      command rm "$@"
+      ;;
+    *) return 84 ;;
+  esac
+}
+`, test.cleanupFails)
+			cmd := exec.Command(shell, "-eu", "-o", "pipefail", "-c", setup+cleanup+fmt.Sprintf("exit %d\n", test.original))
+			cmd.Dir = dir
+			output, _ := cmd.CombinedOutput()
+			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != test.want {
+				t.Fatalf("cleanup exit=%v, want %d: %s", cmd.ProcessState, test.want, output)
+			}
+			_, statErr := os.Stat(filepath.Join(dir, "private package roots"))
+			if !test.cleanupFails && !os.IsNotExist(statErr) {
+				t.Fatalf("privileged package roots remain after cleanup: %v", statErr)
+			}
+			if test.cleanupFails && !strings.Contains(string(output), "could not remove private package roots") {
+				t.Fatalf("cleanup failure was not reported: %s", output)
+			}
+		})
+	}
+}
 
 func TestBSDStagingWorkflowCreatesTheImmediateOutputParent(t *testing.T) {
 	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))

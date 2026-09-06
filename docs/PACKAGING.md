@@ -92,6 +92,11 @@ or `.pkg` bytes and retain the builder's exact package attestation. The
 staging manifest is therefore `staging-integrity-only` evidence and cannot
 promote the native-package or native-runtime readiness rows.
 
+The Linux smoke requires `file` alongside the package tools because RPM's
+payload processing invokes it. Cleanup removes the private package-manager
+roots with the same privilege used to create their databases. A cleanup
+failure fails the smoke run while preserving any earlier failure status.
+
 FreeBSD and DragonFly package creation supplies an explicit packing list for
 the seven staged payload files and the two owned directories. The `pkg create
 -r` argument only selects the source root; the packing list determines which
