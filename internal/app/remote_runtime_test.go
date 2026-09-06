@@ -45,7 +45,7 @@ func TestQtControlFallbackKeepsRequestedBackend(t *testing.T) {
 	a, _, errOut, _, runner := newTestApp(t)
 	directory := t.TempDir()
 	paths := map[string]string{}
-	for _, name := range []string{"moonlight-qt", "moonlight-embedded", "flatpak"} {
+	for _, name := range []string{"moonlight-qt", "moonlight-embedded"} {
 		filename := name
 		if runtime.GOOS == "windows" {
 			filename += ".exe"
