@@ -14,6 +14,8 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- Find NetBSD base package tools in non-login SSH sessions so hosted native
+  package creation, installation, and removal can run.
 - Require an explicit Moonlight Embedded success message before reporting
   successful pairing or unpairing, including when the client exits zero after
   a failure. Bound verification capture and serialize combined stdout/stderr
