@@ -40,6 +40,12 @@ case "$(uname -s):$expected_goos" in
   FreeBSD:freebsd|OpenBSD:openbsd|NetBSD:netbsd|DragonFly:dragonfly) ;;
   *) fail "package smoke is running on the wrong BSD kernel" ;;
 esac
+if [ "$expected_goos" = netbsd ]; then
+  # NetBSD's non-login SSH PATH omits the administrative directories that
+  # contain its base package tools. The hosted VM runs this script that way.
+  PATH=/sbin:/usr/sbin:$PATH
+  export PATH
+fi
 runtime_machine=$(uname -m)
 case "$runtime_machine" in
   amd64|x86_64) expected_goarch=amd64 ;;
