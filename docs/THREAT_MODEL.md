@@ -62,6 +62,25 @@
   architecture Linux/BSD set verifier binds those artifacts to one CI source/run and rejects
   physical claims; package-manager signatures and target-kernel behavior remain
   outside this repository's score-free subject contract.
+- Explicit `readiness verify-release` assessments authenticate the named
+  release's source policy and every referenced repository file, the exact
+  source commit's complete CI run, and the published archive and signature
+  inventories. API responses and subprocess output are bounded. A reviewed
+  historical scorecard digest supplies policy compatibility only; current
+  source, run, publication, and cryptographic checks must still pass. The
+  released binaries must embed that same scorecard and its build verification
+  marker. Archive semantics and release signatures use the same private copy
+  of the API-matching asset bytes. Final checks reject changes to the source
+  tag, tag protection, workflow attempts, publication metadata, or supplied
+  evidence. The selected GitHub CLI and its trust roots are trusted local
+  dependencies. A compromised verifier process or account with control over
+  the repository and its workflows is outside this verification boundary.
+- Live release assessments derive only four fixed CI and publication criteria.
+  They accept no saved assessment, caller-selected score, or claimed pass
+  status. The result describes one observation; it is not an importable
+  receipt or an execution permission. It cannot establish physical hardware,
+  vendor authorization, independent audit closure, production native package
+  signatures, or gameplay compatibility.
 - Reports are constructed from an allowlist. Redaction is defense in depth, not
   permission to collect raw logs.
 - Bundles are local, bounded, atomically created, previewable, and never

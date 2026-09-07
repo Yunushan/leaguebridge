@@ -38,7 +38,7 @@ revalidated against current primary sources:
 
 | Goal | Score/state | Meaning |
 | --- | --- | --- |
-| LeagueBridge engineering | **74/100 after build-time repository verification** | The verified source tree has repository-backed implementation and control evidence. Ad hoc/dev builds report 0/unverified. CI execution, published-release attestations, native BSD/hardware validation, independent audit, vendor authorization, and native packages remain unverified. |
+| LeagueBridge engineering | **74/100 after build-time repository verification** | The embedded scorecard reports repository-backed implementation and control evidence. Ad hoc/dev builds report 0/unverified. The explicit live release assessment separately authenticates CI execution and publication; native integration, physical validation, independent audit, vendor authorization, and production native packages still require their own evidence. |
 | Local League on Linux/BSD | **0/100 — blocked** | No Riot-supported client/Vanguard route exists. This is a hard gate, not a weighted score. |
 | Physical Windows remote handoff | **0/100 — unvalidated** | All nine Linux/BSD client targets start at zero; no physical-host, native-client, session-quality, or gameplay-interaction gate has current content-addressed runtime evidence. |
 | Physical macOS remote handoff | **0/100 — unvalidated** | Sunshine's Mac host is experimental and has no gamepad hosting; all nine Linux/BSD clients start at zero and no route-bound runtime gate has authenticated evidence. |
@@ -52,6 +52,14 @@ Documentation or unit tests never inflate the gameplay score.
 Commit-bound CI subjects can be checked with the external GitHub attestation
 gate documented in [`docs/CI_ATTESTATIONS.md`](docs/CI_ATTESTATIONS.md); a
 successful local verification still does not alter the schema-v3 scorecard.
+
+Use `leaguebridge readiness verify-release --version TAG --release-dir DIR`
+from the matching CI evidence directory to assess a named published release.
+This explicit command contacts GitHub, verifies the release's own source and
+scorecard, authenticates the actual CI and published files, and derives the
+eligible engineering criteria. It accepts no stored score or previous
+verification report. See [`docs/RELEASE_ASSESSMENT.md`](docs/RELEASE_ASSESSMENT.md)
+for evidence layout, verification requirements, and the remaining criteria.
 
 The CI workflow also runs native Ubuntu Linux amd64 and arm64 runtime smokes
 against the shipped archive's install lifecycle and the CLI's read-only client
@@ -274,9 +282,11 @@ There is no Windows or macOS LeagueBridge installation procedure. Those
 operating systems are external Riot-host platforms only; see
 [`docs/PLATFORM_SCOPE.md`](docs/PLATFORM_SCOPE.md).
 
-The CLI runs unprivileged, has no daemon or telemetry, and contains no HTTP
-client or upload path for status, readiness, doctor, manifest verification, or
-bundle creation. Read-only filesystem probes may still touch user-mounted or
+The CLI runs unprivileged and has no daemon or telemetry. Status, default
+readiness, doctor, manifest verification, and bundle creation have no HTTP
+client or upload path. The explicit `readiness verify-release` command uses a
+trusted GitHub CLI for read-only metadata and attestation verification.
+Read-only filesystem probes may still touch user-mounted or
 network-backed filesystems, so diagnostic paths must come from trusted local
 configuration. Remote Moonlight commands intentionally use the network.
 

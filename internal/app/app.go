@@ -81,7 +81,7 @@ func (a *App) Run(ctx context.Context, args []string) int {
 	case "manifest":
 		return a.runManifest(args[1:])
 	case "readiness":
-		return a.runReadiness(args[1:])
+		return a.runReadiness(ctx, args[1:])
 	case "evidence":
 		return a.runEvidence(args[1:])
 	case "remote":
@@ -109,6 +109,7 @@ Usage:
   leaguebridge manifest verify [--json]
   leaguebridge manifest validate --file FILE
   leaguebridge readiness [--json]
+  leaguebridge readiness verify-release --version TAG --release-dir DIR [--gh PATH] [--json]
   leaguebridge evidence template --type host|client|session [--route windows|macos] [--platform OS] [--arch ARCH] [--run-id ID]
   leaguebridge evidence template-set --directory DIR [--route windows|macos] [--host-arch ARCH] [--client-platform OS] [--client-arch amd64|arm64] [--run-id ID] [--json]
   leaguebridge evidence validate --file FILE [--artifacts DIR] [--json]

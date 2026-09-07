@@ -899,17 +899,22 @@ func githubSignerWorkflow(value source) (string, error) {
 }
 
 type boundedBuffer struct {
-	bytes.Buffer
+	buffer    bytes.Buffer
 	Maximum   int
 	Oversized bool
 }
+
+// A named buffer prevents io.Copy/os/exec from bypassing Write via ReaderFrom.
+func (b *boundedBuffer) Len() int       { return b.buffer.Len() }
+func (b *boundedBuffer) Bytes() []byte  { return b.buffer.Bytes() }
+func (b *boundedBuffer) String() string { return b.buffer.String() }
 
 func (b *boundedBuffer) Write(value []byte) (int, error) {
 	if b.Maximum < 0 || b.Len() > b.Maximum || len(value) > b.Maximum-b.Len() {
 		b.Oversized = true
 		return 0, errors.New("bounded output limit exceeded")
 	}
-	return b.Buffer.Write(value)
+	return b.buffer.Write(value)
 }
 
 func verifyGitHubOutput(data []byte, expectedDigest string, value source) error {

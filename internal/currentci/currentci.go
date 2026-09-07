@@ -311,11 +311,16 @@ func githubAPI(gh string) apiClient {
 	}
 }
 
-type boundedOutput struct{ bytes.Buffer }
+// Keep the buffer named: embedding it exposes ReaderFrom, which lets io.Copy
+// bypass Write when os/exec copies a subprocess pipe.
+type boundedOutput struct{ buffer bytes.Buffer }
+
+func (b *boundedOutput) Len() int      { return b.buffer.Len() }
+func (b *boundedOutput) Bytes() []byte { return b.buffer.Bytes() }
 
 func (b *boundedOutput) Write(data []byte) (int, error) {
 	if len(data) > maximumResponse-b.Len() {
 		return 0, errors.New("GitHub API response exceeds its size bound")
 	}
-	return b.Buffer.Write(data)
+	return b.buffer.Write(data)
 }

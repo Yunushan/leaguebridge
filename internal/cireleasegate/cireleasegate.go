@@ -295,13 +295,19 @@ func githubAPI(gh string) apiClient {
 }
 
 type boundedOutput struct {
-	bytes.Buffer
-	limit int
+	buffer bytes.Buffer
+	limit  int
 }
+
+// Expose only the operations that preserve Write's subprocess-output bound.
+// In particular, do not promote bytes.Buffer.ReadFrom through embedding.
+func (b *boundedOutput) Len() int       { return b.buffer.Len() }
+func (b *boundedOutput) Bytes() []byte  { return b.buffer.Bytes() }
+func (b *boundedOutput) String() string { return b.buffer.String() }
 
 func (b *boundedOutput) Write(data []byte) (int, error) {
 	if len(data) > b.limit-b.Len() {
 		return 0, errors.New("GitHub response exceeds its size limit")
 	}
-	return b.Buffer.Write(data)
+	return b.buffer.Write(data)
 }
