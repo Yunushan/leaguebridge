@@ -33,8 +33,10 @@ for the separately required release attestation.
 CI execution, release publication, native runtime results, native packages,
 vendor authorization, and independent audit are different evidence classes.
 Their mere scripts, workflows, self-authored notes, or arbitrary files do not
-count. Schema v3 keeps those criteria at zero until an authenticated verifier
-for the required class is implemented and the corresponding evidence exists.
+count. The embedded schema-v3 evaluation keeps those criteria at zero and
+does not import external observations. The explicit live release assessment
+described below authenticates a named release's evidence and derives its
+eligible CI and publication criteria without modifying the embedded card.
 
 The CI workflow includes hosted Ubuntu Linux amd64 and arm64 runtime/install
 smokes and native BSD guest lifecycle jobs for amd64 and arm64 where the guest
@@ -56,8 +58,8 @@ but it does not create package bytes or promote runtime support. The shared
 `tools/ciattestation` verifier also has a strict release mode that checks the
 exact nine Linux/BSD archives, `checksums.txt`, and each publication attestation
 against the release workflow, tag, tested commit, workflow revision, run, and
-hosted-runner policy. That control is still not publication evidence until an
-actual tagged run produces and retains the external attestations.
+hosted-runner policy. The live release assessment requires an actual published
+tagged run and verifies both the external attestations and the downloaded bytes.
 
 The current verified source tree derives 74 points from the following binary
 subcriteria; no row receives partial credit:
@@ -81,17 +83,17 @@ subcriteria; no row receives partial credit:
 | `implementation-native-validated-integration` | Native validated platform integration | 3 | 0 | Authenticated native-runtime evidence absent |
 | `tests-unit-negative` | Unit and negative tests | 5 | 5 | Exact core negative-test inventory, including authenticated-evidence, external-host, and KVM URL/launcher coverage |
 | `tests-coverage-80` | 80% aggregate core coverage gate | 4 | 4 | Exact versioned coverage gate and tests |
-| `tests-race-vet-linux` | Linux race and vet | 3 | 0 | Commit-bound CI attestation absent |
-| `tests-nine-target-cross-build` | Nine-target Linux/BSD cross-build | 3 | 0 | Commit-bound CI attestation absent |
+| `tests-race-vet-linux` | Linux race and vet | 3 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
+| `tests-nine-target-cross-build` | Nine-target Linux/BSD cross-build | 3 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
 | `tests-native-bsd-physical-smoke` | Native BSD and physical-hardware smoke tests | 5 | 0 | Authenticated native-runtime evidence absent |
 | `security-threat-model` | Threat model and scope | 4 | 4 | Exact threat-model and security-policy files |
 | `security-injection-bounds-redaction` | Injection, bounds, and redaction tests | 4 | 4 | Exact security negative-test inventory, including KVM endpoint and fixed-argv checks |
 | `security-pinned-least-privilege-ci` | Pinned least-privilege CI | 3 | 3 | Exact reviewed workflow definitions; not an execution claim |
 | `security-sbom-checksum-provenance` | SBOM, checksum, and provenance tooling | 2 | 2 | Exact LF-normalization, lifecycle-script, deterministic archive, package-manifest, readiness-integrity, checksum, provenance, and SBOM tooling; not native-host or publication evidence |
 | `security-independent-audit-closed` | Closed independent audit findings | 2 | 0 | Authenticated independent-audit closure absent |
-| `packaging-nine-release-archives` | Nine published Linux/BSD release archives | 2 | 0 | Nine release archives and release attestation absent |
+| `packaging-nine-release-archives` | Nine published Linux/BSD release archives | 2 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
 | `packaging-version-sbom-checksums` | Version metadata, SBOMs, and checksums tooling | 2 | 2 | Exact version/SBOM/release-check tooling |
-| `packaging-publication-attestation` | Release publication and attestation | 1 | 0 | Published release attestation absent |
+| `packaging-publication-attestation` | Release publication and attestation | 1 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
 | `packaging-native-os-packages` | Native OS packages | 3 | 0 | Authenticated native-package evidence absent |
 | `packaging-install-uninstall-native-smoke` | Install/uninstall and native smoke evidence | 2 | 0 | Authenticated native-runtime evidence absent |
 
@@ -103,6 +105,31 @@ worked on physical hardware.
 
 The scorecard has a bounded validity interval. Its public and embedded copies
 must be semantically identical and conform to the public Draft 2020-12 schema.
+
+## Live assessment of a published release
+
+`leaguebridge readiness verify-release` separately assesses one named release
+through live GitHub metadata and cryptographic verification. It derives the
+release's repository baseline from the authenticated released scorecard and
+every referenced source file, then requires complete matching CI and release
+evidence before awarding the four fixed CI/publication criteria above. It
+does not use the assessor binary's newer embedded card as an older release's
+baseline. The released card's own validity interval still applies.
+
+The current contract can derive nine additional points: three for race/vet,
+three for all nine cross-builds, two for the complete published archive set,
+and one for publication attestation. A release whose authenticated repository
+baseline is 74 can therefore receive a live engineering assessment of 83/100.
+Failure produces no assessment; the command does not fall back to an embedded
+or cached score. Existing v3 files and their hard-zero external/remote arrays
+remain unchanged.
+
+This result describes the named release at observation time. It is not a
+signed receipt, a validity promise until a chosen time, an assessment of later
+main commits, or a gameplay authorization. Re-run the command to assess later
+state. The output schema is [`release-assessment.schema.json`](../schemas/release-assessment.schema.json).
+The input layout, exact checks, and remaining 17-point evidence requirements
+are documented in [`RELEASE_ASSESSMENT.md`](RELEASE_ASSESSMENT.md).
 
 ## Local gameplay readiness (hard gate)
 

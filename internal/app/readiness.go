@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -16,7 +17,10 @@ type readinessCategoryResult struct {
 	Subcriteria []readiness.Subcriterion `json:"subcriteria"`
 }
 
-func (a *App) runReadiness(args []string) int {
+func (a *App) runReadiness(ctx context.Context, args []string) int {
+	if len(args) > 0 && args[0] == "verify-release" {
+		return a.runReadinessRelease(ctx, args[1:])
+	}
 	set := a.flagSet("readiness")
 	asJSON := set.Bool("json", false, "emit JSON")
 	if err := parseFlags(set, args); err != nil {

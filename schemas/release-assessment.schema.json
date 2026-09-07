@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Yunushan/leaguebridge/schemas/release-assessment.schema.json",
+  "title": "Live published-release engineering assessment",
+  "description": "Output-only data from readiness verify-release. This is not an accepted evidence input, signed receipt, later-state guarantee, or gameplay authorization. Runtime authenticates all evidence and derives score = repository_score + the four fixed criterion weights.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version",
+    "commit",
+    "tree",
+    "release_id",
+    "release_run_id",
+    "release_run_attempt",
+    "ci_run_id",
+    "ci_run_attempt",
+    "observed_at",
+    "scorecard_expires_at",
+    "repository_score",
+    "score",
+    "criteria"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "commit": {
+      "$ref": "#/$defs/objectId"
+    },
+    "tree": {
+      "$ref": "#/$defs/objectId"
+    },
+    "release_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "release_run_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "release_run_attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ci_run_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ci_run_attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scorecard_expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "repository_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 74
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 9,
+      "maximum": 83
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "evidence_type",
+            "verifier_id",
+            "points"
+          ],
+          "properties": {
+            "id": {
+              "const": "tests-race-vet-linux"
+            },
+            "name": {
+              "const": "Linux race and vet"
+            },
+            "evidence_type": {
+              "const": "ci-attestation-v1"
+            },
+            "verifier_id": {
+              "const": "ci-race-vet-v1"
+            },
+            "points": {
+              "const": 3
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "evidence_type",
+            "verifier_id",
+            "points"
+          ],
+          "properties": {
+            "id": {
+              "const": "tests-nine-target-cross-build"
+            },
+            "name": {
+              "const": "Nine-target Linux/BSD cross-build"
+            },
+            "evidence_type": {
+              "const": "ci-attestation-v1"
+            },
+            "verifier_id": {
+              "const": "ci-nine-target-cross-build-v1"
+            },
+            "points": {
+              "const": 3
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "evidence_type",
+            "verifier_id",
+            "points"
+          ],
+          "properties": {
+            "id": {
+              "const": "packaging-nine-release-archives"
+            },
+            "name": {
+              "const": "Nine published Linux/BSD release archives"
+            },
+            "evidence_type": {
+              "const": "release-attestation-v1"
+            },
+            "verifier_id": {
+              "const": "release-nine-archives-v1"
+            },
+            "points": {
+              "const": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "evidence_type",
+            "verifier_id",
+            "points"
+          ],
+          "properties": {
+            "id": {
+              "const": "packaging-publication-attestation"
+            },
+            "name": {
+              "const": "Release publication and attestation"
+            },
+            "evidence_type": {
+              "const": "release-attestation-v1"
+            },
+            "verifier_id": {
+              "const": "release-publication-attestation-v1"
+            },
+            "points": {
+              "const": 1
+            }
+          }
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "objectId": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    }
+  }
+}

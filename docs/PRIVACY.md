@@ -1,10 +1,20 @@
 # Privacy
 
 LeagueBridge has no telemetry, HTTP client, or upload path during `status`,
-`doctor`, `readiness`, or support-bundle creation. Read-only file metadata checks
+`doctor`, default `readiness`, or support-bundle creation. Read-only file metadata checks
 can still traverse a user-mounted or network-backed filesystem; LeagueBridge
 therefore does not promise zero operating-system network I/O. Remote Moonlight
 handoffs intentionally use the network.
+
+The explicit `readiness verify-release` command makes read-only GitHub API and
+attestation requests through the selected GitHub CLI executable. It uses that
+executable's existing authentication and trust configuration. GitHub receives
+the repository, release, workflow, and artifact identities being verified;
+local release archives and CI evidence are not uploaded. Use a trusted `gh`
+executable. The command creates a temporary local copy of release files for
+verification and removes it when the invocation ends. Its output contains
+public source and run identities, scores, and observation timestamps; it is
+not a reusable authorization record.
 
 The project never asks for or stores Riot credentials, session cookies, MFA
 codes, Moonlight pairing keys, or Sunshine passwords. A Moonlight pairing PIN

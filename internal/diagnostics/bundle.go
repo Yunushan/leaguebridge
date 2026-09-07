@@ -200,13 +200,17 @@ func validArchiveName(name string) bool {
 }
 
 type boundedBuffer struct {
-	bytes.Buffer
-	max int
+	buffer bytes.Buffer
+	max    int
 }
+
+func (b *boundedBuffer) Bytes() []byte  { return b.buffer.Bytes() }
+func (b *boundedBuffer) String() string { return b.buffer.String() }
+func (b *boundedBuffer) Len() int       { return b.buffer.Len() }
 
 func (b *boundedBuffer) Write(data []byte) (int, error) {
 	if len(data) > b.max-b.Len() {
 		return 0, errBundleTooBig
 	}
-	return b.Buffer.Write(data)
+	return b.buffer.Write(data)
 }
