@@ -41,7 +41,66 @@ run/attempt, freshness, and the relevant production trust rules. The repository
 score, external-evidence restrictions, and physical/gameplay gates remain
 unchanged.
 
-Non-PR CI runs also execute this verifier in the `Verify signed CI attestations`
+### Observe the current main CI evidence
+
+`tools/currentci` connects live GitHub source and run selection to the typed
+attestation verifier. The caller supplies the trusted GitHub CLI executable,
+one race/vet JSON subject, and the nine cross-build JSON subjects. The command
+derives the repository, main commit and tree, workflow revision, run ID and
+attempt through live GitHub reads. It rejects an incomplete or unsuccessful
+latest CI attempt even when older or feature-branch checks passed.
+
+The source resolver walks the exact Git tree to the CI workflow, verifies its
+blob identity and a reviewed SHA-256 workflow pin, and requires the fixed full
+CI job contract. This supports the reviewed non-reusable push and dispatch
+workflow. Workflow changes require reviewing the pin alongside the job and
+attestation contracts. Subject documents cannot select their own expected
+source or workflow policy.
+
+Build the verifier from reviewed source and place it outside the evidence
+directory:
+
+```sh
+go build -mod=vendor -o /absolute/path/currentci ./tools/currentci
+```
+
+Arrange the retained CI JSON files under `ci-attestation/` and the nine
+`ci-build/leaguebridge-GOOS-GOARCH` binaries at the paths declared in those documents.
+Run from that evidence directory, using a trusted `gh` installation configured
+for GitHub access:
+
+```sh
+set --
+for cell in linux-amd64 linux-arm64 freebsd-amd64 freebsd-arm64 \
+  openbsd-amd64 openbsd-arm64 netbsd-amd64 netbsd-arm64 dragonfly-amd64
+do
+  set -- "$@" -cross-build-subject "ci-attestation/cross-build-$cell.json"
+done
+/absolute/path/currentci \
+  -race-vet-subject ci-attestation/race-vet-linux.json "$@"
+```
+
+The command verifies the JSON signatures and the cross-build binary signatures
+through GitHub CLI. It then rechecks the source and full CI gate, and rereads
+main after the final gate. A changed commit, source tree, workflow, latest run
+or attempt fails verification. The package applies a 15-minute timeout, and
+interruption/cancellation reaches the signature-verification
+subprocesses. `internal/ciattestation.VerifySetContext` also exposes that
+cancellation support to other callers; `VerifySet` preserves its existing
+background-context behavior.
+
+Success prints the observed commit, tree, run, attempt and UTC observation
+time. Exit status 0 means verification completed, 1 means verification or output
+failed, and 2 means command usage was invalid. No output file is accepted as
+a substitute for another live invocation.
+
+The observation does not establish an atomic snapshot across GitHub's APIs,
+a maximum acceptable evidence age, release publication, physical execution,
+or readiness points. A production assessment must bind evidence to its
+independently selected release or source and its reviewed freshness policy;
+it cannot borrow credit from a different main commit.
+
+Non-PR CI runs also execute `tools/ciattestation` in the `Verify signed CI attestations`
 job after the test and cross-build matrices complete. That job downloads the
 retained subjects and binaries, arranges the exact one-run set, and verifies
 the Linux race/vet subject and all nine Linux/BSD cross-build targets with the same
@@ -116,6 +175,15 @@ including every required target runtime, package, and attestation verification
 job. The publish token therefore includes read access to Actions. A successful
 Linux release build alone cannot authorize publication while target CI is
 missing, running, skipped, or failing.
+
+Go callers can invoke `internal/cireleasegate.Verify` with a context and a
+`VerifyRequest` containing the exact commit and trusted GitHub CLI executable.
+The package retains the CLI's fixed repository, main-branch workflow, complete
+job inventory, latest-attempt selection, bounded API reads, and final state
+recheck. It returns the observed run ID, attempt, and commit without accepting a
+caller-supplied API client or job allowlist. This result does not authenticate
+artifact bytes, select a production source, establish publication, or award
+readiness points; later publication decisions must rerun the live gate.
 
 The release-mode invocation has the following shape inside the publish job:
 

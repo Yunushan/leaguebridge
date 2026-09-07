@@ -3,11 +3,14 @@ package ciattestation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildRaceVetSubjectIsScoreFreeAndCanonical(t *testing.T) {
@@ -532,5 +535,331 @@ func testRequest(kind string) GenerateRequest {
 		RunnerOS: "Linux", RunnerArchitecture: "X64", GoVersion: "go1.27.1",
 		Command:    "go test -mod=vendor -race ./...; go vet -mod=vendor ./...",
 		TargetGOOS: "linux", TargetGOARCH: "amd64",
+	}
+}
+
+// The test executable doubles as a portable, deliberately stalled gh process.
+// It exits on its own after a bounded interval if cancellation regresses.
+func TestMain(m *testing.M) {
+	if marker := os.Getenv("LEAGUEBRIDGE_ATTESTATION_CANCELLATION_HELPER"); marker != "" && len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "attestation":
+			if os.Getenv("LEAGUEBRIDGE_ATTESTATION_PIPE_HOLDER") == "1" {
+				child := exec.Command(os.Args[0], "attestation-pipe-holder")
+				child.Stdout = os.Stdout
+				child.Stderr = os.Stderr
+				if err := child.Start(); err != nil {
+					os.Exit(2)
+				}
+			}
+			if err := os.WriteFile(marker, []byte("started\n"), 0o600); err != nil {
+				os.Exit(2)
+			}
+			time.Sleep(5 * time.Second)
+			os.Exit(3)
+		case "attestation-pipe-holder":
+			if err := os.WriteFile(marker+"-child", []byte("started\n"), 0o600); err != nil {
+				os.Exit(2)
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				if _, err := os.Stat(marker + "-stop"); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err := os.WriteFile(marker+"-done", []byte("done\n"), 0o600); err != nil {
+				os.Exit(2)
+			}
+			os.Exit(0)
+		}
+	}
+	os.Exit(m.Run())
+}
+
+func TestVerifySetContextCancelsEverySignaturePath(t *testing.T) {
+	for _, kind := range []string{"race-vet", "release"} {
+		t.Run(kind, func(t *testing.T) {
+			input := cancellationVerifyRequest(t, kind)
+			total := 1
+			if kind == "release" {
+				total = len(releaseArchiveNames(input.ReleaseVersion)) + 1
+			}
+			for stop := 1; stop <= total; stop++ {
+				t.Run(filepath.Base(cancellationArtifactName(kind, stop)), func(t *testing.T) {
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					oldRunner := runGitHubAttestation
+					t.Cleanup(func() { runGitHubAttestation = oldRunner })
+					calls := 0
+					runGitHubAttestation = func(callCtx context.Context, _ string, artifact string, value source) ([]byte, error) {
+						calls++
+						deadline, ok := callCtx.Deadline()
+						if !ok || time.Until(deadline) > 5*time.Minute {
+							t.Fatal("GitHub invocation lost its five-minute upper bound")
+						}
+						if calls == stop {
+							cancel()
+							select {
+							case <-callCtx.Done():
+								return nil, callCtx.Err()
+							case <-time.After(time.Second):
+								return nil, errors.New("caller cancellation did not reach the running verification")
+							}
+						}
+						data, err := os.ReadFile(artifact)
+						if err != nil {
+							return nil, err
+						}
+						return json.Marshal([]ghVerification{validGHVerification(value, digestBytes(data))})
+					}
+					if err := VerifySetContext(ctx, input); !errors.Is(err, context.Canceled) {
+						t.Fatalf("verification after cancellation = %v; want context.Canceled", err)
+					}
+					if calls != stop {
+						t.Fatalf("signature calls = %d; want verification to stop at %d", calls, stop)
+					}
+				})
+			}
+		})
+	}
+}
+
+func cancellationArtifactName(kind string, index int) string {
+	if kind == "race-vet" {
+		return "subject.json"
+	}
+	if index == 1 {
+		return "checksums.txt"
+	}
+	return releaseArchiveNames("v1.2.3")[index-2]
+}
+
+func TestVerifySetContextCannotSucceedAfterCancellation(t *testing.T) {
+	for _, kind := range []string{"race-vet", "release"} {
+		t.Run(kind, func(t *testing.T) {
+			input := cancellationVerifyRequest(t, kind)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			oldRunner := runGitHubAttestation
+			t.Cleanup(func() { runGitHubAttestation = oldRunner })
+			runGitHubAttestation = func(_ context.Context, _ string, artifact string, value source) ([]byte, error) {
+				data, err := os.ReadFile(artifact)
+				if err != nil {
+					return nil, err
+				}
+				cancel()
+				return json.Marshal([]ghVerification{validGHVerification(value, digestBytes(data))})
+			}
+			if err := VerifySetContext(ctx, input); !errors.Is(err, context.Canceled) {
+				t.Fatalf("verification with successful output after cancellation = %v", err)
+			}
+		})
+	}
+}
+
+func TestVerifySetContextStopsGitHubProcess(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"race-vet", "release"} {
+		t.Run(kind, func(t *testing.T) {
+			input := cancellationVerifyRequest(t, kind)
+			input.GHPath = executable
+			marker := filepath.Join(t.TempDir(), "gh-started")
+			t.Setenv("LEAGUEBRIDGE_ATTESTATION_CANCELLATION_HELPER", marker)
+			oldRunner := runGitHubAttestation
+			runGitHubAttestation = runGitHubAttestationCommand
+			t.Cleanup(func() { runGitHubAttestation = oldRunner })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- VerifySetContext(ctx, input) }()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			started := time.NewTimer(3 * time.Second)
+			defer started.Stop()
+		waitForProcess:
+			for {
+				select {
+				case err := <-done:
+					t.Fatalf("verification exited before cancellation: %v", err)
+				case <-started.C:
+					t.Fatal("GitHub helper process did not start")
+				case <-ticker.C:
+					if _, err := os.Stat(marker); err == nil {
+						break waitForProcess
+					} else if !os.IsNotExist(err) {
+						t.Fatal(err)
+					}
+				}
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("canceled GitHub process error = %v; want context.Canceled", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("caller cancellation did not stop the GitHub process")
+			}
+		})
+	}
+}
+
+func cancellationVerifyRequest(t *testing.T, kind string) VerifyRequest {
+	t.Helper()
+	request := testRequest("race-vet")
+	input := VerifyRequest{
+		Kind: kind, ExpectedRepo: request.Repository,
+		ExpectedWorkflow: ".github/workflows/ci.yml", ExpectedCommit: request.Commit,
+		ExpectedTree: request.Tree, ExpectedRef: request.Ref, WorkflowSHA: request.WorkflowSHA,
+		RunID: request.RunID, RunAttempt: request.RunAttempt, GHPath: "gh",
+	}
+	if kind == "race-vet" {
+		// Subject paths must be relative; create a private fixture under the
+		// existing working directory instead of changing process-wide cwd.
+		directory, err := os.MkdirTemp(".", "attestation-cancellation-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := os.RemoveAll(directory); err != nil {
+				t.Error(err)
+			}
+		})
+		path := filepath.Join(directory, "subject.json")
+		if err := GenerateFile(path, request); err != nil {
+			t.Fatal(err)
+		}
+		input.SubjectPaths = []string{path}
+		return input
+	}
+	input.ReleaseDir = t.TempDir()
+	input.ReleaseVersion = "v1.2.3"
+	input.ExpectedWorkflow = ".github/workflows/release.yml"
+	input.ExpectedRef = "refs/tags/" + input.ReleaseVersion
+	var checksums []string
+	names := releaseArchiveNames(input.ReleaseVersion)
+	sort.Strings(names)
+	for _, name := range names {
+		data := []byte("release fixture: " + name + "\n")
+		if err := os.WriteFile(filepath.Join(input.ReleaseDir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		checksums = append(checksums, digestBytes(data)+" *./"+name)
+	}
+	if err := os.WriteFile(filepath.Join(input.ReleaseDir, "checksums.txt"), []byte(strings.Join(checksums, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return input
+}
+
+func TestVerifySetContextHonorsCancellationBeforeStarting(t *testing.T) {
+	for _, kind := range []string{"race-vet", "release"} {
+		t.Run(kind, func(t *testing.T) {
+			input := cancellationVerifyRequest(t, kind)
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			oldRunner := runGitHubAttestation
+			t.Cleanup(func() { runGitHubAttestation = oldRunner })
+			runGitHubAttestation = func(context.Context, string, string, source) ([]byte, error) {
+				t.Fatal("already canceled verification invoked GitHub CLI")
+				return nil, nil
+			}
+			if err := VerifySetContext(ctx, input); !errors.Is(err, context.Canceled) {
+				t.Fatalf("already canceled verification error = %v", err)
+			}
+		})
+	}
+}
+
+func TestVerifySetContextPreservesEarlierDeadline(t *testing.T) {
+	for _, kind := range []string{"race-vet", "release"} {
+		t.Run(kind, func(t *testing.T) {
+			input := cancellationVerifyRequest(t, kind)
+			deadline := time.Now().Add(100 * time.Millisecond)
+			ctx, cancel := context.WithDeadline(context.Background(), deadline)
+			defer cancel()
+			oldRunner := runGitHubAttestation
+			t.Cleanup(func() { runGitHubAttestation = oldRunner })
+			runGitHubAttestation = func(callCtx context.Context, _ string, _ string, _ source) ([]byte, error) {
+				if actual, ok := callCtx.Deadline(); !ok || !actual.Equal(deadline) {
+					t.Fatalf("invocation deadline = %v, %v; want caller deadline %v", actual, ok, deadline)
+				}
+				select {
+				case <-callCtx.Done():
+					return nil, callCtx.Err()
+				case <-time.After(time.Second):
+					return nil, errors.New("caller deadline did not interrupt signature verification")
+				}
+			}
+			if err := VerifySetContext(ctx, input); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("expired verification error = %v; want context.DeadlineExceeded", err)
+			}
+		})
+	}
+}
+
+func TestVerifySetContextBoundsInheritedGitHubPipes(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := cancellationVerifyRequest(t, "race-vet")
+	input.GHPath = executable
+	marker := filepath.Join(t.TempDir(), "gh-started")
+	t.Setenv("LEAGUEBRIDGE_ATTESTATION_CANCELLATION_HELPER", marker)
+	t.Setenv("LEAGUEBRIDGE_ATTESTATION_PIPE_HOLDER", "1")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- VerifySetContext(ctx, input) }()
+	// Release the child even if an assertion fails. It deliberately keeps the
+	// inherited stdout/stderr pipes open until this cleanup, independently of
+	// the canceled gh parent, so process cancellation alone cannot pass.
+	t.Cleanup(func() {
+		cancel()
+		if err := os.WriteFile(marker+"-stop", nil, 0o600); err != nil {
+			t.Error(err)
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(marker + "-done"); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Error("GitHub pipe-holder helper did not exit after cleanup")
+	})
+	startDeadline := time.Now().Add(3 * time.Second)
+	for {
+		_, parentErr := os.Stat(marker)
+		_, childErr := os.Stat(marker + "-child")
+		if parentErr == nil && childErr == nil {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("verification exited before cancellation: %v", err)
+		default:
+		}
+		if time.Now().After(startDeadline) {
+			t.Fatal("GitHub process and inherited pipe holder did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled verification with inherited pipes = %v", err)
+		}
+	case <-time.After(githubVerifyWaitDelay + 3*time.Second):
+		t.Fatal("inherited child pipes kept GitHub verification waiting after cancellation")
+	}
+	if _, err := os.Stat(marker + "-done"); !os.IsNotExist(err) {
+		t.Fatalf("pipe holder exited before verification returned: %v", err)
 	}
 }

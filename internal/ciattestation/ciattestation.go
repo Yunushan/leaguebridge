@@ -42,6 +42,7 @@ const (
 	githubOIDCIssuer       = "https://token.actions.githubusercontent.com"
 	slsaPredicateType      = "https://slsa.dev/provenance/v1"
 	githubVerifyTimeout    = 5 * time.Minute
+	githubVerifyWaitDelay  = 2 * time.Second
 )
 
 var (
@@ -260,8 +261,18 @@ type loadedDocument struct {
 // verification checks passed; it does not award readiness points, select a
 // production identity, establish release publication, or issue a trusted receipt.
 func VerifySet(input VerifyRequest) error {
+	return VerifySetContext(context.Background(), input)
+}
+
+// VerifySetContext verifies the same complete artifact set as VerifySet. The
+// caller's context governs every GitHub CLI invocation, each of which also keeps
+// the five-minute verification limit. Cancellation never authenticates a subject.
+func VerifySetContext(ctx context.Context, input VerifyRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if input.Kind == "release" {
-		return verifyReleaseSet(input)
+		return verifyReleaseSet(ctx, input)
 	}
 	if input.Kind != "race-vet" && input.Kind != "cross-build" {
 		return errors.New("kind must be race-vet or cross-build")
@@ -338,12 +349,12 @@ func VerifySet(input VerifyRequest) error {
 			artifacts = append(artifacts, verifiedArtifact{Path: declared.Path, Digest: declared.SHA256, Size: declared.SizeBytes})
 		}
 		for _, artifact := range artifacts {
-			if err := verifyGitHubArtifact(artifact, item.Value.Source, input.GHPath); err != nil {
+			if err := verifyGitHubArtifact(ctx, artifact, item.Value.Source, input.GHPath); err != nil {
 				return fmt.Errorf("subject %q artifact %q: %w", item.Path, artifact.Path, err)
 			}
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 // verifyReleaseSet is the publication-evidence boundary. Release archives do
@@ -353,7 +364,7 @@ func VerifySet(input VerifyRequest) error {
 // The preceding releasecheck step binds each archive's embedded package
 // manifest to the expected source tree; this mode binds the outer attestations
 // to the expected commit, tag ref, workflow revision, run, and hosted runner.
-func verifyReleaseSet(input VerifyRequest) error {
+func verifyReleaseSet(ctx context.Context, input VerifyRequest) error {
 	if input.GHPath == "" {
 		return errors.New("GitHub CLI path is required")
 	}
@@ -464,11 +475,11 @@ func verifyReleaseSet(input VerifyRequest) error {
 				return fmt.Errorf("release archive %q changed before attestation verification", name)
 			}
 		}
-		if err := verifyGitHubArtifactFromRoot(releaseRoot, name, artifact, value, input.GHPath); err != nil {
+		if err := verifyGitHubArtifactFromRoot(ctx, releaseRoot, name, artifact, value, input.GHPath); err != nil {
 			return fmt.Errorf("release subject %q: %w", name, err)
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 func releaseArchiveNames(version string) []string {
@@ -769,13 +780,19 @@ type verifiedArtifact struct {
 	Size   int64
 }
 
-func verifyGitHubArtifact(artifact verifiedArtifact, value source, ghPath string) error {
+func verifyGitHubArtifact(ctx context.Context, artifact verifiedArtifact, value source, ghPath string) error {
 	if artifact.Size <= 0 || !sha256Pattern(artifact.Digest) {
 		return fmt.Errorf("artifact %q has an invalid expected digest", artifact.Path)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), githubVerifyTimeout)
+	ctx, cancel := context.WithTimeout(ctx, githubVerifyTimeout)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	output, err := runGitHubAttestation(ctx, ghPath, artifact.Path, value)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return fmt.Errorf("GitHub CLI verification interrupted: %w", contextErr)
+	}
 	if err != nil {
 		return err
 	}
@@ -792,7 +809,7 @@ func verifyGitHubArtifact(artifact verifiedArtifact, value source, ghPath string
 	return nil
 }
 
-func verifyGitHubArtifactFromRoot(root *os.Root, name string, artifact verifiedArtifact, value source, ghPath string) error {
+func verifyGitHubArtifactFromRoot(ctx context.Context, root *os.Root, name string, artifact verifiedArtifact, value source, ghPath string) error {
 	if root == nil {
 		return errors.New("release directory root is nil")
 	}
@@ -806,9 +823,15 @@ func verifyGitHubArtifactFromRoot(root *os.Root, name string, artifact verifiedA
 	if int64(len(before)) != artifact.Size || digestBytes(before) != artifact.Digest {
 		return fmt.Errorf("artifact %q changed before GitHub verification", artifact.Path)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), githubVerifyTimeout)
+	ctx, cancel := context.WithTimeout(ctx, githubVerifyTimeout)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	output, err := runGitHubAttestation(ctx, ghPath, artifact.Path, value)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return fmt.Errorf("GitHub CLI verification interrupted: %w", contextErr)
+	}
 	if err != nil {
 		return err
 	}
@@ -843,6 +866,7 @@ func runGitHubAttestationCommand(ctx context.Context, ghPath, artifactPath strin
 	stderr := &boundedBuffer{Maximum: maxGitHubOutputSize}
 	command.Stdout = stdout
 	command.Stderr = stderr
+	command.WaitDelay = githubVerifyWaitDelay
 	err = command.Run()
 	if stdout.Oversized || stderr.Oversized {
 		return nil, errors.New("GitHub CLI output exceeds the bounded limit")
