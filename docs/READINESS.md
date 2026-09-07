@@ -80,12 +80,12 @@ subcriteria; no row receives partial credit:
 | `implementation-strict-config-fixed-argv` | Strict config and fixed remote argv | 4 | 4 | Exact config, Moonlight, and hardware-KVM launcher implementation files |
 | `implementation-bounded-diagnostics-redaction` | Bounded diagnostics and redaction | 4 | 4 | Exact diagnostics and redaction implementation files |
 | `implementation-read-only-probes` | Read-only host/client probes | 4 | 4 | Exact Linux/BSD client and consent-gated external-host inspection files |
-| `implementation-native-validated-integration` | Native validated platform integration | 3 | 0 | Authenticated native-runtime evidence absent |
+| `implementation-native-validated-integration` | Native validated platform integration | 3 | 0 | CI runtime subjects do not establish working native client integration |
 | `tests-unit-negative` | Unit and negative tests | 5 | 5 | Exact core negative-test inventory, including authenticated-evidence, external-host, and KVM URL/launcher coverage |
 | `tests-coverage-80` | 80% aggregate core coverage gate | 4 | 4 | Exact versioned coverage gate and tests |
 | `tests-race-vet-linux` | Linux race and vet | 3 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
 | `tests-nine-target-cross-build` | Nine-target Linux/BSD cross-build | 3 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
-| `tests-native-bsd-physical-smoke` | Native BSD and physical-hardware smoke tests | 5 | 0 | Authenticated native-runtime evidence absent |
+| `tests-native-bsd-physical-smoke` | Native BSD and physical-hardware smoke tests | 5 | 0 | Hosted and virtualized subjects do not establish physical-hardware validation |
 | `security-threat-model` | Threat model and scope | 4 | 4 | Exact threat-model and security-policy files |
 | `security-injection-bounds-redaction` | Injection, bounds, and redaction tests | 4 | 4 | Exact security negative-test inventory, including KVM endpoint and fixed-argv checks |
 | `security-pinned-least-privilege-ci` | Pinned least-privilege CI | 3 | 3 | Exact reviewed workflow definitions; not an execution claim |
@@ -94,8 +94,8 @@ subcriteria; no row receives partial credit:
 | `packaging-nine-release-archives` | Nine published Linux/BSD release archives | 2 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
 | `packaging-version-sbom-checksums` | Version metadata, SBOMs, and checksums tooling | 2 | 2 | Exact version/SBOM/release-check tooling |
 | `packaging-publication-attestation` | Release publication and attestation | 1 | 0 | Authenticated by the explicit live release assessment; not imported into v3 |
-| `packaging-native-os-packages` | Native OS packages | 3 | 0 | Authenticated native-package evidence absent |
-| `packaging-install-uninstall-native-smoke` | Install/uninstall and native smoke evidence | 2 | 0 | Authenticated native-runtime evidence absent |
+| `packaging-native-os-packages` | Native OS packages | 3 | 0 | CI package subjects do not establish production package publication and signing |
+| `packaging-install-uninstall-native-smoke` | Install/uninstall and native smoke evidence | 2 | 0 | CI lifecycle subjects do not establish validation of the published production version |
 
 After build-time repository verification, the derived category totals are
 10/10, 10/10, 13/15, 17/20, 9/20, 13/15, and 2/10, for **74/100**. Workflow
