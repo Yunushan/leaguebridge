@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,9 +48,61 @@ type testMember struct {
 }
 
 func TestCheckReleaseAcceptsCanonicalRelease(t *testing.T) {
-	dir, commit, tree := makeValidReleaseFixture(t)
-	if err := checkRelease(dir, testVersion, testEpoch, commit, tree, testBuilderGoVersion, readiness.EmbeddedJSON()); err != nil {
+	dir, commit, tree, scorecard := makeValidReleaseFixture(t)
+	if err := checkRelease(dir, testVersion, testEpoch, commit, tree, testBuilderGoVersion, scorecard); err != nil {
 		t.Fatalf("checkRelease() error = %v", err)
+	}
+}
+
+func TestCanonicalReleaseFixtureCopiesAreIsolated(t *testing.T) {
+	first, commit, tree, scorecard := makeValidReleaseFixture(t)
+	second, secondCommit, secondTree, secondScorecard := makeValidReleaseFixture(t)
+	if first == second || commit != secondCommit || tree != secondTree || !bytes.Equal(scorecard, secondScorecard) {
+		t.Fatal("fixture copies did not preserve their independent paths and release identity")
+	}
+	artifacts, err := expectedArtifacts(testVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{artifacts[0].name, "checksums.txt"} {
+		firstPath, secondPath := filepath.Join(first, name), filepath.Join(second, name)
+		firstInfo, err := os.Stat(firstPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		secondInfo, err := os.Stat(secondPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if os.SameFile(firstInfo, secondInfo) {
+			t.Fatalf("fixture copies share %s", name)
+		}
+		original, err := os.ReadFile(secondPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(firstPath, []byte("test-local mutation"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		unchanged, err := os.ReadFile(secondPath)
+		if err != nil || !bytes.Equal(unchanged, original) {
+			t.Fatalf("mutating one fixture changed another %s: %v", name, err)
+		}
+	}
+	scorecard[0] ^= 1
+	third, thirdCommit, thirdTree, thirdScorecard := makeValidReleaseFixture(t)
+	if thirdCommit != commit || thirdTree != tree || !bytes.Equal(thirdScorecard, secondScorecard) {
+		t.Fatal("mutating a returned scorecard changed the cached release")
+	}
+	for _, name := range []string{artifacts[0].name, "checksums.txt"} {
+		want, err := os.ReadFile(filepath.Join(second, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(third, name))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("a later fixture inherited a mutation to %s: %v", name, err)
+		}
 	}
 }
 
@@ -726,13 +779,55 @@ func TestExpectedArtifactsRejectsInvalidVersionAndCarriesTargets(t *testing.T) {
 	}
 }
 
-func makeValidReleaseFixture(t *testing.T) (string, string, string) {
-	return makeValidReleaseFixtureWithScorecard(t, nil)
+var canonicalReleaseCache struct {
+	sync.Mutex
+	fixture *canonicalReleaseSnapshot
+}
+
+type canonicalReleaseSnapshot struct {
+	commit, tree, scorecard string
+	files                   map[string]string
+}
+
+// Cache only the completed, immutable release bytes. Each caller gets its own
+// ordinary files and scorecard slice, so mutations cannot affect another test.
+// The nondefault card lets both acceptance tests share the expensive nine-target
+// builds and Go best-compression streams while exercising explicit card selection.
+func makeValidReleaseFixture(t *testing.T) (string, string, string, []byte) {
+	t.Helper()
+	canonicalReleaseCache.Lock()
+	defer canonicalReleaseCache.Unlock()
+	if canonicalReleaseCache.fixture == nil {
+		scorecard := append(readiness.EmbeddedJSON(), '\n')
+		dir, commit, tree := makeValidReleaseFixtureWithScorecard(t, scorecard)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := &canonicalReleaseSnapshot{commit: commit, tree: tree, scorecard: string(scorecard), files: make(map[string]string, len(entries))}
+		for _, entry := range entries {
+			data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot.files[entry.Name()] = string(data)
+		}
+		canonicalReleaseCache.fixture = snapshot
+	}
+	snapshot := canonicalReleaseCache.fixture
+	dir := t.TempDir()
+	for name, data := range snapshot.files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir, snapshot.commit, snapshot.tree, []byte(snapshot.scorecard)
 }
 
 func makeValidReleaseFixtureWithScorecard(t *testing.T, scorecard []byte) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()
+	canonicalTar := buildCanonicalTarFixtureTool(t)
 	repository, commit := makeCleanRepository(t)
 	if scorecard != nil {
 		path := filepath.Join(repository, "internal", "readiness", "data", "scorecard.json")
@@ -785,10 +880,55 @@ func makeValidReleaseFixtureWithScorecard(t *testing.T, scorecard []byte) (strin
 			}
 		}
 		path := filepath.Join(dir, item.name)
-		writeTarGzip(t, path, members)
+		writeCanonicalReleaseFixture(t, canonicalTar, path, members)
 	}
 	writeChecksums(t, dir, artifacts)
 	return dir, commit, tree
+}
+
+// Fixture generation uses the repository's Go compressor built without race
+// instrumentation. The release validator still reconstructs and compares every
+// archive under -race; malformed-archive tests retain their independent writer.
+func buildCanonicalTarFixtureTool(t *testing.T) string {
+	t.Helper()
+	source, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goExecutable := filepath.Join(runtime.GOROOT(), "bin", "go")
+	tool := filepath.Join(t.TempDir(), "canonicaltar")
+	if runtime.GOOS == "windows" {
+		goExecutable += ".exe"
+		tool += ".exe"
+	}
+	command := exec.Command(goExecutable, "build", "-mod=vendor", "-buildvcs=false", "-o", tool, "./tools/canonicaltar")
+	command.Dir = source
+	command.Env = append(os.Environ(),
+		"CGO_ENABLED=0", "GOENV=off", "GOEXPERIMENT=", "GOFLAGS=",
+		"GOTOOLCHAIN=local", "GOWORK=off", "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build canonical fixture compressor: %v\n%s", err, output)
+	}
+	return tool
+}
+
+func writeCanonicalReleaseFixture(t *testing.T, tool, path string, members []testMember) {
+	t.Helper()
+	payload := t.TempDir()
+	for _, member := range members {
+		body := member.body
+		if body == nil {
+			body = []byte("content for " + member.name)
+		}
+		if err := os.WriteFile(filepath.Join(payload, member.name), body, member.mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command(tool, "-root", payload, "-output", path, "-source-date-epoch", fmt.Sprint(testEpoch))
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("create canonical release fixture: %v\n%s", err, output)
+	}
 }
 
 func makeStructuralReleaseFixture(t *testing.T) string {

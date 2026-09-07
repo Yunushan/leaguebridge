@@ -46,8 +46,10 @@ func TestCheckBindsSelectedReleaseScorecardRatherThanAssessorCard(t *testing.T) 
 	// preserves every schema field, weight and gate while changing the exact
 	// authenticated bytes and their build-time marker.
 	assessorCard := readiness.EmbeddedJSON()
-	releaseCard := append(append([]byte(nil), assessorCard...), '\n')
-	dir, commit, tree := makeValidReleaseFixtureWithScorecard(t, releaseCard)
+	dir, commit, tree, releaseCard := makeValidReleaseFixture(t)
+	if !bytes.Equal(releaseCard, append(append([]byte(nil), assessorCard...), '\n')) {
+		t.Fatal("selected-card fixture no longer differs from the assessor by exactly one newline")
+	}
 	request := CheckRequest{
 		Dir: dir, Version: testVersion, SourceDateEpoch: testEpoch,
 		Commit: commit, Tree: tree, BuilderGoVersion: testBuilderGoVersion,
