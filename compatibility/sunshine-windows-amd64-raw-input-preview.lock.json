@@ -8,9 +8,13 @@
   "platform": "windows",
   "architecture": "amd64",
   "stability": "prerelease",
-  "purpose": "Experimental host-side Raw Input candidate only; not a stable or authorized LeagueBridge backend.",
-  "requires_explicit_operator_acceptance": true,
-  "recommended_asset": {
+  "status": "retired",
+  "retired_at": "2026-09-23",
+  "purpose": "Historical provenance only; do not download, install, or use this superseded prerelease.",
+  "retirement_reason": "The upstream prerelease is unavailable and predates Sunshine security fixes in v2026.906.222525.",
+  "security_advisory_url": "https://github.com/LizardByte/Sunshine/security/advisories/GHSA-26q2-58j6-qmvv",
+  "superseded_by_lock": "sunshine-windows-amd64.lock.json",
+  "historical_asset": {
     "name": "Sunshine-Windows-AMD64-installer.msi",
     "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.831.233010/Sunshine-Windows-AMD64-installer.msi",
     "size_bytes": 33542144,
@@ -18,13 +22,13 @@
     "requires_authenticode": true,
     "supported_by_inspector": false
   },
-  "driver_compatibility": {
+  "historical_driver_pair": {
     "project": "LizardByte/libvirtualhid",
     "release_tag": "v2026.829.2338.54",
     "release_url": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.829.2338.54",
     "official_metadata_source": "https://api.github.com/repos/LizardByte/libvirtualhid/releases/tags/v2026.829.2338.54",
     "stability": "stable",
-    "recommended_asset": {
+    "historical_asset": {
       "name": "libvirtualhid-Windows-AMD64-driver-installer.msi",
       "download_url": "https://github.com/LizardByte/libvirtualhid/releases/download/v2026.829.2338.54/libvirtualhid-Windows-AMD64-driver-installer.msi",
       "size_bytes": 2592768,

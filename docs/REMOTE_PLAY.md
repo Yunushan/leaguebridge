@@ -19,7 +19,7 @@ physical Windows 11 gaming PC
 
                     or
 
-physical Intel or Apple-silicon Mac
+physical Mac meeting Riot's current requirements
    Sunshine (experimental host) + Riot's native macOS client
 ```
 
@@ -34,7 +34,7 @@ virtualization.
 ## Physical Windows host preparation
 
 1. Use an activated physical Windows PC that satisfies Riot's current
-   [system requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements).
+   [system requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends).
 2. Install League only from Riot and confirm a direct local Practice Tool session
    works before adding streaming.
 3. Install Sunshine from its
@@ -75,35 +75,35 @@ or modifies any of those tools.
 
 ### Experimental Sunshine Raw Input candidate
 
-Current Sunshine documentation describes a separately installed LizardByte
-Virtual HID Driver/libvirtualhid path that can expose keyboard and relative
-mouse events through a host-side Raw Input device. This is a potentially useful
-candidate for the known League/Vanguard mouse failure in software streaming,
-but it is not a Riot authorization or a LeagueBridge-supported backend. The
-current Sunshine documentation requires Virtual HID Driver
-`2026.829.2338.54` or newer together with an active machine license for the
-driver-backed input path. Keep Sunshine and the driver on the vendor-supported
-version pair, and follow the vendor's current release and licensing
-instructions rather than copying a driver into this repository.
+Sunshine describes a separately installed LizardByte Virtual HID
+Driver/libvirtualhid path that can expose keyboard and relative mouse events
+through a host-side Raw Input device. This is a potentially useful candidate
+for the known League/Vanguard mouse failure in software streaming, but it is
+not a Riot authorization or a LeagueBridge-supported backend. The current
+stable Sunshine release `v2026.914.233613` requires Virtual HID Driver
+`2026.914.1218.10` or newer when using that driver; the stable driver release
+recommends that same Sunshine version or newer. The driver-backed input path
+also requires an active machine license. Follow the vendor's current release
+and licensing instructions rather than copying a driver into this repository.
 
-The matching stable `libvirtualhid` release `v2026.829.2338.54` requires
-Sunshine `v2026.830.44125` or newer. The current compatible candidate is
-Sunshine `v2026.831.233010`, but that host release is still a prerelease; the
-stable Sunshine release pinned by this repository, `v2026.516.143833`, is not
-new enough for the driver. Therefore the overall Raw Input candidate remains
-prerelease, unvalidated, and explicitly operator-accepted only. Evaluate it
-only with an official, signature-verified compatible pair, or wait for a
-compatible stable Sunshine release. If no compatible pair is installed, treat
-the driver-backed path as unavailable and do not count Sunshine's `SendInput`
-fallback as a League-capable result.
+The compatible stable Windows AMD64 pair is pinned in
+[`sunshine-windows-amd64.lock.json`](../compatibility/sunshine-windows-amd64.lock.json):
+Sunshine `v2026.914.233613` and Virtual HID Driver
+`v2026.914.1218.10`. Both installer MSIs were checked against the vendor's
+published digests and have valid Windows Authenticode signatures. This vendor
+compatibility does not establish Riot authorization, physical-host behavior,
+or League/Vanguard input acceptance. Evaluate the pair only after a separate
+operator decision on a physical host. If no compatible pair is installed,
+treat the driver-backed path as unavailable and do not count Sunshine's
+`SendInput` fallback as a League-capable result.
 
-The separately pinned
+The former
 [`sunshine-windows-amd64-raw-input-preview.lock.json`](../compatibility/sunshine-windows-amd64-raw-input-preview.lock.json)
-records the official Windows AMD64 MSI metadata for the compatible Sunshine
-prerelease `v2026.831.233010` and the stable `libvirtualhid` release
-`v2026.829.2338.54`. This is a reproducibility record for an operator-approved
-experiment only: it is not used by the stable inspector, does not authorize
-download or installation, and does not promote the remote route.
+records the older Sunshine `v2026.831.233010` prerelease and driver
+`v2026.829.2338.54` for historical reproducibility. That pair is no longer
+recommended for this experiment and is not used by the stable inspector. The
+old lock does not authorize download or installation or promote the remote
+route.
 
 If this candidate is evaluated, do it only on the physical Windows host:
 
@@ -136,22 +136,20 @@ keep this route `unvalidated`; the hardware-KVM procedure in
 
 ### Read-only Sunshine inspection
 
-The repository pins the official Windows AMD64 asset metadata checked on 29
-August 2026 in
+The repository pins the official Windows AMD64 asset metadata checked on 23
+September 2026 in
 [`compatibility/sunshine-windows-amd64.lock.json`](../compatibility/sunshine-windows-amd64.lock.json).
-The official Sunshine release API and release page were rechecked on that date
-and still report the pinned stable `v2026.516.143833` tag and locked asset
-metadata; the public release page now also lists newer prereleases, which are
-deliberately not added to this stable inspector lock without a separate asset
-review. This does not re-download or independently rehash the locked assets.
-The current Raw Input candidate pair reviewed on 1 September 2026 is recorded
-separately in
+The stable Sunshine `v2026.914.233613` MSI and lite ZIP and the compatible
+Virtual HID Driver `v2026.914.1218.10` MSI were downloaded and checked against
+the vendor's published SHA-256 digests; both MSIs had valid Authenticode
+signatures. The older prerelease pair remains recorded only as historical
+metadata in
 [`compatibility/sunshine-windows-amd64-raw-input-preview.lock.json`](../compatibility/sunshine-windows-amd64-raw-input-preview.lock.json);
-the inspector intentionally does not consume that prerelease lock.
+the inspector does not consume that lock.
 The supported inspector path is the MSI that Sunshine documents as its preferred
-Windows package. The portable ZIP is recorded only as an integrity reference;
-Sunshine describes that package as a reduced-performance, unsupported lite
-option, so it is not accepted by this workflow.
+Windows package. The `Sunshine-Windows-AMD64-lite.zip` asset is recorded only
+as an integrity reference; Sunshine describes it as a reduced-performance,
+unsupported lite option, so the inspector does not accept it.
 
 There is no Windows LeagueBridge release archive or supported Windows package.
 If this optional external-host inspection is needed, use a separately reviewed
@@ -199,8 +197,8 @@ supported rollback route remains Windows Installed Apps/Apps & features using
 Sunshine's signed uninstaller, after a separate user decision and after
 credentials or evidence have been retained or removed as intended.
 
-For the pinned v2026.516.143833 MSI, the read-only inventory currently reports
-14 properties, 9 custom actions, 5 registry rows, and no `ServiceInstall`,
+For the pinned v2026.914.233613 MSI, the read-only inventory reports
+15 properties, 9 custom actions, 5 registry rows, and no `ServiceInstall`,
 `ServiceControl`, or `Environment` table. `ALLUSERS=1` requests a per-machine
 installation. The custom actions explicitly call the packaged
 `scripts\sunshine-setup.ps1` with `install`, `uninstall`, and silent variants;
@@ -231,8 +229,7 @@ manifest.
 
 Before separately authorizing any installation or launch on the Mac:
 
-1. Confirm the physical Intel or Apple-silicon Mac meets Riot's current native
-   macOS requirements.
+1. Confirm the physical Mac meets Riot's current native macOS requirements.
 2. Install Riot Client and League only from Riot, then complete a direct local
    Practice Tool session.
 3. Review Sunshine's current official macOS documentation, experimental limits,
@@ -373,7 +370,7 @@ authorization, streamed input, latency, or League gameplay. Use a new empty
 evidence directory for every run; existing output files are never overwritten.
 
 The latest route audit is recorded in
-[`docs/research/2026-09-03-route-revalidation.md`](research/2026-09-03-route-revalidation.md).
+[`docs/research/2026-09-23-route-revalidation.md`](research/2026-09-23-route-revalidation.md).
 
 For a real Linux/BSD desktop, the repository includes a manual client-side
 smoke helper. It requires an already-created credential-free configuration and

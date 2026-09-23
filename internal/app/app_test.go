@@ -25,7 +25,7 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/remote"
 )
 
-var fixedNow = time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
+var fixedNow = time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC)
 
 type scriptedProber struct {
 	reports          map[probe.Profile]probe.Report

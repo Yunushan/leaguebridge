@@ -15,10 +15,10 @@ func TestFreshnessAtBoundaries(t *testing.T) {
 		want    FreshnessState
 		ageDays int
 	}{
-		{name: "future", at: "2026-08-31", want: FreshnessFuture, ageDays: 5},
-		{name: "as of", at: "2026-09-01", want: FreshnessFresh, ageDays: 6},
-		{name: "last fresh day", at: "2026-09-25", want: FreshnessFresh, ageDays: 30},
-		{name: "first stale day", at: "2026-09-26", want: FreshnessStale, ageDays: 31},
+		{name: "future", at: "2026-09-22", want: FreshnessFuture, ageDays: -1},
+		{name: "as of", at: "2026-09-23", want: FreshnessFresh, ageDays: 0},
+		{name: "last fresh day", at: "2026-10-23", want: FreshnessFresh, ageDays: 30},
+		{name: "first stale day", at: "2026-10-24", want: FreshnessStale, ageDays: 31},
 	}
 	for _, test := range tests {
 		test := test
@@ -38,8 +38,8 @@ func TestFreshnessAtBoundaries(t *testing.T) {
 			if got.EvaluatedAt != test.at {
 				t.Fatalf("EvaluatedAt = %q, want %q", got.EvaluatedAt, test.at)
 			}
-			if got.ExpiresAt != "2026-09-25" {
-				t.Fatalf("ExpiresAt = %q, want 2026-09-25", got.ExpiresAt)
+			if got.ExpiresAt != "2026-10-23" {
+				t.Fatalf("ExpiresAt = %q, want 2026-10-23", got.ExpiresAt)
 			}
 		})
 	}

@@ -22,6 +22,8 @@ func TestBuildMapsPortablePathsForEveryNativeFamily(t *testing.T) {
 	}{
 		{goos: "linux", goarch: "amd64", family: FamilyDebian, root: "/", architecture: "amd64"},
 		{goos: "linux", goarch: "amd64", family: FamilyRPM, root: "/", architecture: "x86_64"},
+		{goos: "linux", goarch: "arm64", family: FamilyDebian, root: "/", architecture: "arm64"},
+		{goos: "linux", goarch: "arm64", family: FamilyRPM, root: "/", architecture: "aarch64"},
 		{goos: "freebsd", goarch: "amd64", family: FamilyFreeBSD, root: "/usr/local", architecture: "amd64"},
 		{goos: "freebsd", goarch: "arm64", family: FamilyFreeBSD, root: "/usr/local", architecture: "aarch64"},
 		{goos: "openbsd", goarch: "amd64", family: FamilyOpenBSD, root: "/usr/local", architecture: "amd64"},
@@ -123,8 +125,8 @@ func TestPackageFamiliesForTargetAreStable(t *testing.T) {
 			t.Fatalf("%s/arm64 families = %v; want %v", test.goos, got, test.want)
 		}
 	}
-	if got := PackageFamiliesForTarget("linux", "arm64"); len(got) != 0 {
-		t.Fatalf("Linux/arm64 families = %v; want none", got)
+	if got := PackageFamiliesForTarget("linux", "arm64"); !sameFamilies(got, []Family{FamilyDebian, FamilyRPM}) {
+		t.Fatalf("Linux/arm64 families = %v; want Debian and RPM", got)
 	}
 }
 

@@ -275,6 +275,8 @@ mkdir -p "$native_stage_root"
 native_stage_families=(
   debian
   rpm
+  debian
+  rpm
   freebsd-pkg
   freebsd-pkg
   openbsd-pkg
@@ -286,6 +288,8 @@ native_stage_families=(
 native_stage_archives=(
   "leaguebridge_${VERSION#v}_linux_amd64.tar.gz"
   "leaguebridge_${VERSION#v}_linux_amd64.tar.gz"
+  "leaguebridge_${VERSION#v}_linux_arm64.tar.gz"
+  "leaguebridge_${VERSION#v}_linux_arm64.tar.gz"
   "leaguebridge_${VERSION#v}_freebsd_amd64.tar.gz"
   "leaguebridge_${VERSION#v}_freebsd_arm64.tar.gz"
   "leaguebridge_${VERSION#v}_openbsd_amd64.tar.gz"

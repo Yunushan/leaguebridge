@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var authorityDate = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+var authorityDate = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
 func TestPolicyDeniesEveryEmbeddedBackend(t *testing.T) {
 	t.Parallel()
@@ -91,8 +91,8 @@ func TestPolicyDeniesStaleAndFutureAuthority(t *testing.T) {
 		at   time.Time
 		code string
 	}{
-		{name: "future", at: time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC), code: "MANIFEST_NOT_YET_EFFECTIVE"},
-		{name: "stale", at: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), code: "MANIFEST_STALE"},
+		{name: "future", at: time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC), code: "MANIFEST_NOT_YET_EFFECTIVE"},
+		{name: "stale", at: time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC), code: "MANIFEST_STALE"},
 	}
 	for _, test := range tests {
 		test := test
@@ -170,7 +170,7 @@ func TestExternalManifestCanOnlyRestrictFutureEmbeddedAllow(t *testing.T) {
 		date string
 	}{
 		{name: "stale", date: "2026-07-01"},
-		{name: "future", date: "2026-09-02"},
+		{name: "future", date: "2026-09-24"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			external := *policy.external

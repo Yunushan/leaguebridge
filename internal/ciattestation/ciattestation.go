@@ -286,7 +286,7 @@ func VerifySetContext(ctx context.Context, input VerifyRequest) error {
 	if len(input.SubjectPaths) == 0 {
 		return errors.New("at least one -verify-subject is required")
 	}
-	if input.ExpectedRepo == "" || !repositoryPattern.MatchString(input.ExpectedRepo) || len(input.ExpectedRepo) > maxRepositoryLength {
+	if !validRepository(input.ExpectedRepo) {
 		return errors.New("expected repository is invalid")
 	}
 	workflowPath, err := safeRelativePath(input.ExpectedWorkflow)
@@ -374,7 +374,7 @@ func verifyReleaseSet(ctx context.Context, input VerifyRequest) error {
 	if !releaseversion.Valid(input.ReleaseVersion) {
 		return errors.New("release version must be a valid v-prefixed Semantic Version")
 	}
-	if input.ExpectedRepo == "" || !repositoryPattern.MatchString(input.ExpectedRepo) || len(input.ExpectedRepo) > maxRepositoryLength {
+	if !validRepository(input.ExpectedRepo) {
 		return errors.New("expected repository is invalid")
 	}
 	workflowPath, err := safeRelativePath(input.ExpectedWorkflow)
@@ -1025,12 +1025,17 @@ func validateTarget(kind, goos, goarch string) error {
 	return nil
 }
 
-func validateSource(value source) error {
-	if !repositoryPattern.MatchString(value.Repository) {
-		return errors.New("repository must be a bounded owner/repository identifier")
+func validRepository(value string) bool {
+	if len(value) == 0 || len(value) > maxRepositoryLength || !repositoryPattern.MatchString(value) {
+		return false
 	}
-	if len(value.Repository) > maxRepositoryLength {
-		return errors.New("repository is too long")
+	owner, name, _ := strings.Cut(value, "/")
+	return owner != "." && owner != ".." && name != "." && name != ".."
+}
+
+func validateSource(value source) error {
+	if !validRepository(value.Repository) {
+		return errors.New("repository must be a bounded owner/repository identifier")
 	}
 	for name, candidate := range map[string]string{
 		"commit": value.Commit, "tree": value.Tree, "workflow_sha": value.WorkflowSHA,

@@ -43,14 +43,18 @@ containing:
 - `NATIVE-PACKAGE-MANIFEST.json`, a content-addressed staging inventory; and
 - no portable installer or uninstaller scripts.
 
-The supported family-to-target mapping is deliberately explicit. Linux native
-packages remain amd64-only; the three BSD package families also cover the
-arm64 release archives.
+The supported staging family-to-target mapping is deliberately explicit.
+Debian and RPM staging now cover both shipped Linux architectures. The
+existing CI reference package builders and v1 attestation subjects still
+exercise Linux amd64 only; staging support does not claim an arm64 package was
+built, signed, published, or installed.
 
 | Family | Target | Package root |
 | --- | --- | --- |
 | `debian` | Linux amd64 | `/` (`/usr/local` is rewritten to `/usr`) |
+| `debian` | Linux arm64 | `/` (`/usr/local` is rewritten to `/usr`) |
 | `rpm` | Linux amd64 | `/` (`/usr/local` is rewritten to `/usr`) |
+| `rpm` | Linux arm64 (`aarch64` package architecture) | `/` (`/usr/local` is rewritten to `/usr`) |
 | `freebsd-pkg` | FreeBSD amd64 | `/usr/local` |
 | `freebsd-pkg` | FreeBSD arm64 (`aarch64` package architecture) | `/usr/local` |
 | `openbsd-pkg` | OpenBSD amd64 | `/usr/local` |
@@ -148,8 +152,48 @@ version, package-filename, target, install-pass, and uninstall-pass marker,
 matching the subject; this semantic check does not turn a self-authored log
 into a package-manager signature.
 
-The hermetic release builder exercises all nine target/architecture-family
-mappings in its private work directory after `tools/releasecheck` succeeds.
+`internal/productionpackage` defines an 11-cell candidate inventory covering
+Debian and RPM on Linux amd64/arm64 and the seven BSD family/target pairs. Its
+score-free verifier binds canonical candidate metadata and package bytes to an
+authenticated published release archive and a complete staging tree. It does
+not inspect package-manager payload metadata, verify a publisher signature or
+repository index, prove installation, or award native package readiness points.
+Those checks belong to a separately governed production verifier.
+
+### Live package candidate command
+
+Build the command from the repository checkout, then run it from the
+downloaded CI evidence directory for the named stable release:
+
+```sh
+go build -mod=vendor -o /path/to/productionpackagecandidate ./tools/productionpackagecandidate
+cd /path/to/ci-evidence
+
+/path/to/productionpackagecandidate build \
+  --version v1.2.3 --release-dir /path/to/downloaded-release \
+  --archive /path/to/downloaded-release/leaguebridge_1.2.3_linux_arm64.tar.gz \
+  --staging /path/to/staging --package /path/to/leaguebridge_1.2.3_arm64.deb \
+  --output /path/to/candidate.json --gh /path/to/trusted/gh
+
+/path/to/productionpackagecandidate verify \
+  --version v1.2.3 --release-dir /path/to/downloaded-release \
+  --archive /path/to/downloaded-release/leaguebridge_1.2.3_linux_arm64.tar.gz \
+  --staging /path/to/staging --package /path/to/leaguebridge_1.2.3_arm64.deb \
+  --candidate /path/to/candidate.json --gh /path/to/trusted/gh
+```
+
+`--gh` names a trusted GitHub CLI executable; the command cannot attest that
+executable itself. It authenticates the live GitHub release and complete CI
+evidence, derives the candidate from current package bytes and staging, then
+rechecks the live release. Build mode also rederives the freshly written
+temporary candidate before creating the output exclusively, then checks the
+published link's file identity and exact bytes. A saved release
+JSON or caller-supplied score is never accepted. The candidate remains
+score-free: package payload inspection, signing, publication, and native
+installation require independent production evidence.
+
+The hermetic release builder exercises the 11 target/architecture-family
+staging mappings in its private work directory after `tools/releasecheck` succeeds.
 This catches mapping drift during release smoke tests while leaving `dist/`
 limited to the nine executable archives and `checksums.txt`.
 
@@ -280,11 +324,12 @@ and SBOMs supplement that outer attestation; they do not replace it.
 opens an archive in a platform's text mode; a two-space text marker is rejected.
 
 Release publication also has an external GitHub administration prerequisite:
-maintainers must configure an immutable protected ruleset for `v*` tags. The
-public repository does not currently provide that ruleset, so the release
-workflow fails closed unless GitHub reports the triggering tag as protected;
-it rechecks the tag after provenance attestation before publishing. Repository
-code cannot satisfy or self-award this prerequisite.
+maintainers must configure an immutable protected ruleset for `v*` tags. As of
+23 September 2026, GitHub reports the active `Protect immutable release tags`
+ruleset (ID `22471782`) for `refs/tags/v*`, with update and deletion blocked.
+The release workflow still fails closed unless GitHub reports the triggering
+tag as protected; it rechecks the tag after provenance attestation before
+publishing. Repository code cannot satisfy or self-award this prerequisite.
 
 For a tag stored in `release_tag`, verify both the checksum manifest and chosen
 archive before reading or extracting either payload:

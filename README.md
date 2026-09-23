@@ -32,9 +32,9 @@ The Linux/BSD machine is only the viewer/controller in either route.
 
 ## Current result
 
-Scorecard assessed **6 September 2026**; route audit refreshed **3 September 2026**.
-Wine, Proton/UMU, VM/Dockur, anti-cheat, and cloud-provider routes were
-revalidated against current primary sources:
+Scorecard assessed **23 September 2026**; route audit refreshed **23 September 2026**.
+Riot's current platform rules and Sunshine's host requirements were checked
+against primary sources; the earlier broader route audit remains linked below:
 
 | Goal | Score/state | Meaning |
 | --- | --- | --- |
@@ -60,6 +60,14 @@ scorecard, authenticates the actual CI and published files, and derives the
 eligible engineering criteria. It accepts no stored score or previous
 verification report. See [`docs/RELEASE_ASSESSMENT.md`](docs/RELEASE_ASSESSMENT.md)
 for evidence layout, verification requirements, and the remaining criteria.
+
+Use `leaguebridge readiness verify-production --version TAG --release-dir DIR`
+for the full engineering assessment of that release. It also reports the six
+external criteria individually. A live assessment of the published `v0.1.0`
+release on 2026-09-23 verified 74 repository points and nine CI/release points.
+Re-run the command to assess current publication state. The
+remaining 17 require independently verified authorization, physical runs,
+audit, and signed native package publication and lifecycle evidence.
 
 The CI workflow also runs native Ubuntu Linux amd64 and arm64 runtime smokes
 against the shipped archive's install lifecycle and the CLI's read-only client
@@ -94,12 +102,12 @@ subjects for the hosted Linux and explicitly virtualized BSD guest jobs; the
 | Hardware KVM-over-IP + physical host | **Manual candidate** | A hardware KVM may provide the physical host's video and USB HID control while Linux/BSD remains the active client, but device behavior, Riot authorization, and League/Vanguard input acceptance require route-bound validation. |
 | Dual-boot physical Windows | **Viable escape hatch** | League works by leaving Linux/BSD; it is not local compatibility. |
 | Physical Windows + Sunshine/Moonlight | **Unvalidated handoff candidate** | League remains on a normal Windows PC while Linux/BSD receives video and sends input; end-to-end evidence is still required. |
-| Physical Windows + Sunshine's official Raw Input path | **Experimental handoff candidate** | Current Sunshine documentation requires a separately installed, licensed host-side Virtual HID Driver (`2026.829.2338.54` or newer); the compatible stable driver and Sunshine prerelease (`v2026.831.233010`) are recorded with official MSI digests in [`compatibility/sunshine-windows-amd64-raw-input-preview.lock.json`](compatibility/sunshine-windows-amd64-raw-input-preview.lock.json). It may address the known streamer-input failure, but Riot has not authorized it and LeagueBridge has no physical gameplay evidence. |
+| Physical Windows + Sunshine's official Raw Input path | **Experimental handoff candidate** | Current Sunshine documentation requires a separately installed, licensed host-side Virtual HID Driver (`2026.914.1218.10` or newer). The compatible stable Sunshine `v2026.914.233613` and driver assets were inspected on Windows and are recorded in [`compatibility/sunshine-windows-amd64.lock.json`](compatibility/sunshine-windows-amd64.lock.json). This may address the known streamer-input failure, but Riot has not authorized it and LeagueBridge has no physical gameplay evidence. |
 | Physical macOS + Sunshine/Moonlight | **Experimental, unvalidated handoff candidate** | Riot provides a native Mac client with Embedded Vanguard, but Sunshine's macOS host is experimental, has no gamepad hosting, and lacks physical end-to-end evidence here. |
 | Future Riot-supported Linux/BSD path | **Ready to integrate safely** | Requires official support or express written authorization plus current end-to-end evidence. |
 
 The latest detailed route audit is in
-[`docs/research/2026-09-03-route-revalidation.md`](docs/research/2026-09-03-route-revalidation.md);
+[`docs/research/2026-09-23-route-revalidation.md`](docs/research/2026-09-23-route-revalidation.md);
 the 2026-08-29 route revalidation and earlier platform feasibility record
 remain available in
 [`docs/research/2026-08-29-route-revalidation.md`](docs/research/2026-08-29-route-revalidation.md) and
@@ -1145,11 +1153,13 @@ contains exactly one approved external module, `filippo.io/edwards25519`
 v1.2.0, with no replacement or additional compiled dependency; its exact
 identity is bound into the v4 release build contract and reported in the SBOM.
 The upstream BSD-3-Clause notice is carried in [`LICENSE`](LICENSE).
-Publication fails closed unless GitHub reports
-the triggering `v*` tag as protected; maintainers must configure an immutable
-release-tag ruleset before the first release. Successful hosted CI, native OS
-packages, and real physical-host validation are still required before the
-engineering score can reach 100.
+Publication fails closed unless GitHub reports the triggering `v*` tag as
+protected. As of 23 September 2026, an immutable release-tag ruleset covers
+`refs/tags/v*`; see [`docs/PACKAGING.md`](docs/PACKAGING.md). Authenticated
+release CI and publication, Riot authorization, native integration and physical
+hardware results, independent audit closure, signed production native packages,
+and production lifecycle evidence remain required for the engineering score
+to reach 100.
 
 ## Contributing and security
 
@@ -1169,7 +1179,7 @@ not this repository.
 
 ## Authoritative references
 
-- [Riot: League minimum and recommended requirements](https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements)
+- [Riot: League minimum and recommended requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
 - [Riot: Vanguard x LoL (Wine/Linux/VM explanation)](https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/)
 - [Riot: Vanguard error codes, including VAN 138 for VMs](https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/)
 - [Riot: Vanguard On-Demand](https://www.riotgames.com/en/news/vanguard-on-demand)

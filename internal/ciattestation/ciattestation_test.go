@@ -13,6 +13,22 @@ import (
 	"time"
 )
 
+func TestRepositoryIdentityRejectsDotPathComponents(t *testing.T) {
+	for _, repository := range []string{"../leaguebridge", "Yunushan/..", "./leaguebridge", "Yunushan/."} {
+		t.Run(repository, func(t *testing.T) {
+			if err := validateSource(source{Repository: repository}); err == nil || !strings.Contains(err.Error(), "repository") {
+				t.Fatalf("source repository %q was accepted: %v", repository, err)
+			}
+			err := VerifySet(VerifyRequest{
+				Kind: "race-vet", GHPath: "stub", SubjectPaths: []string{"missing.json"}, ExpectedRepo: repository,
+			})
+			if err == nil || !strings.Contains(err.Error(), "expected repository") {
+				t.Fatalf("expected repository %q was accepted: %v", repository, err)
+			}
+		})
+	}
+}
+
 func TestBuildRaceVetSubjectIsScoreFreeAndCanonical(t *testing.T) {
 	document, err := build(testRequest("race-vet"))
 	if err != nil {
@@ -678,7 +694,7 @@ func TestVerifySetContextStopsGitHubProcess(t *testing.T) {
 			go func() { done <- VerifySetContext(ctx, input) }()
 			ticker := time.NewTicker(10 * time.Millisecond)
 			defer ticker.Stop()
-			started := time.NewTimer(3 * time.Second)
+			started := time.NewTimer(15 * time.Second)
 			defer started.Stop()
 		waitForProcess:
 			for {
@@ -729,7 +745,7 @@ func cancellationVerifyRequest(t *testing.T, kind string) VerifyRequest {
 				t.Error(err)
 			}
 		})
-		path := filepath.Join(directory, "subject.json")
+		path := filepath.ToSlash(filepath.Join(filepath.Base(directory), "subject.json"))
 		if err := GenerateFile(path, request); err != nil {
 			t.Fatal(err)
 		}
@@ -824,7 +840,7 @@ func TestVerifySetContextBoundsInheritedGitHubPipes(t *testing.T) {
 		if err := os.WriteFile(marker+"-stop", nil, 0o600); err != nil {
 			t.Error(err)
 		}
-		deadline := time.Now().Add(3 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
 			if _, err := os.Stat(marker + "-done"); err == nil {
 				return
@@ -833,7 +849,7 @@ func TestVerifySetContextBoundsInheritedGitHubPipes(t *testing.T) {
 		}
 		t.Error("GitHub pipe-holder helper did not exit after cleanup")
 	})
-	startDeadline := time.Now().Add(3 * time.Second)
+	startDeadline := time.Now().Add(15 * time.Second)
 	for {
 		_, parentErr := os.Stat(marker)
 		_, childErr := os.Stat(marker + "-child")

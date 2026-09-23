@@ -34,7 +34,7 @@
         "required_kernel": { "enum": ["Linux", "FreeBSD", "OpenBSD", "NetBSD", "DragonFly"] }
       },
       "oneOf": [
-        { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" }, "required_kernel": { "const": "Linux" } } },
+        { "properties": { "goos": { "const": "linux" }, "goarch": { "enum": ["amd64", "arm64"] }, "required_kernel": { "const": "Linux" } } },
         { "properties": { "goos": { "const": "freebsd" }, "goarch": { "enum": ["amd64", "arm64"] }, "required_kernel": { "const": "FreeBSD" } } },
         { "properties": { "goos": { "const": "openbsd" }, "goarch": { "enum": ["amd64", "arm64"] }, "required_kernel": { "const": "OpenBSD" } } },
         { "properties": { "goos": { "const": "netbsd" }, "goarch": { "enum": ["amd64", "arm64"] }, "required_kernel": { "const": "NetBSD" } } },
@@ -91,19 +91,39 @@
     {
       "if": { "properties": { "package": { "properties": { "family": { "const": "debian" } } } } },
       "then": {
-        "properties": {
-          "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
-          "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/" } } }
-        }
+        "oneOf": [
+          {
+            "properties": {
+              "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
+              "package": { "properties": { "architecture": { "const": "amd64" }, "install_root": { "const": "/" } } }
+            }
+          },
+          {
+            "properties": {
+              "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "arm64" } } },
+              "package": { "properties": { "architecture": { "const": "arm64" }, "install_root": { "const": "/" } } }
+            }
+          }
+        ]
       }
     },
     {
       "if": { "properties": { "package": { "properties": { "family": { "const": "rpm" } } } } },
       "then": {
-        "properties": {
-          "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
-          "package": { "properties": { "architecture": { "const": "x86_64" }, "install_root": { "const": "/" } } }
-        }
+        "oneOf": [
+          {
+            "properties": {
+              "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "amd64" } } },
+              "package": { "properties": { "architecture": { "const": "x86_64" }, "install_root": { "const": "/" } } }
+            }
+          },
+          {
+            "properties": {
+              "target": { "properties": { "goos": { "const": "linux" }, "goarch": { "const": "arm64" } } },
+              "package": { "properties": { "architecture": { "const": "aarch64" }, "install_root": { "const": "/" } } }
+            }
+          }
+        ]
       }
     },
     {
