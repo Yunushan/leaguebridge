@@ -14,7 +14,15 @@ import (
 	"time"
 )
 
-var readinessTestNow = time.Date(2026, time.September, 6, 12, 0, 0, 0, time.UTC)
+var readinessTestNow = func() time.Time {
+	var metadata struct {
+		AssessedAt time.Time `json:"assessed_at"`
+	}
+	if err := json.Unmarshal(embedded, &metadata); err != nil || metadata.AssessedAt.IsZero() {
+		panic("embedded test scorecard has no valid assessment time")
+	}
+	return metadata.AssessedAt.Add(time.Minute)
+}()
 
 func validTestScorecard(t *testing.T) Scorecard {
 	t.Helper()

@@ -3,7 +3,6 @@ package evidencev2
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Yunushan/leaguebridge/internal/evidence"
+	"github.com/Yunushan/leaguebridge/internal/reviewercrypto"
 )
 
 const signatureDomain = "LeagueBridge/validation-evidence-set/v2\x00"
@@ -296,20 +296,7 @@ func hasIndependentQuorum(signers []trustedKey) bool {
 }
 
 func signaturePreimage(payloadType, keyID, signedAt string, payloadBytes []byte) []byte {
-	preimage := make([]byte, 0, len(signatureDomain)+32+len(payloadType)+len(keyID)+len(signedAt)+len(payloadBytes))
-	preimage = append(preimage, signatureDomain...)
-	preimage = appendLengthPrefixed(preimage, []byte(payloadType))
-	preimage = appendLengthPrefixed(preimage, []byte(keyID))
-	preimage = appendLengthPrefixed(preimage, []byte(signedAt))
-	preimage = appendLengthPrefixed(preimage, payloadBytes)
-	return preimage
-}
-
-func appendLengthPrefixed(destination, value []byte) []byte {
-	var length [8]byte
-	binary.BigEndian.PutUint64(length[:], uint64(len(value)))
-	destination = append(destination, length[:]...)
-	return append(destination, value...)
+	return reviewercrypto.SignaturePreimage(signatureDomain, payloadType, keyID, signedAt, payloadBytes)
 }
 
 func sha256Hex(data []byte) string {

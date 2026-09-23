@@ -6,6 +6,7 @@ package nativepackage
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -335,6 +336,18 @@ func stagedPayloadMetadata(sourcePath string) (role, mode string) {
 // It is intentionally limited to staging integrity: the returned manifest is
 // not evidence that a target package was built, installed, or executed.
 func VerifyStagingRoot(root *os.Root) (Manifest, error) {
+	return VerifyStagingRootContext(context.Background(), root)
+}
+
+// VerifyStagingRootContext verifies the same staging contract while allowing
+// a caller to stop bounded payload reads and hashing promptly.
+func VerifyStagingRootContext(ctx context.Context, root *os.Root) (Manifest, error) {
+	if ctx == nil {
+		return Manifest{}, errors.New("staging verification context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, err
+	}
 	if root == nil {
 		return Manifest{}, errors.New("native package staging root is nil")
 	}
@@ -342,14 +355,23 @@ func VerifyStagingRoot(root *os.Root) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("read %s: %w", StagingManifestName, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, err
+	}
 	manifest, err := Unmarshal(manifestData)
 	if err != nil {
+		return Manifest{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return Manifest{}, err
 	}
 
 	expectedFiles := map[string]PayloadFile{}
 	expectedDirectories := map[string]struct{}{".": {}}
 	for _, entry := range manifest.Payload {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
 		relative, err := stagingRelativePath(entry.InstallPath)
 		if err != nil {
 			return Manifest{}, fmt.Errorf("payload %q: %w", entry.SourcePath, err)
@@ -369,7 +391,10 @@ func VerifyStagingRoot(root *os.Root) (Manifest, error) {
 	expectedFiles[StagingManifestName] = PayloadFile{SourcePath: StagingManifestName, InstallPath: "/" + StagingManifestName, Role: "staging-manifest", Mode: "0644", Size: int64(len(manifestData)), SHA256: digest(manifestData)}
 
 	for relative, entry := range expectedFiles {
-		data, info, err := readStagedFile(root, relative, MaximumPayloadSize)
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
+		data, info, err := readStagedFileContext(ctx, root, relative, MaximumPayloadSize)
 		if err != nil {
 			return Manifest{}, fmt.Errorf("verify staged file %q: %w", relative, err)
 		}
@@ -388,12 +413,19 @@ func VerifyStagingRoot(root *os.Root) (Manifest, error) {
 				return Manifest{}, fmt.Errorf("staged file %q mode = %04o, want %04o", relative, info.Mode().Perm(), mode.Perm())
 			}
 		}
-		if got := digest(data); got != entry.SHA256 {
+		got, err := digestContext(ctx, data)
+		if err != nil {
+			return Manifest{}, err
+		}
+		if got != entry.SHA256 {
 			return Manifest{}, fmt.Errorf("staged file %q SHA-256 = %s, want %s", relative, got, entry.SHA256)
 		}
 	}
 
-	if err := verifyStagingTree(root, expectedFiles, expectedDirectories); err != nil {
+	if err := verifyStagingTreeContext(ctx, root, expectedFiles, expectedDirectories); err != nil {
+		return Manifest{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return Manifest{}, err
 	}
 	return manifest, nil
@@ -422,6 +454,13 @@ func parseStagingMode(raw string) (os.FileMode, error) {
 }
 
 func readStagedFile(root *os.Root, name string, maximum int64) ([]byte, os.FileInfo, error) {
+	return readStagedFileContext(context.Background(), root, name, maximum)
+}
+
+func readStagedFileContext(ctx context.Context, root *os.Root, name string, maximum int64) ([]byte, os.FileInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if root == nil {
 		return nil, nil, errors.New("native package staging root is nil")
 	}
@@ -432,6 +471,9 @@ func readStagedFile(root *os.Root, name string, maximum int64) ([]byte, os.FileI
 	current := ""
 	var before os.FileInfo
 	for index, component := range components {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		if component == "" || component == "." || component == ".." {
 			return nil, nil, fmt.Errorf("staging path %q is unsafe", name)
 		}
@@ -474,8 +516,11 @@ func readStagedFile(root *os.Root, name string, maximum int64) ([]byte, os.FileI
 	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		return nil, nil, errors.New("staging file changed while opening")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	data, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, maximum+1))
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if int64(len(data)) > maximum {
@@ -488,11 +533,24 @@ func readStagedFile(root *os.Root, name string, maximum int64) ([]byte, os.FileI
 	if !final.Mode().IsRegular() || final.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, final) || final.Size() != int64(len(data)) {
 		return nil, nil, errors.New("staging file changed while reading")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	return data, final, nil
 }
 
 func verifyStagingTree(root *os.Root, expectedFiles map[string]PayloadFile, expectedDirectories map[string]struct{}) error {
+	return verifyStagingTreeContext(context.Background(), root, expectedFiles, expectedDirectories)
+}
+
+func verifyStagingTreeContext(ctx context.Context, root *os.Root, expectedFiles map[string]PayloadFile, expectedDirectories map[string]struct{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return fmt.Errorf("walk staging tree at %q: %w", name, walkErr)
 		}
@@ -525,6 +583,36 @@ func verifyStagingTree(root *os.Root, expectedFiles map[string]PayloadFile, expe
 		}
 		return nil
 	})
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (value contextReader) Read(data []byte) (int, error) {
+	if err := value.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return value.reader.Read(data)
+}
+
+func digestContext(ctx context.Context, data []byte) (string, error) {
+	hash := sha256.New()
+	for len(data) > 0 {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		size := min(len(data), 32<<10)
+		if _, err := hash.Write(data[:size]); err != nil {
+			return "", err
+		}
+		data = data[size:]
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func digest(data []byte) string {
@@ -648,7 +736,9 @@ func validateSourcePayload(source packageinfo.Manifest) error {
 func familySpecFor(family Family, goos, goarch string) (familySpec, error) {
 	specs := []familySpec{
 		{family: FamilyDebian, goos: "linux", goarch: "amd64", architecture: "amd64", installRoot: "/"},
+		{family: FamilyDebian, goos: "linux", goarch: "arm64", architecture: "arm64", installRoot: "/"},
 		{family: FamilyRPM, goos: "linux", goarch: "amd64", architecture: "x86_64", installRoot: "/"},
+		{family: FamilyRPM, goos: "linux", goarch: "arm64", architecture: "aarch64", installRoot: "/"},
 		{family: FamilyFreeBSD, goos: "freebsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},
 		{family: FamilyFreeBSD, goos: "freebsd", goarch: "arm64", architecture: "aarch64", installRoot: "/usr/local"},
 		{family: FamilyOpenBSD, goos: "openbsd", goarch: "amd64", architecture: "amd64", installRoot: "/usr/local"},

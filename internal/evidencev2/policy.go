@@ -1,7 +1,6 @@
 package evidencev2
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"filippo.io/edwards25519"
+	"github.com/Yunushan/leaguebridge/internal/reviewercrypto"
 )
 
 const (
@@ -207,42 +206,8 @@ func validateTrustedKey(key trustedKey, policyStart, policyEnd time.Time) error 
 	return nil
 }
 
-// validateReviewerPublicKey rejects encodings that crypto/ed25519 deliberately
-// accepts for ecosystem compatibility but that are unsafe reviewer identities.
-// In particular, a low-order key can admit signatures without knowledge of a
-// private scalar, and a point with a torsion component is not a prime-subgroup
-// identity even when its encoding is unique at the byte level.
 func validateReviewerPublicKey(publicKey []byte) error {
-	point, err := new(edwards25519.Point).SetBytes(publicKey)
-	if err != nil {
-		return errors.New("public_key must encode a valid Edwards25519 point")
-	}
-	if !bytes.Equal(point.Bytes(), publicKey) {
-		return errors.New("public_key must use the canonical Edwards25519 encoding")
-	}
-	if point.Equal(edwards25519.NewIdentityPoint()) == 1 {
-		return errors.New("public_key must not be the Edwards25519 identity")
-	}
-
-	// Decompose A = P + T into its prime-order and torsion components without
-	// implementing curve arithmetic locally. Multiplication by eight removes T;
-	// multiplying that result by 8^-1 modulo the prime subgroup order recovers P.
-	// The original point is in the prime-order subgroup exactly when A == P.
-	eightEncoding := make([]byte, ed25519.PublicKeySize)
-	eightEncoding[0] = 8
-	eight, err := new(edwards25519.Scalar).SetCanonicalBytes(eightEncoding)
-	if err != nil {
-		return errors.New("initialize Edwards25519 subgroup validation")
-	}
-	inverseEight := new(edwards25519.Scalar).Invert(eight)
-	primeComponent := new(edwards25519.Point).ScalarMult(
-		inverseEight,
-		new(edwards25519.Point).MultByCofactor(point),
-	)
-	if point.Equal(primeComponent) != 1 {
-		return errors.New("public_key must be in the prime-order Edwards25519 subgroup")
-	}
-	return nil
+	return reviewercrypto.ValidateEd25519PublicKey(publicKey)
 }
 
 func validateSortedScope(name string, values []string, allowed map[string]bool) error {

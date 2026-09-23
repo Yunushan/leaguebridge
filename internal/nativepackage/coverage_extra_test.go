@@ -2,6 +2,7 @@ package nativepackage
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,10 @@ func TestVerifyStagingRootAcceptsCompleteTree(t *testing.T) {
 	got, err := VerifyStagingRoot(root)
 	if err != nil {
 		t.Fatal(err)
+	}
+	contextGot, err := VerifyStagingRootContext(context.Background(), root)
+	if err != nil || contextGot.Package != got.Package || contextGot.SourceArtifact != got.SourceArtifact {
+		t.Fatalf("context-aware staging verification = %+v, %v; want %+v", contextGot, err, got)
 	}
 	if got.Package != manifest.Package || got.SourceArtifact != manifest.SourceArtifact {
 		t.Fatalf("verified manifest = %+v; want package=%+v source=%+v", got, manifest.Package, manifest.SourceArtifact)

@@ -14,7 +14,7 @@ import (
 	"github.com/Yunushan/leaguebridge/internal/compat"
 )
 
-var testNow = time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
+var testNow = time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC)
 
 func TestNewTemplate(t *testing.T) {
 	tests := []struct {
@@ -435,14 +435,14 @@ func TestEvaluateAt(t *testing.T) {
 
 	t.Run("embedded compatibility evidence becomes stale", func(t *testing.T) {
 		record := completeRecord(t, RecordClient, AttestationIndependent)
-		created := time.Date(2026, time.September, 24, 8, 0, 0, 0, time.UTC)
+		created := time.Date(2026, time.October, 24, 8, 0, 0, 0, time.UTC)
 		record.CreatedAt = created.Format(time.RFC3339)
 		record.ExpiresAt = created.Add(7 * 24 * time.Hour).Format(time.RFC3339)
 		for index := range record.Checks {
 			record.Checks[index].ObservedAt = created.Add(time.Minute).Format(time.RFC3339)
 		}
 		record.Attestation.ReviewedAt = created.Add(2 * time.Minute).Format(time.RFC3339)
-		evaluation, err := EvaluateAt(record, time.Date(2026, time.September, 26, 12, 0, 0, 0, time.UTC))
+		evaluation, err := EvaluateAt(record, time.Date(2026, time.October, 25, 12, 0, 0, 0, time.UTC))
 		if err != nil || evaluation.State != StatePending || !strings.Contains(strings.Join(evaluation.Reasons, " "), "embedded compatibility evidence is stale") {
 			t.Fatalf("evaluation=%+v err=%v", evaluation, err)
 		}

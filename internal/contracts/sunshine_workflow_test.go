@@ -20,8 +20,10 @@ type sunshineArtifactLock struct {
 	SourceCheckedAt        string           `json:"source_checked_at"`
 	Platform               string           `json:"platform"`
 	Architecture           string           `json:"architecture"`
+	Stability              string           `json:"stability"`
 	RecommendedAsset       sunshineArtifact `json:"recommended_asset"`
-	PortableReference      sunshineArtifact `json:"portable_reference"`
+	StandaloneReference    sunshineArtifact `json:"standalone_reference"`
+	DriverCompatibility    sunshineDriver   `json:"driver_compatibility"`
 }
 
 type sunshineArtifact struct {
@@ -31,6 +33,17 @@ type sunshineArtifact struct {
 	SHA256               string `json:"sha256"`
 	RequiresAuthenticode bool   `json:"requires_authenticode"`
 	SupportedByInspector bool   `json:"supported_by_inspector"`
+}
+
+type sunshineDriver struct {
+	Project                      string           `json:"project"`
+	ReleaseTag                   string           `json:"release_tag"`
+	ReleaseURL                   string           `json:"release_url"`
+	OfficialMetadataSource       string           `json:"official_metadata_source"`
+	Stability                    string           `json:"stability"`
+	RecommendedAsset             sunshineArtifact `json:"recommended_asset"`
+	MinimumDriverRelease         string           `json:"minimum_driver_release"`
+	ActiveMachineLicenseRequired bool             `json:"active_machine_license_required"`
 }
 
 func TestSunshineArtifactLockIsExactAndBounded(t *testing.T) {
@@ -51,14 +64,14 @@ func TestSunshineArtifactLockIsExactAndBounded(t *testing.T) {
 	if lock.SchemaVersion != 1 || lock.Project != "LizardByte/Sunshine" || lock.Platform != "windows" || lock.Architecture != "amd64" {
 		t.Fatalf("unexpected Sunshine artifact lock identity: %+v", lock)
 	}
-	if lock.ReleaseTag != "v2026.516.143833" {
+	if lock.ReleaseTag != "v2026.914.233613" || lock.Stability != "stable" {
 		t.Fatalf("unexpected Sunshine release tag %q", lock.ReleaseTag)
 	}
-	if parsed, err := time.Parse("2006-01-02", lock.SourceCheckedAt); err != nil || parsed.Format("2006-01-02") != "2026-08-29" {
+	if parsed, err := time.Parse("2006-01-02", lock.SourceCheckedAt); err != nil || parsed.Format("2006-01-02") != "2026-09-23" {
 		t.Fatalf("invalid source_checked_at: %v", err)
 	}
 	expectedReleaseURL := "https://github.com/LizardByte/Sunshine/releases/tag/" + lock.ReleaseTag
-	expectedMetadataSource := "https://api.github.com/repos/LizardByte/Sunshine/releases/tags/" + lock.ReleaseTag
+	expectedMetadataSource := "https://github.com/LizardByte/Sunshine/releases/expanded_assets/" + lock.ReleaseTag
 	if lock.ReleaseURL != expectedReleaseURL || lock.OfficialMetadataSource != expectedMetadataSource {
 		t.Fatalf("Sunshine lock is not bound to the official release endpoints: %+v", lock)
 	}
@@ -66,7 +79,7 @@ func TestSunshineArtifactLockIsExactAndBounded(t *testing.T) {
 	sha256Pattern := regexp.MustCompile(`^[a-f0-9]{64}$`)
 	for name, asset := range map[string]sunshineArtifact{
 		"recommended": lock.RecommendedAsset,
-		"portable":    lock.PortableReference,
+		"standalone":  lock.StandaloneReference,
 	} {
 		if asset.SizeBytes <= 0 || !sha256Pattern.MatchString(asset.SHA256) {
 			t.Fatalf("%s Sunshine asset has invalid size or digest: %+v", name, asset)
@@ -77,16 +90,75 @@ func TestSunshineArtifactLockIsExactAndBounded(t *testing.T) {
 		}
 	}
 	if lock.RecommendedAsset.Name != "Sunshine-Windows-AMD64-installer.msi" ||
-		lock.RecommendedAsset.SizeBytes != 24465408 ||
-		lock.RecommendedAsset.SHA256 != "e7208b11a4ab9dd89871133a054bbb8dc55dfbba408227b0eccab22c60b273a2" ||
+		lock.RecommendedAsset.SizeBytes != 33710080 ||
+		lock.RecommendedAsset.SHA256 != "1d7fed8beecd5889dc7ff14cf9f42d6d38f37c3066c13c6c2a5f4e91847e0ccf" ||
 		!lock.RecommendedAsset.RequiresAuthenticode || !lock.RecommendedAsset.SupportedByInspector {
 		t.Fatalf("recommended Sunshine asset is not the signed MSI inspector contract: %+v", lock.RecommendedAsset)
 	}
-	if lock.PortableReference.Name != "Sunshine-Windows-AMD64-portable.zip" ||
-		lock.PortableReference.SizeBytes != 26852145 ||
-		lock.PortableReference.SHA256 != "0a3af3dde43b8f2c94ffe04b850ad736d6e1be2b75906779d7094a5ad9d4783b" ||
-		lock.PortableReference.RequiresAuthenticode || lock.PortableReference.SupportedByInspector {
-		t.Fatalf("portable Sunshine asset must remain a non-inspector reference: %+v", lock.PortableReference)
+	if lock.StandaloneReference.Name != "Sunshine-Windows-AMD64-lite.zip" ||
+		lock.StandaloneReference.SizeBytes != 38060196 ||
+		lock.StandaloneReference.SHA256 != "233008e46f4c0e501a586cbfd6c4fd4a4c0d414a0b5fc7f13c070eb92ec3824b" ||
+		lock.StandaloneReference.RequiresAuthenticode || lock.StandaloneReference.SupportedByInspector {
+		t.Fatalf("standalone Sunshine asset must remain a non-inspector reference: %+v", lock.StandaloneReference)
+	}
+	driver := lock.DriverCompatibility
+	if driver.Project != "LizardByte/libvirtualhid" || driver.ReleaseTag != "v2026.914.1218.10" ||
+		driver.Stability != "stable" || driver.MinimumDriverRelease != driver.ReleaseTag ||
+		!driver.ActiveMachineLicenseRequired {
+		t.Fatalf("Sunshine driver compatibility is not the stable licensed pair: %+v", driver)
+	}
+	if driver.ReleaseURL != "https://github.com/LizardByte/libvirtualhid/releases/tag/"+driver.ReleaseTag ||
+		driver.OfficialMetadataSource != "https://github.com/LizardByte/libvirtualhid/releases/expanded_assets/"+driver.ReleaseTag {
+		t.Fatalf("driver lock is not bound to official release endpoints: %+v", driver)
+	}
+	if driver.RecommendedAsset.Name != "libvirtualhid-Windows-AMD64-driver-installer.msi" ||
+		driver.RecommendedAsset.DownloadURL != "https://github.com/LizardByte/libvirtualhid/releases/download/"+driver.ReleaseTag+"/"+driver.RecommendedAsset.Name ||
+		driver.RecommendedAsset.SizeBytes != 2772992 ||
+		driver.RecommendedAsset.SHA256 != "bc31539a41f71939c13decb171ccbd4306fae1fed63273434a4f5ceccaf3e71c" ||
+		!driver.RecommendedAsset.RequiresAuthenticode || driver.RecommendedAsset.SupportedByInspector {
+		t.Fatalf("driver MSI is not the verified external reference: %+v", driver.RecommendedAsset)
+	}
+}
+
+func TestRetiredSunshinePreviewLockCannotRecommendArtifacts(t *testing.T) {
+	data, err := os.ReadFile(repositoryFile(t, "compatibility/sunshine-windows-amd64-raw-input-preview.lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock map[string]json.RawMessage
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatalf("decode historical Sunshine preview lock: %v", err)
+	}
+	for field, want := range map[string]string{
+		"release_tag":        "v2026.831.233010",
+		"stability":          "prerelease",
+		"status":             "retired",
+		"retired_at":         "2026-09-23",
+		"superseded_by_lock": "sunshine-windows-amd64.lock.json",
+	} {
+		var got string
+		if err := json.Unmarshal(lock[field], &got); err != nil || got != want {
+			t.Fatalf("historical Sunshine preview %s = %q, want %q: %v", field, got, want, err)
+		}
+	}
+	if _, ok := lock["recommended_asset"]; ok {
+		t.Fatal("retired Sunshine preview still recommends an artifact")
+	}
+	if _, ok := lock["requires_explicit_operator_acceptance"]; ok {
+		t.Fatal("retired Sunshine preview still offers operator acceptance")
+	}
+	if _, ok := lock["historical_asset"]; !ok {
+		t.Fatal("retired Sunshine preview lost its historical artifact record")
+	}
+	var pair map[string]json.RawMessage
+	if err := json.Unmarshal(lock["historical_driver_pair"], &pair); err != nil {
+		t.Fatalf("decode historical driver pair: %v", err)
+	}
+	if _, ok := pair["recommended_asset"]; ok {
+		t.Fatal("retired Sunshine preview still recommends a driver")
+	}
+	if _, ok := pair["historical_asset"]; !ok {
+		t.Fatal("retired Sunshine preview lost its historical driver record")
 	}
 }
 

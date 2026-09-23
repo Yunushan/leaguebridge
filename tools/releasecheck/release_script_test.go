@@ -87,6 +87,9 @@ func TestReleaseScriptPinsHermeticSnapshotContract(t *testing.T) {
 			t.Errorf("release.sh contains obsolete or non-hermetic fragment %q", forbidden)
 		}
 	}
+	if got := strings.Count(script, `"leaguebridge_${VERSION#v}_linux_arm64.tar.gz"`); got != 2 {
+		t.Errorf("release.sh stages Linux arm64 for %d native package families, want Debian and RPM", got)
+	}
 	for lineNumber, line := range strings.Split(script, "\n") {
 		if strings.Contains(line, "go run ") && !strings.Contains(line, "go run -mod=vendor ") {
 			t.Errorf("release.sh line %d runs a Go release tool without -mod=vendor: %s", lineNumber+1, line)

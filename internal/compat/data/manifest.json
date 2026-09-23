@@ -2,7 +2,7 @@
   "$schema": "../../../schemas/compatibility-manifest.schema.json",
   "schemaVersion": "1.0.0",
   "manifestId": "leaguebridge-authoritative-compatibility",
-  "asOf": "2026-09-01",
+  "asOf": "2026-09-23",
   "game": {
     "name": "League of Legends",
     "publisher": "Riot Games"
@@ -17,8 +17,8 @@
       "id": "riot-system-requirements",
       "title": "Minimum and Recommended System Requirements (League of Legends)",
       "publisher": "Riot Games Player Support",
-      "url": "https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements",
-      "checkedAt": "2026-08-31"
+      "url": "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "riot-vanguard-linux",
@@ -26,7 +26,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/",
       "publishedAt": "2024-04-11",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "riot-patch-14-9",
@@ -34,7 +34,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-us/news/game-updates/patch-14-9-notes/",
       "publishedAt": "2024-04-30",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "riot-macos-embedded-vanguard",
@@ -42,7 +42,7 @@
       "publisher": "Riot Games",
       "url": "https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/",
       "publishedAt": "2025-01-22",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "riot-vanguard-on-demand",
@@ -50,92 +50,84 @@
       "publisher": "Riot Games",
       "url": "https://www.riotgames.com/en/news/vanguard-on-demand",
       "publishedAt": "2026-06-24",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "riot-vm-policy",
       "title": "Vanguard Error Codes and Solutions (VAN 138)",
       "publisher": "Riot Games Player Support",
-      "url": "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/",
-      "checkedAt": "2026-08-31"
-    },
-    {
-      "id": "winehq-about",
-      "title": "About Wine",
-      "publisher": "WineHQ",
-      "url": "https://www.winehq.org/about/",
-      "checkedAt": "2026-08-26"
+      "url": "https://support.riotgames.com/en-us/riot/performance/error-van-138",
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "valve-proton",
       "title": "Steamworks Documentation: Proton Anti-Cheat Support",
       "publisher": "Valve Corporation",
       "url": "https://partner.steamgames.com/doc/steamhardware/proton",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "dockur-windows",
       "title": "Windows inside a Docker container",
       "publisher": "dockur",
       "url": "https://github.com/dockur/windows",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "dockur-environment",
       "title": "dockur/windows environment options",
       "publisher": "dockur",
       "url": "https://github.com/dockur/windows/blob/master/docs/environment.md",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "sunshine-docs",
       "title": "Sunshine documentation",
       "publisher": "LizardByte",
       "url": "https://docs.lizardbyte.dev/projects/sunshine/latest/",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "sunshine-raw-input",
       "title": "Sunshine Windows Raw Input troubleshooting",
       "publisher": "LizardByte",
       "url": "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2troubleshooting.html?lng=en-US",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "sunshine-getting-started",
       "title": "Sunshine Getting Started and Windows Virtual HID requirements",
       "publisher": "LizardByte",
       "url": "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2getting__started.html?lng=en-US",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "libvirtualhid-driver-release",
-      "title": "libvirtualhid Virtual HID Driver release v2026.829.2338.54",
+      "title": "libvirtualhid Virtual HID Driver release v2026.914.1218.10",
       "publisher": "LizardByte",
-      "url": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.829.2338.54",
-      "checkedAt": "2026-09-01"
+      "url": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.914.1218.10",
+      "checkedAt": "2026-09-23"
     },
     {
-      "id": "sunshine-raw-input-preview",
-      "title": "Sunshine Windows AMD64 Raw Input preview v2026.831.233010",
+      "id": "sunshine-stable-release",
+      "title": "Sunshine Windows AMD64 stable release v2026.914.233613",
       "publisher": "LizardByte",
-      "url": "https://github.com/LizardByte/Sunshine/releases/tag/v2026.831.233010",
-      "publishedAt": "2026-09-01",
-      "checkedAt": "2026-09-01"
+      "url": "https://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613",
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "moonlight-qt",
       "title": "Moonlight PC",
       "publisher": "Moonlight Game Streaming Project",
       "url": "https://github.com/moonlight-stream/moonlight-qt",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "moonlight-embedded",
       "title": "Moonlight Embedded",
       "publisher": "Moonlight Game Streaming Project",
       "url": "https://github.com/moonlight-stream/moonlight-embedded",
-      "checkedAt": "2026-08-30"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "microsoft-bcdboot",
@@ -143,49 +135,49 @@
       "publisher": "Microsoft",
       "url": "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11",
       "publishedAt": "2025-07-29",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "freebsd-bhyve",
       "title": "FreeBSD Handbook: Virtualization - bhyve",
       "publisher": "The FreeBSD Project",
       "url": "https://docs.freebsd.org/en/books/handbook/virtualization/#virtualization-host-bhyve",
-      "checkedAt": "2026-08-26"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "riot-vanguard-faq",
       "title": "Vanguard FAQ for Third Party Applications",
       "publisher": "Riot Games",
       "url": "https://www.riotgames.com/en/DevRel/vanguard-faq",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "pikvm-api",
       "title": "PiKVM HTTP API reference",
       "publisher": "PiKVM",
       "url": "https://docs.pikvm.org/api/",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "pikvm-usb",
       "title": "PiKVM USB configuration",
       "publisher": "PiKVM",
       "url": "https://docs.pikvm.org/usb/",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "pikvm-auth",
       "title": "PiKVM Authentication",
       "publisher": "PiKVM",
       "url": "https://docs.pikvm.org/auth/",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     },
     {
       "id": "pikvm-audio",
       "title": "PiKVM V4 and V3 two-way audio",
       "publisher": "PiKVM",
       "url": "https://docs.pikvm.org/audio/",
-      "checkedAt": "2026-08-31"
+      "checkedAt": "2026-09-23"
     }
   ],
   "backends": [
@@ -237,7 +229,7 @@
       "authorization": "none",
       "reasonCode": "VANGUARD_DRIVER_REQUIREMENTS_UNSATISFIED",
       "summary": "Riot states that the Wine-based League implementation cannot satisfy Vanguard's driver requirements.",
-      "sourceIds": ["riot-vanguard-linux", "riot-patch-14-9", "winehq-about"],
+      "sourceIds": ["riot-vanguard-linux", "riot-patch-14-9"],
       "safetyNotes": [
         "Windows API compatibility is not equivalent to Vanguard kernel-driver compatibility.",
         "Never patch Riot binaries or add untrusted DLL overrides to evade the launch gate."
@@ -309,7 +301,7 @@
       "authorization": "unverified",
       "reasonCode": "REMOTE_HANDOFF_NOT_A_LOCAL_COMPATIBILITY_PATH",
       "summary": "A separately managed physical Windows computer may meet Riot's Windows requirements, but remote-control and streaming integration is not an authorized local Linux or BSD gameplay backend in this manifest.",
-      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "sunshine-raw-input", "sunshine-getting-started", "libvirtualhid-driver-release", "sunshine-raw-input-preview", "moonlight-qt", "moonlight-embedded"],
+      "sourceIds": ["riot-system-requirements", "riot-vanguard-on-demand", "sunshine-docs", "sunshine-raw-input", "sunshine-getting-started", "libvirtualhid-driver-release", "sunshine-stable-release", "moonlight-qt", "moonlight-embedded"],
       "safetyNotes": [
         "The Windows machine must independently satisfy Riot's current requirements and policies.",
         "Do not forward credentials through LeagueBridge or claim that streaming makes Linux or BSD natively supported.",

@@ -383,8 +383,10 @@ func TestCINativePackageFilenamesMatchSmokeScripts(t *testing.T) {
 		"package_version=${package_version%%+*}",
 		`deb_version=$(printf '%s' "$package_version" | tr '-' '~')`,
 		"rpm_release=1",
-		`debian_package="native-package-output/debian/leaguebridge_${deb_version}_amd64.deb"`,
-		`rpm_package="native-package-output/rpm/leaguebridge-${rpm_version}-${rpm_release}.x86_64.rpm"`,
+		`x86_64|amd64) target_goarch=amd64; debian_arch=amd64; rpm_arch=x86_64 ;;`,
+		`aarch64|arm64) target_goarch=arm64; debian_arch=arm64; rpm_arch=aarch64 ;;`,
+		`debian_package="native-package-output/debian/leaguebridge_${deb_version}_${debian_arch}.deb"`,
+		`rpm_package="native-package-output/rpm/leaguebridge-${rpm_version}-${rpm_release}.${rpm_arch}.rpm"`,
 	} {
 		if !strings.Contains(linuxScript, required) {
 			t.Errorf("Linux package smoke script is missing filename contract fragment %q", required)

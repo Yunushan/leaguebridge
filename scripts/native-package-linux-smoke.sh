@@ -34,11 +34,23 @@ fi
 if [[ -L "$archive" || ! -f "$archive" ]]; then
   fail "release archive must be a regular, non-symlink file"
 fi
-for command_name in go dpkg-deb dpkg rpm rpmbuild file sudo sha256sum cmp stat; do
+for command_name in go dpkg-deb dpkg rpm rpmbuild file sudo sha256sum cmp stat uname; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command is unavailable: $command_name"
 done
 if ! go run -mod=vendor ./tools/versioncheck "$version" >/dev/null 2>&1; then
   fail "VERSION is not accepted by the repository semantic-version checker"
+fi
+
+case "$(uname -m)" in
+  x86_64|amd64) target_goarch=amd64; debian_arch=amd64; rpm_arch=x86_64 ;;
+  aarch64|arm64) target_goarch=arm64; debian_arch=arm64; rpm_arch=aarch64 ;;
+  *) fail "native Linux package smoke requires an amd64 or arm64 host" ;;
+esac
+if [[ "${archive##*/}" != "leaguebridge_${version#v}_linux_${target_goarch}.tar.gz" ]]; then
+  fail "release archive does not match the native Linux host and version"
+fi
+if [[ "$(dpkg --print-architecture)" != "$debian_arch" || "$(rpm --eval '%{_arch}')" != "$rpm_arch" ]]; then
+  fail "package managers do not match the native Linux host architecture"
 fi
 sudo -n true >/dev/null 2>&1 || fail "passwordless sudo is required for private package-manager smoke tests"
 
@@ -106,8 +118,8 @@ ensure_directory native-package-output/rpm
 ensure_directory native-package-evidence/debian
 ensure_directory native-package-evidence/rpm
 
-debian_package="native-package-output/debian/leaguebridge_${deb_version}_amd64.deb"
-rpm_package="native-package-output/rpm/leaguebridge-${rpm_version}-${rpm_release}.x86_64.rpm"
+debian_package="native-package-output/debian/leaguebridge_${deb_version}_${debian_arch}.deb"
+rpm_package="native-package-output/rpm/leaguebridge-${rpm_version}-${rpm_release}.${rpm_arch}.rpm"
 debian_evidence="native-package-evidence/debian/install.txt"
 rpm_evidence="native-package-evidence/rpm/install.txt"
 for output in "$debian_package" "$rpm_package"; do
@@ -154,7 +166,7 @@ mkdir -p "$debian_root/DEBIAN"
 printf '%s\n' \
   'Package: leaguebridge' \
   "Version: $deb_version" \
-  'Architecture: amd64' \
+  "Architecture: $debian_arch" \
   'Maintainer: LeagueBridge contributors <maintainers@leaguebridge.invalid>' \
   'Section: net' \
   'Priority: optional' \
@@ -174,7 +186,7 @@ printf '%s\n' \
   "Release: $rpm_release" \
   'Summary: LeagueBridge remote handoff controller' \
   'License: 0BSD' \
-  'BuildArch: x86_64' \
+  "BuildArch: $rpm_arch" \
   'AutoReqProv: no' \
   '%description' \
   'A bounded, read-only compatibility and remote handoff controller.' \
@@ -200,7 +212,7 @@ rpmbuild \
   --define '_binary_payload w9.gzdio' \
   --define '__os_install_post %{nil}' \
   -bb "$rpm_spec" >/dev/null
-generated_rpm="$rpm_top/RPMS/x86_64/leaguebridge-${rpm_version}-${rpm_release}.x86_64.rpm"
+generated_rpm="$rpm_top/RPMS/$rpm_arch/leaguebridge-${rpm_version}-${rpm_release}.${rpm_arch}.rpm"
 if [[ -L "$generated_rpm" || ! -f "$generated_rpm" ]]; then
   fail "rpmbuild did not create the expected package"
 fi
@@ -215,7 +227,7 @@ sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
   echo 'package=debian'
   echo "version=$version"
   echo "filename=$(basename "$debian_package")"
-  echo 'target=linux/amd64'
+  echo "target=linux/$target_goarch"
   dpkg-deb --info "$debian_package"
   sudo dpkg-query --admindir="$debian_scratch/var/lib/dpkg" -W leaguebridge
   verify_installed_payload native-package-staging/debian/root "$debian_scratch"
@@ -239,7 +251,7 @@ sudo rpm --root "$rpm_scratch" --install "$rpm_package"
   echo 'package=rpm'
   echo "version=$version"
   echo "filename=$(basename "$rpm_package")"
-  echo 'target=linux/amd64'
+  echo "target=linux/$target_goarch"
   rpm --version
   rpm -qip "$rpm_package"
   sudo rpm --root "$rpm_scratch" -q leaguebridge

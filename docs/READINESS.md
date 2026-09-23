@@ -4,8 +4,9 @@ The score is evidence, not branding. `leaguebridge readiness` reports each
 dimension independently and never converts engineering work into gameplay
 compatibility.
 
-The latest Wine, Proton, VM/Dockur, anti-cheat, and cloud-provider route audit
-is recorded in [`docs/research/2026-09-03-route-revalidation.md`](research/2026-09-03-route-revalidation.md).
+The latest Riot and Sunshine source review is recorded in
+[`docs/research/2026-09-23-route-revalidation.md`](research/2026-09-23-route-revalidation.md),
+which links the earlier broader route audit.
 
 ## Engineering readiness (100 points)
 
@@ -52,8 +53,9 @@ promotion without a separate physical attestation. No native runtime job claims
 local League/Vanguard support. The corresponding rows remain zero until an
 actual run's externally authenticated evidence is retained for a scorecard
 assessment. Native package builders now have the same score-free boundary via
-`tools/nativepackageattestation`: it verifies the complete nine-target/architecture
-Linux/BSD package set, exact package/staging/install-log digests, and source/run identity,
+`tools/nativepackageattestation`: it verifies the nine current package-family/target
+subjects (Debian and RPM on Linux amd64, plus seven BSD targets), exact
+package/staging/install-log digests, and source/run identity,
 but it does not create package bytes or promote runtime support. The shared
 `tools/ciattestation` verifier also has a strict release mode that checks the
 exact nine Linux/BSD archives, `checksums.txt`, and each publication attestation
@@ -131,6 +133,24 @@ state. The output schema is [`release-assessment.schema.json`](../schemas/releas
 The input layout, exact checks, and remaining 17-point evidence requirements
 are documented in [`RELEASE_ASSESSMENT.md`](RELEASE_ASSESSMENT.md).
 
+`leaguebridge readiness verify-production --version TAG --release-dir DIR`
+composes the same live release verification with the six fixed external
+engineering rows. It checks those rows against the authenticated released
+scorecard and rechecks the release after composition. Its current production
+trust roots and independent verifiers are unprovisioned, so each external row
+is reported as missing evidence and earns zero. For a release with the verified
+74-point repository baseline and nine release points, a complete live assessment
+can derive **83/100**; no caller flag or saved assessment can add the remaining 17.
+The JSON response's `data` payload follows
+[`production-assessment.schema.json`](../schemas/production-assessment.schema.json);
+the CLI wraps it in its standard command envelope.
+The observation assumes the selected `gh` executable and its HTTPS trust
+store are trusted; the command does not attest the `gh` binary itself.
+The [production-assessment design](PRODUCTION_ASSESSMENT_V4_DESIGN.md) defines
+the evidence and governance still needed before any of those rows can earn
+credit. This command is a live engineering observation; local and remote
+gameplay gates remain separate.
+
 ## Local gameplay readiness (hard gate)
 
 Local Linux/BSD gameplay remains **0/100 — blocked**. Riot does not provide a
@@ -160,7 +180,7 @@ deliberately different:
 | Route | `physical-host` gate requirements |
 | --- | --- |
 | `physical-windows-remote` | Supported physical Windows hardware; current Windows/Riot/League/Vanguard state; direct local Practice Tool; reviewed Sunshine host; no VM or VM concealment |
-| `physical-macos-remote` | Supported physical Intel or Apple-silicon Mac; current Riot native macOS client, Embedded Vanguard, and League; direct local Practice Tool; reviewed experimental Sunshine host; explicit no-gamepad limitation |
+| `physical-macos-remote` | Physical Mac meeting Riot's current requirements; current Riot native macOS client, Embedded Vanguard, and League; direct local Practice Tool; reviewed experimental Sunshine host on macOS 14.2 or newer; explicit no-gamepad limitation |
 
 The other gates are route-bound and cannot borrow evidence from the other
 host:

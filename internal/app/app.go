@@ -110,6 +110,7 @@ Usage:
   leaguebridge manifest validate --file FILE
   leaguebridge readiness [--json]
   leaguebridge readiness verify-release --version TAG --release-dir DIR [--gh PATH] [--json]
+  leaguebridge readiness verify-production --version TAG --release-dir DIR [--gh PATH] [--json]
   leaguebridge evidence template --type host|client|session [--route windows|macos] [--platform OS] [--arch ARCH] [--run-id ID]
   leaguebridge evidence template-set --directory DIR [--route windows|macos] [--host-arch ARCH] [--client-platform OS] [--client-arch amd64|arm64] [--run-id ID] [--json]
   leaguebridge evidence validate --file FILE [--artifacts DIR] [--json]

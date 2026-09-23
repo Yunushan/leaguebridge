@@ -21,6 +21,9 @@ func (a *App) runReadiness(ctx context.Context, args []string) int {
 	if len(args) > 0 && args[0] == "verify-release" {
 		return a.runReadinessRelease(ctx, args[1:])
 	}
+	if len(args) > 0 && args[0] == "verify-production" {
+		return a.runReadinessProduction(ctx, args[1:])
+	}
 	set := a.flagSet("readiness")
 	asJSON := set.Bool("json", false, "emit JSON")
 	if err := parseFlags(set, args); err != nil {

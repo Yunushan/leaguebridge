@@ -51,16 +51,16 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 
 	manifest := mustEmbedded(t)
 	want := map[string]string{
-		"riot-system-requirements":     "https://support-leagueoflegends.riotgames.com/hc/en-us/articles/201752654-Minimum-and-Recommended-System-Requirements",
+		"riot-system-requirements":     "https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
 		"riot-macos-embedded-vanguard": "https://www.leagueoflegends.com/en-ph/news/game-updates/patch-25-s1-2-notes/",
-		"riot-vm-policy":               "https://support.riotgames.com/en-us/riot/performance/vanguard-error-codes/",
+		"riot-vm-policy":               "https://support.riotgames.com/en-us/riot/performance/error-van-138",
 		"valve-proton":                 "https://partner.steamgames.com/doc/steamhardware/proton",
 		"dockur-environment":           "https://github.com/dockur/windows/blob/master/docs/environment.md",
 		"sunshine-docs":                "https://docs.lizardbyte.dev/projects/sunshine/latest/",
 		"sunshine-raw-input":           "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2troubleshooting.html?lng=en-US",
 		"sunshine-getting-started":     "https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2getting__started.html?lng=en-US",
-		"libvirtualhid-driver-release": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.829.2338.54",
-		"sunshine-raw-input-preview":   "https://github.com/LizardByte/Sunshine/releases/tag/v2026.831.233010",
+		"libvirtualhid-driver-release": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.914.1218.10",
+		"sunshine-stable-release":      "https://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613",
 		"moonlight-qt":                 "https://github.com/moonlight-stream/moonlight-qt",
 		"moonlight-embedded":           "https://github.com/moonlight-stream/moonlight-embedded",
 		"microsoft-bcdboot":            "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11",
@@ -79,6 +79,12 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 			t.Errorf("source %q URL = %q, want %q", id, got[id], wantURL)
 		}
 	}
+	if _, ok := got["sunshine-raw-input-preview"]; ok {
+		t.Fatal("retired Sunshine prerelease remains an active manifest source")
+	}
+	if _, ok := got["winehq-about"]; ok {
+		t.Fatal("unverified WineHQ page remains an active manifest source")
+	}
 	macOSRoute, ok := findBackend(manifest, BackendPhysicalMacOSRemote)
 	if !ok {
 		t.Fatal("physical macOS route is missing")
@@ -90,10 +96,13 @@ func TestEmbeddedUsesCurrentPrimarySources(t *testing.T) {
 	if !ok {
 		t.Fatal("physical Windows route is missing")
 	}
-	for _, sourceID := range []string{"sunshine-raw-input", "sunshine-getting-started", "libvirtualhid-driver-release", "sunshine-raw-input-preview"} {
+	for _, sourceID := range []string{"sunshine-raw-input", "sunshine-getting-started", "libvirtualhid-driver-release", "sunshine-stable-release"} {
 		if !slices.Contains(windowsRoute.SourceIDs, sourceID) {
 			t.Fatalf("physical Windows route is not bound to Sunshine Raw Input source %q", sourceID)
 		}
+	}
+	if slices.Contains(windowsRoute.SourceIDs, "sunshine-raw-input-preview") {
+		t.Fatal("physical Windows route still cites a retired Sunshine prerelease")
 	}
 	for _, backendID := range []BackendID{BackendPhysicalWindowsRemote, BackendPhysicalMacOSRemote} {
 		backend, ok := findBackend(manifest, backendID)
@@ -181,7 +190,7 @@ func TestCanonicalSHA256IgnoresLineEndings(t *testing.T) {
 	if lfDigest != crlfDigest {
 		t.Fatalf("line endings changed canonical digest: LF=%s CRLF=%s", lfDigest, crlfDigest)
 	}
-	const want = "1ea0ae2d5c6ad228bc1bc09c644b1a21c1efc18cccd90e4d8759ffb59ad140f0"
+	const want = "61c30b980e8f25ac8380e60a53a9587f002f53765c67815e3d8e3770918625a7"
 	if lfDigest != want {
 		t.Fatalf("canonical digest = %s, want %s", lfDigest, want)
 	}
@@ -233,9 +242,9 @@ func TestParseRejectsMalformedOrUnsafeManifests(t *testing.T) {
 		"duplicate backend":     strings.Replace(valid, `"id": "native-bsd"`, `"id": "native-linux"`, 1),
 		"unsafe default allow":  strings.Replace(valid, `"defaultVerdict": "deny"`, `"defaultVerdict": "allow"`, 1),
 		"unknown schema":        strings.Replace(valid, `"../../../schemas/compatibility-manifest.schema.json"`, `"https://attacker.invalid/schema.json"`, 1),
-		"invalid source URL":    strings.Replace(valid, `"https://www.winehq.org/about/"`, `"http://www.winehq.org/about/"`, 1),
-		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-08-26"`, `"checkedAt": "2026-09-02"`, 1),
-		"unknown source ref":    strings.Replace(valid, `"winehq-about"]`, `"missing-source"]`, 1),
+		"invalid source URL":    strings.Replace(valid, `"https://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613"`, `"http://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613"`, 1),
+		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-09-23"`, `"checkedAt": "2026-09-24"`, 1),
+		"unknown source ref":    strings.Replace(valid, `"sunshine-stable-release", "moonlight-qt"`, `"missing-source", "moonlight-qt"`, 1),
 		"identity mismatch": strings.Replace(valid, `"id": "proton",
       "displayName": "Proton",
       "kind": "translation"`, `"id": "proton",

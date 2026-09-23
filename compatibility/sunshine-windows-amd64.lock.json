@@ -1,26 +1,44 @@
 {
   "schema_version": 1,
   "project": "LizardByte/Sunshine",
-  "release_tag": "v2026.516.143833",
-  "release_url": "https://github.com/LizardByte/Sunshine/releases/tag/v2026.516.143833",
-  "official_metadata_source": "https://api.github.com/repos/LizardByte/Sunshine/releases/tags/v2026.516.143833",
-  "source_checked_at": "2026-08-29",
+  "release_tag": "v2026.914.233613",
+  "release_url": "https://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613",
+  "official_metadata_source": "https://github.com/LizardByte/Sunshine/releases/expanded_assets/v2026.914.233613",
+  "source_checked_at": "2026-09-23",
   "platform": "windows",
   "architecture": "amd64",
+  "stability": "stable",
   "recommended_asset": {
     "name": "Sunshine-Windows-AMD64-installer.msi",
-    "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.516.143833/Sunshine-Windows-AMD64-installer.msi",
-    "size_bytes": 24465408,
-    "sha256": "e7208b11a4ab9dd89871133a054bbb8dc55dfbba408227b0eccab22c60b273a2",
+    "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.914.233613/Sunshine-Windows-AMD64-installer.msi",
+    "size_bytes": 33710080,
+    "sha256": "1d7fed8beecd5889dc7ff14cf9f42d6d38f37c3066c13c6c2a5f4e91847e0ccf",
     "requires_authenticode": true,
     "supported_by_inspector": true
   },
-  "portable_reference": {
-    "name": "Sunshine-Windows-AMD64-portable.zip",
-    "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.516.143833/Sunshine-Windows-AMD64-portable.zip",
-    "size_bytes": 26852145,
-    "sha256": "0a3af3dde43b8f2c94ffe04b850ad736d6e1be2b75906779d7094a5ad9d4783b",
+  "standalone_reference": {
+    "name": "Sunshine-Windows-AMD64-lite.zip",
+    "download_url": "https://github.com/LizardByte/Sunshine/releases/download/v2026.914.233613/Sunshine-Windows-AMD64-lite.zip",
+    "size_bytes": 38060196,
+    "sha256": "233008e46f4c0e501a586cbfd6c4fd4a4c0d414a0b5fc7f13c070eb92ec3824b",
     "requires_authenticode": false,
     "supported_by_inspector": false
+  },
+  "driver_compatibility": {
+    "project": "LizardByte/libvirtualhid",
+    "release_tag": "v2026.914.1218.10",
+    "release_url": "https://github.com/LizardByte/libvirtualhid/releases/tag/v2026.914.1218.10",
+    "official_metadata_source": "https://github.com/LizardByte/libvirtualhid/releases/expanded_assets/v2026.914.1218.10",
+    "stability": "stable",
+    "recommended_asset": {
+      "name": "libvirtualhid-Windows-AMD64-driver-installer.msi",
+      "download_url": "https://github.com/LizardByte/libvirtualhid/releases/download/v2026.914.1218.10/libvirtualhid-Windows-AMD64-driver-installer.msi",
+      "size_bytes": 2772992,
+      "sha256": "bc31539a41f71939c13decb171ccbd4306fae1fed63273434a4f5ceccaf3e71c",
+      "requires_authenticode": true,
+      "supported_by_inspector": false
+    },
+    "minimum_driver_release": "v2026.914.1218.10",
+    "active_machine_license_required": true
   }
 }

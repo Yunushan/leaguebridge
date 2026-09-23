@@ -1,9 +1,10 @@
-package main
+package nativeattestation
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -225,8 +226,46 @@ func TestVerifySetRejectsUnprovenPhysicalClaim(t *testing.T) {
 		ExpectedRef: "refs/heads/main", WorkflowSHA: strings.Repeat("c", 40),
 		RunID: "1234", RunAttempt: "1", ExpectedHostClass: "physical", GHPath: "stub",
 	}
-	if err := verifySet(input); err == nil || !strings.Contains(err.Error(), "physical host claims") {
+	if _, err := VerifySet(context.Background(), input); err == nil || !strings.Contains(err.Error(), "physical host claims") {
 		t.Fatalf("physical claim verification error = %v; want explicit independent-attestation rejection", err)
+	}
+}
+
+func TestVerifySetRejectsCanceledContextWithoutVerifiedResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err := VerifySet(ctx, VerifyRequest{})
+	if !errors.Is(err, context.Canceled) || result.Valid() {
+		t.Fatalf("canceled verification = (%+v, %v); want no verified set", result, err)
+	}
+	if (VerifiedSet{}).Valid() {
+		t.Fatal("zero-value verified set accepted")
+	}
+}
+
+func TestGitHubVerificationHonorsParentCancellation(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.WriteFile("artifact.txt", []byte("runtime artifact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	item, err := hashPath("artifact.txt", "verified-artifact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	originalRunner := runGitHubAttestation
+	t.Cleanup(func() { runGitHubAttestation = originalRunner })
+	called := false
+	runGitHubAttestation = func(_ context.Context, _, _ string, _ source) ([]byte, error) {
+		called = true
+		cancel()
+		return []byte(`[]`), nil
+	}
+	err = verifyGitHubArtifact(ctx, verifiedArtifact{Path: item.Path, Digest: item.SHA256, Size: item.SizeBytes}, source{}, "stub")
+	if !called || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled GitHub verification = called %v, error %v; want cancellation", called, err)
 	}
 }
 
@@ -304,14 +343,18 @@ func TestVerifySetAuthenticatesAndRehashesCompleteLinuxSet(t *testing.T) {
 		}
 		return json.Marshal([]ghVerification{validNativeGHVerification(sourceValue, artifact.SHA256)})
 	}
-	if err := verifySet(verifyRequest{
+	verified, err := VerifySet(context.Background(), verifyRequest{
 		Kind: "linux-runtime", SubjectPaths: subjectPaths,
 		ExpectedRepo: repository, ExpectedWorkflow: workflow,
 		ExpectedCommit: commit, ExpectedTree: tree, ExpectedRef: ref,
 		WorkflowSHA: workflowSHA, RunID: "1234", RunAttempt: "1",
 		ExpectedHostClass: "hosted", GHPath: "stub",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("complete Linux native runtime set rejected: %v", err)
+	}
+	if !verified.Valid() || verified.Kind() != "linux-runtime" || verified.SubjectCount() != len(subjectPaths) || verified.Commit() != commit || verified.Tree() != tree {
+		t.Fatalf("verified set has missing or incorrect identity: %+v", verified)
 	}
 }
 

@@ -77,6 +77,7 @@ type dependencies struct {
 	signatures func(context.Context, ciattestation.VerifyRequest) error
 	archives   func(releasecheck.CheckRequest) error
 	now        func() time.Time
+	capture    *verifiedMetadata
 }
 
 // Verify resolves the published tag and its exact source, authenticates the
@@ -86,8 +87,8 @@ type dependencies struct {
 func Verify(ctx context.Context, input Request) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
-	return verify(ctx, input, dependencies{githubAPI(input.GHPath), cireleasegate.Verify,
-		ciattestation.VerifySetContext, releasecheck.Check, time.Now})
+	return verify(ctx, input, dependencies{api: githubAPI(input.GHPath), gate: cireleasegate.Verify,
+		signatures: ciattestation.VerifySetContext, archives: releasecheck.Check, now: time.Now})
 }
 
 func verify(ctx context.Context, input Request, deps dependencies) (Result, error) {
@@ -114,6 +115,14 @@ func verify(ctx context.Context, input Request, deps dependencies) (Result, erro
 	}
 	if err := checkAdditionalContract(card); err != nil {
 		return Result{}, err
+	}
+	if deps.capture != nil {
+		// A production composition must authenticate the six external rows in
+		// the released policy, including the pinned historical scorecard whose
+		// date exception does not run today's full ParseAt contract.
+		if err := checkProductionContract(card); err != nil {
+			return Result{}, err
+		}
 	}
 	releaseRun, err := verifyReleaseRun(ctx, deps.api, input.Version, source.Commit)
 	if err != nil {
@@ -218,6 +227,18 @@ func verify(ctx context.Context, input Request, deps dependencies) (Result, erro
 	}
 	if baseline <= 0 || total > 100 {
 		return Result{}, errors.New("derived assessment is outside the fixed score contract")
+	}
+	if deps.capture != nil {
+		evidence := make(map[string]localFile, len(local))
+		for name, file := range local {
+			evidence[name] = file
+		}
+		*deps.capture = verifiedMetadata{
+			scorecardSHA256: digestBytes(cardBytes),
+			assets:          append([]asset(nil), initial.Assets...),
+			published:       initial,
+			evidence:        evidence,
+		}
 	}
 	return Result{1, input.Version, source.Commit, source.Tree, initial.Release.ID, releaseRun.ID, releaseRun.Attempt,
 		ciRun.ID, ciRun.Attempt, observedAt, card.ExpiresAt, baseline, total, append([]Criterion(nil), additionalCriteria...)}, nil
