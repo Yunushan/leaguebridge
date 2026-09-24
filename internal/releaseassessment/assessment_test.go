@@ -45,12 +45,22 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T) *fixture {
+	return newFixtureWithCIWorkflow(t, nil)
+}
+
+func newFixtureWithCIWorkflow(t *testing.T, ciWorkflowOverride []byte) *fixture {
 	t.Helper()
 	f := &fixture{values: make(map[string]any), files: make(map[string][]byte), apiCalls: make(map[string]int)}
 	for _, name := range []string{ciWorkflow, releaseWorkflow} {
-		data, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(name)))
-		if err != nil {
-			t.Fatal(err)
+		var data []byte
+		if name == ciWorkflow && len(ciWorkflowOverride) > 0 {
+			data = append([]byte(nil), ciWorkflowOverride...)
+		} else {
+			var err error
+			data, err = os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(name)))
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 		f.files[name] = data
 	}
@@ -540,6 +550,23 @@ func TestGitSourceCannotSubstituteEvidenceOrPolicy(t *testing.T) {
 				t.Fatalf("accepted %s", name)
 			}
 		})
+	}
+}
+
+func TestResolveSourceSupportsPreviousCIWorkflow(t *testing.T) {
+	current, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(ciWorkflow)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := bytes.ReplaceAll(current,
+		[]byte("uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0"),
+		[]byte("uses: cross-platform-actions/action@faa0c6197e94aacf1c5956460152c8380d3560a5 # v1.5.0"))
+	if bytes.Equal(current, previous) || digestBytes(previous) != supportedCIWorkflow {
+		t.Fatal("previous CI workflow fixture does not match its reviewed digest")
+	}
+	f := newFixtureWithCIWorkflow(t, previous)
+	if _, _, _, err := resolveSource(context.Background(), f.api, fixtureCommit, fixtureNow); err != nil {
+		t.Fatalf("previous reviewed CI workflow was rejected: %v", err)
 	}
 }
 
