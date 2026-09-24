@@ -23,6 +23,7 @@ import (
 
 const (
 	supportedCIWorkflow      = "deb4351ce333350397d1bc0a08732dcab869325e6c94c53d87d321a76b1ed0e9"
+	supportedCIWorkflowV16   = "51d78bfb7b7cc6e3a5c28d2792f0743e0b70df1abef6be15bfc34aa741ead28e"
 	supportedReleaseWorkflow = "c3865515e0e015f3a2cc835c66101a4883ee2e484533af0086091ececfe082d1"
 	// This exact released v3 policy predates the current verifier's source-file
 	// inventory. The pin approves policy bytes only, never execution evidence.
@@ -92,18 +93,29 @@ func resolveCommit(ctx context.Context, api apiClient, commit string) (sourceIde
 	return sourceIdentity{commit, object.Tree.SHA, object.Committer.Date.Unix()}, nil
 }
 
+func isSupportedSourceWorkflow(name, digest string) bool {
+	switch name {
+	case ciWorkflow:
+		return digest == supportedCIWorkflow || digest == supportedCIWorkflowV16
+	case releaseWorkflow:
+		return digest == supportedReleaseWorkflow
+	default:
+		return false
+	}
+}
+
 func resolveSource(ctx context.Context, api apiClient, commit string, now time.Time) (sourceIdentity, []byte, readiness.Scorecard, error) {
 	source, err := resolveCommit(ctx, api, commit)
 	if err != nil {
 		return sourceIdentity{}, nil, readiness.Scorecard{}, err
 	}
 	reader := sourceReader{api: api, tree: source.Tree, trees: make(map[string]map[string]gitEntry)}
-	for _, definition := range []struct{ path, digest string }{{ciWorkflow, supportedCIWorkflow}, {releaseWorkflow, supportedReleaseWorkflow}} {
-		data, err := reader.readFile(ctx, definition.path, 256<<10)
+	for _, name := range []string{ciWorkflow, releaseWorkflow} {
+		data, err := reader.readFile(ctx, name, 256<<10)
 		if err != nil {
 			return sourceIdentity{}, nil, readiness.Scorecard{}, err
 		}
-		if digestBytes(data) != definition.digest {
+		if !isSupportedSourceWorkflow(name, digestBytes(data)) {
 			return sourceIdentity{}, nil, readiness.Scorecard{}, errors.New("release source workflow is unsupported; review its exact definition before assessment")
 		}
 	}
