@@ -316,6 +316,8 @@ case "$expected_goos" in
     packlist="$temporary_root/packing-list"
     printf '%s\n' \
       '@cwd /usr/local' \
+      '@owner root' \
+      '@group wheel' \
       '@mode 0755' \
       'bin/leaguebridge' \
       'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
@@ -357,6 +359,8 @@ case "$expected_goos" in
     description="$temporary_root/description"
     printf '%s\n' \
       '@cwd /usr/local' \
+      '@owner root' \
+      '@group wheel' \
       '@mode 0755' \
       'bin/leaguebridge' \
       'libexec/leaguebridge/linux-bsd-client-smoke.sh' \

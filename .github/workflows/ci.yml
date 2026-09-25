@@ -1080,6 +1080,17 @@ jobs:
           path: dist
       - name: Build and smoke native Linux packages
         run: bash scripts/native-package-linux-smoke.sh v0.0.0-ci dist/leaguebridge_0.0.0-ci_linux_${{ matrix.goarch }}.tar.gz native-package-linux
+      - name: Verify native Linux package payloads against staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch="${{ matrix.goarch }}"
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package "native-package-linux/native-package-output/debian/$arch/${{ matrix.debian_filename }}" \
+            -staging "native-package-linux/native-package-staging/debian/$arch"
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package "native-package-linux/native-package-output/rpm/$arch/${{ matrix.rpm_filename }}" \
+            -staging "native-package-linux/native-package-staging/rpm/$arch"
       - name: Create signed native Linux package subjects
         working-directory: native-package-linux
         shell: bash
@@ -1269,6 +1280,14 @@ jobs:
       - name: Synchronize BSD package evidence to the runner
         if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
         run: cpa.sh --sync-files vm-to-runner
+      - name: Verify native BSD package payload against staging
+        if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package "native-package-output/${{ matrix.family }}/${{ matrix.goarch }}/${{ matrix.package_file }}" \
+            -staging "native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}"
       - name: Create signed native BSD package subject
         if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success' && github.event_name != 'pull_request'
         shell: bash
@@ -1405,6 +1424,14 @@ jobs:
           set -euo pipefail
           test -f native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg
           test -f native-package-evidence/dports/amd64/install.txt
+      - name: Verify DragonFly package payload against staging
+        if: success() && steps.start-dragonfly-vm.outcome == 'success' && steps.dragonfly-ready.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg \
+            -staging native-package-staging/dports/amd64
       - name: Create signed DragonFly native package subject
         if: success() && steps.start-dragonfly-vm.outcome == 'success' && steps.dragonfly-ready.outcome == 'success' && github.event_name != 'pull_request'
         shell: bash

@@ -113,6 +113,15 @@ authoritative index state, and native installation remain separate checks.
 `VerifySet` requires the opaque authenticated release and verifies exactly one
 candidate for each of the eleven fixed cells. It returns a score-free complete
 inventory for those later production checks.
+`VerifyPayloadSet` additionally snapshots and inspects every package's native
+metadata and installed regular files, comparing their paths, modes, sizes, and
+digests with the authenticated release's verified staging for all eleven cells.
+The score-free `VerifyStagedPayload` command applies the same built-in format
+inspectors to synthetic CI packages before their subjects are attested. Neither
+check authenticates publisher keys, live repository indexes, package-manager
+signatures, or native installation. The FreeBSD-family inspector compares
+archive payload SHA-256 with staging but only syntax-checks native BLAKE2
+manifest sums; package-manager acceptance remains a separate observation.
 `nativepackagestage release-set` prepares those eleven staging inputs from an
 opaque authenticated stable release and records package building, signing,
 publication, and lifecycle verification as outstanding. It does not build
