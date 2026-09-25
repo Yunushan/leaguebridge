@@ -319,6 +319,7 @@ staging="$temporary_root/staging"
 mkdir -p "$staging/root"
 package_version=0.0.0-ci
 package="$temporary_root/result.pkg"
+expected_goos=freebsd
 pkg_command=fixture_pkg
 fail() { echo "$*" >&2; exit 44; }
 fixture_pkg() {
@@ -350,6 +351,9 @@ fixture_pkg() {
 			}
 			continue
 		}
+		if strings.HasPrefix(line, "@cwd ") {
+			t.Fatal("FreeBSD packing list creates install scripts through @cwd")
+		}
 		if strings.HasPrefix(line, "@") {
 			continue
 		}
@@ -358,7 +362,7 @@ fixture_pkg() {
 		}
 		files[line] = mode
 	}
-	want := map[string]string{"bin/leaguebridge": "0755", "libexec/leaguebridge/linux-bsd-client-smoke.sh": "0755", "libexec/leaguebridge/linux-bsd-remote-session.sh": "0755", "share/doc/leaguebridge/LICENSE": "0644", "share/doc/leaguebridge/README.md": "0644", "share/doc/leaguebridge/SBOM.spdx.json": "0644", "share/doc/leaguebridge/PACKAGE-MANIFEST.json": "0644"}
+	want := map[string]string{"/usr/local/bin/leaguebridge": "0755", "/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh": "0755", "/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh": "0755", "/usr/local/share/doc/leaguebridge/LICENSE": "0644", "/usr/local/share/doc/leaguebridge/README.md": "0644", "/usr/local/share/doc/leaguebridge/SBOM.spdx.json": "0644", "/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json": "0644"}
 	if len(files) != len(want) {
 		t.Fatalf("payload inventory = %v", files)
 	}

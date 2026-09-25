@@ -315,21 +315,25 @@ case "$expected_goos" in
     # -r supplies their source root and does not enumerate that directory.
     packlist="$temporary_root/packing-list"
     printf '%s\n' \
-      '@cwd /usr/local' \
       '@owner root' \
       '@group wheel' \
       '@mode 0755' \
-      'bin/leaguebridge' \
-      'libexec/leaguebridge/linux-bsd-client-smoke.sh' \
-      'libexec/leaguebridge/linux-bsd-remote-session.sh' \
+      '/usr/local/bin/leaguebridge' \
+      '/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh' \
+      '/usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh' \
       '@mode 0644' \
-      'share/doc/leaguebridge/LICENSE' \
-      'share/doc/leaguebridge/README.md' \
-      'share/doc/leaguebridge/SBOM.spdx.json' \
-      'share/doc/leaguebridge/PACKAGE-MANIFEST.json' \
+      '/usr/local/share/doc/leaguebridge/LICENSE' \
+      '/usr/local/share/doc/leaguebridge/README.md' \
+      '/usr/local/share/doc/leaguebridge/SBOM.spdx.json' \
+      '/usr/local/share/doc/leaguebridge/PACKAGE-MANIFEST.json' \
       '@mode 0755' \
-      '@dir libexec/leaguebridge' \
-      '@dir share/doc/leaguebridge' > "$packlist"
+      '@dir /usr/local/libexec/leaguebridge' \
+      '@dir /usr/local/share/doc/leaguebridge' > "$packlist"
+    if [ "$expected_goos" = dragonfly ]; then
+      # DragonFly pkg preserves source numeric ownership even when the packing
+      # list names root:wheel. Bind archive ownership to that declared owner.
+      as_root chown -R root:wheel "$staging/root/usr/local"
+    fi
     "$pkg_command" create -m "$metadata" -p "$packlist" -r "$staging/root" -o "$generated" -f txz -n
     generated_package=
     set +f
