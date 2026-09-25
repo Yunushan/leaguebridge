@@ -33,7 +33,7 @@ func bsdFixturePayload() []bsdFixtureEntry {
 	}
 }
 
-func bsdFixtureTar(t *testing.T, entries []bsdFixtureEntry, compression string) []byte {
+func bsdFixtureTar(t *testing.T, entries []bsdFixtureEntry, goos string) []byte {
 	t.Helper()
 	var raw bytes.Buffer
 	writer := tar.NewWriter(&raw)
@@ -44,8 +44,14 @@ func bsdFixtureTar(t *testing.T, entries []bsdFixtureEntry, compression string) 
 		}
 		header := &tar.Header{Name: entry.name, Mode: entry.mode, Size: int64(len(entry.data)), Typeflag: kind,
 			Uname: "root", Gname: "wheel"}
-		if compression == "xz" {
+		if goos == "freebsd" {
 			header.Uid, header.Gid = 65534, 65534
+		}
+		if goos == "openbsd" && !strings.HasPrefix(entry.name, "+") && kind == tar.TypeReg {
+			header.Mode |= 0o100000
+		}
+		if goos == "netbsd" && entry.name == "+CONTENTS" {
+			header.PAXRecords = map[string]string{"hdrcharset": "BINARY"}
 		}
 		if kind == tar.TypeSymlink {
 			header.Size = 0
@@ -63,7 +69,7 @@ func bsdFixtureTar(t *testing.T, entries []bsdFixtureEntry, compression string) 
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if compression == "xz" {
+	if goos == "freebsd" || goos == "dragonfly" {
 		command := exec.Command("/usr/bin/xz", "-zc")
 		command.Stdin = bytes.NewReader(raw.Bytes())
 		output, err := command.Output()
@@ -127,7 +133,7 @@ func bsdFixtureFreeBSD(t *testing.T, goos, arch string, mutate func(map[string]a
 		bsdFixtureEntry{"/usr/local/libexec/leaguebridge", nil, 0o755, tar.TypeDir},
 		bsdFixtureEntry{"/usr/local/share/doc/leaguebridge", nil, 0o755, tar.TypeDir},
 	)
-	return bsdFixtureTar(t, entries, "xz")
+	return bsdFixtureTar(t, entries, goos)
 }
 
 func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFixtureEntry)) []byte {
@@ -169,7 +175,7 @@ func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFix
 		entries = append(entries, bsdFixtureEntry{"+DESC", []byte("A bounded, read-only compatibility and remote handoff controller.\n"), 0o644, tar.TypeReg})
 	}
 	entries = append(entries, payload...)
-	return bsdFixtureTar(t, entries, "gzip")
+	return bsdFixtureTar(t, entries, goos)
 }
 
 func TestInspectBSDPackageFormats(t *testing.T) {
@@ -250,6 +256,11 @@ func TestInspectBSDPackagesRejectInstallSideEffectsAndInventoryChanges(t *testin
 		}), func(ctx context.Context, data []byte) (inspectedPackage, error) {
 			return inspectFreeBSDPkg(ctx, data, "freebsd")
 		}},
+		{"pkg-empty-script-map", bsdFixtureFreeBSD(t, "freebsd", "amd64", func(m map[string]any, _ *[]bsdFixtureEntry) {
+			m["scripts"] = map[string]string{}
+		}), func(ctx context.Context, data []byte) (inspectedPackage, error) {
+			return inspectFreeBSDPkg(ctx, data, "freebsd")
+		}},
 		{"pkg-extra-file", bsdFixtureFreeBSD(t, "freebsd", "amd64", func(_ map[string]any, files *[]bsdFixtureEntry) {
 			*files = append(*files, bsdFixtureEntry{"bin/extra", []byte("extra"), 0o755, tar.TypeReg})
 		}), func(ctx context.Context, data []byte) (inspectedPackage, error) {
@@ -300,14 +311,28 @@ func TestBSDPackageInspectorsRejectCorruptAndCancelledSnapshots(t *testing.T) {
 
 func TestBSDArchiveRejectsUnreviewedOwnershipAndExtendedMetadata(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		modify func(*tar.Header)
+		name, goos string
+		modify     func(*tar.Header)
 	}{
-		{"nonroot-uid", func(header *tar.Header) { header.Uid = 1000 }},
-		{"nonroot-uname", func(header *tar.Header) { header.Uname = "runner" }},
-		{"nonwheel-gname", func(header *tar.Header) { header.Gname = "staff" }},
-		{"xattr", func(header *tar.Header) { header.Xattrs = map[string]string{"user.hook": "value"} }},
-		{"pax-unreviewed", func(header *tar.Header) { header.PAXRecords = map[string]string{"vendor.hook": "value"} }},
+		{"nonroot-uid", "netbsd", func(header *tar.Header) { header.Uid = 1000 }},
+		{"dragonfly-nonroot-uid", "dragonfly", func(header *tar.Header) { header.Uid = 1000 }},
+		{"nonroot-uname", "netbsd", func(header *tar.Header) { header.Uname = "runner" }},
+		{"nonwheel-gname", "netbsd", func(header *tar.Header) { header.Gname = "staff" }},
+		{"xattr", "netbsd", func(header *tar.Header) { header.Xattrs = map[string]string{"user.hook": "value"} }},
+		{"pax-unreviewed", "netbsd", func(header *tar.Header) { header.PAXRecords = map[string]string{"vendor.hook": "value"} }},
+		{"pax-unknown-charset", "netbsd", func(header *tar.Header) { header.PAXRecords = map[string]string{"hdrcharset": "ASCII"} }},
+		{"pax-charset-outside-netbsd", "openbsd", func(header *tar.Header) { header.PAXRecords = map[string]string{"hdrcharset": "BINARY"} }},
+		{"openbsd-wrong-file-type-bits", "openbsd", func(header *tar.Header) { header.Mode = 0o40755 }},
+		{"openbsd-setuid-file", "openbsd", func(header *tar.Header) { header.Mode = 0o104755 }},
+		{"openbsd-control-type-bits", "openbsd", func(header *tar.Header) {
+			header.Name = "+CONTENTS"
+			header.Mode = 0o100644
+		}},
+		{"openbsd-dir-type-bits", "openbsd", func(header *tar.Header) {
+			header.Typeflag = tar.TypeDir
+			header.Mode = 0o40755
+			header.Size = 0
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var raw bytes.Buffer
@@ -318,21 +343,35 @@ func TestBSDArchiveRejectsUnreviewedOwnershipAndExtendedMetadata(t *testing.T) {
 			if err := writer.WriteHeader(header); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := writer.Write([]byte("data")); err != nil {
-				t.Fatal(err)
+			if header.Typeflag != tar.TypeDir {
+				if _, err := writer.Write([]byte("data")); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err := writer.Close(); err != nil {
 				t.Fatal(err)
 			}
-			var compressed bytes.Buffer
-			gz := gzip.NewWriter(&compressed)
-			if _, err := gz.Write(raw.Bytes()); err != nil {
-				t.Fatal(err)
+			var compressed []byte
+			if test.goos == "dragonfly" {
+				command := exec.Command("/usr/bin/xz", "-zc")
+				command.Stdin = bytes.NewReader(raw.Bytes())
+				var err error
+				compressed, err = command.Output()
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				var buf bytes.Buffer
+				gz := gzip.NewWriter(&buf)
+				if _, err := gz.Write(raw.Bytes()); err != nil {
+					t.Fatal(err)
+				}
+				if err := gz.Close(); err != nil {
+					t.Fatal(err)
+				}
+				compressed = buf.Bytes()
 			}
-			if err := gz.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := bsdArchive(context.Background(), compressed.Bytes(), "netbsd"); err == nil {
+			if _, err := bsdArchive(context.Background(), compressed, test.goos); err == nil {
 				t.Fatal("BSD archive with unreviewed owner or metadata was accepted")
 			}
 		})

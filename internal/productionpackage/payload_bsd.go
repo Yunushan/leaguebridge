@@ -249,12 +249,25 @@ func bsdArchive(ctx context.Context, packageData []byte, goos string) ([]bsdEntr
 		if len(header.Xattrs) != 0 {
 			return nil, fmt.Errorf("BSD archive entry %q has extended attributes", name)
 		}
-		for key := range header.PAXRecords {
+		for key, value := range header.PAXRecords {
+			if goos == "netbsd" && key == "hdrcharset" && (value == "BINARY" || value == "ISO-IR 10646 2000 UTF-8") {
+				// NetBSD's pax fallback records the header character set. All
+				// installed paths and owner names are checked independently.
+				continue
+			}
 			if key != "atime" && key != "ctime" && key != "mtime" && key != "path" {
 				return nil, fmt.Errorf("BSD archive entry %q has unreviewed PAX record %q", name, key)
 			}
 		}
-		if header.Size < 0 || header.Size > nativeBSDMaximumEntry(name) || header.Mode&^0o777 != 0 {
+		mode := header.Mode
+		if goos == "openbsd" && !strings.HasPrefix(name, "+") &&
+			(header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeRegA) &&
+			mode&^0o777 == 0o100000 {
+			// OpenBSD pkg_create writes the regular-file type bit into
+			// the tar mode field in addition to the regular typeflag.
+			mode &= 0o777
+		}
+		if header.Size < 0 || header.Size > nativeBSDMaximumEntry(name) || mode&^0o777 != 0 {
 			return nil, fmt.Errorf("BSD archive entry %q has unsafe size or mode", name)
 		}
 		if header.Typeflag == tar.TypeDir && header.Size != 0 {
@@ -264,7 +277,7 @@ func bsdArchive(ctx context.Context, packageData []byte, goos string) ([]bsdEntr
 		if err != nil || int64(len(data)) != header.Size {
 			return nil, fmt.Errorf("read BSD archive entry %q: %w", name, err)
 		}
-		entries = append(entries, bsdEntry{name: name, mode: header.Mode, typeflag: header.Typeflag, data: data})
+		entries = append(entries, bsdEntry{name: name, mode: mode, typeflag: header.Typeflag, data: data})
 	}
 	for _, value := range decoded[len(decoded)-source.Len():] {
 		if value != 0 {

@@ -195,9 +195,10 @@ func TestNativePackageSmokeCleanupRejectsSymlinkScratch(t *testing.T) {
 
 func TestNativePackageSmokeGuardsWorkspaceOutputDirectories(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		path     string
-		required []string
+		name      string
+		path      string
+		required  []string
+		forbidden []string
 	}{
 		{
 			name: "linux",
@@ -207,8 +208,8 @@ func TestNativePackageSmokeGuardsWorkspaceOutputDirectories(t *testing.T) {
 				`package_root="${output_prefix}native-package-output"`,
 				`evidence_root="${output_prefix}native-package-evidence"`,
 				`ensure_directory "$output_root"`,
-				`ensure_directory "$staging_debian"`,
-				`ensure_directory "$staging_rpm"`,
+				`ensure_directory "$staging_root/debian"`,
+				`ensure_directory "$staging_root/rpm"`,
 				`ensure_directory "$packages_debian"`,
 				`ensure_directory "$packages_rpm"`,
 				`ensure_directory "$evidence_debian"`,
@@ -222,6 +223,10 @@ func TestNativePackageSmokeGuardsWorkspaceOutputDirectories(t *testing.T) {
 				"for evidence in \"$debian_evidence\" \"$rpm_evidence\"; do",
 				"evidence output already exists",
 				"path changed into a non-directory after creation",
+			},
+			forbidden: []string{
+				`ensure_directory "$staging_debian"`,
+				`ensure_directory "$staging_rpm"`,
 			},
 		},
 		{
@@ -251,6 +256,11 @@ func TestNativePackageSmokeGuardsWorkspaceOutputDirectories(t *testing.T) {
 					t.Errorf("%s is missing workspace-directory guard fragment %q", test.path, required)
 				}
 			}
+			for _, forbidden := range test.forbidden {
+				if strings.Contains(script, forbidden) {
+					t.Errorf("%s pre-creates a staging output directory with %q", test.path, forbidden)
+				}
+			}
 		})
 	}
 }
@@ -263,6 +273,11 @@ func TestNativePackageSmokeUsesTargetPackageManagerContracts(t *testing.T) {
 	script := string(data)
 	for _, required := range []string{
 		`pkg_command=`,
+		`'/usr/local/bin/leaguebridge'`,
+		`'@dir /usr/local/libexec/leaguebridge'`,
+		`'@dir /usr/local/share/doc/leaguebridge'`,
+		`if [ "$expected_goos" = dragonfly ]; then`,
+		`as_root chown -R root:wheel "$staging/root/usr/local"`,
 		`"$pkg_command" create -m "$metadata" -p "$packlist" -r "$staging/root" -o "$generated" -f txz -n`,
 		`as_root "$pkg_command" add -f "$package"`,
 		`as_root "$pkg_command" delete -y "$package_name"`,
@@ -279,6 +294,15 @@ func TestNativePackageSmokeUsesTargetPackageManagerContracts(t *testing.T) {
 		if !strings.Contains(script, required) {
 			t.Errorf("BSD package smoke script is missing target package-manager contract %q", required)
 		}
+	}
+	ownership := strings.Index(script, `as_root chown -R root:wheel "$staging/root/usr/local"`)
+	create := strings.Index(script, `"$pkg_command" create -m "$metadata" -p "$packlist" -r "$staging/root" -o "$generated" -f txz -n`)
+	packingList := strings.Index(script, `packlist="$temporary_root/packing-list"`)
+	if ownership < 0 || create < 0 || create < ownership || packingList < 0 || packingList > ownership {
+		t.Fatal("DragonFly payload ownership must be normalized before pkg create")
+	}
+	if strings.Contains(script[packingList:create], `@cwd`) {
+		t.Fatal("FreeBSD-family packing list must not create pkg install scripts through @cwd")
 	}
 }
 
