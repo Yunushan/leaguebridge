@@ -216,6 +216,31 @@ func TestInspectBSDPackageFormats(t *testing.T) {
 	}
 }
 
+func TestDragonFlyPkgAcceptsLegacyChecksumOnlyFiles(t *testing.T) {
+	legacyFiles := func(mutatePath, mutateSum string) func(map[string]any, *[]bsdFixtureEntry) {
+		return func(manifest map[string]any, _ *[]bsdFixtureEntry) {
+			current := manifest["files"].(map[string]map[string]string)
+			legacy := make(map[string]string, len(current))
+			for installed, attrs := range current {
+				legacy[installed] = attrs["sum"]
+			}
+			if mutatePath != "" {
+				legacy[mutatePath] = mutateSum
+			}
+			manifest["files"] = legacy
+		}
+	}
+	valid := bsdFixtureFreeBSD(t, "dragonfly", "x86:64", legacyFiles("", ""))
+	got, err := inspectFreeBSDPkg(context.Background(), valid, "dragonfly")
+	if err != nil || got.Architecture != "amd64" || len(got.Files) != 7 {
+		t.Fatalf("legacy DragonFly package: %+v, %v", got, err)
+	}
+	invalid := bsdFixtureFreeBSD(t, "dragonfly", "x86:64", legacyFiles("/usr/local/bin/leaguebridge", "not:a:checksum"))
+	if _, err := inspectFreeBSDPkg(context.Background(), invalid, "dragonfly"); err == nil {
+		t.Fatal("malformed legacy DragonFly checksum was accepted")
+	}
+}
+
 func TestBSDInspectorsAcceptReviewedCIPreReleaseVersion(t *testing.T) {
 	freeBSD := bsdFixtureFreeBSD(t, "freebsd", "amd64", func(manifest map[string]any, _ *[]bsdFixtureEntry) {
 		manifest["version"] = "0.0.0-ci"
@@ -250,6 +275,16 @@ func TestBSDPackingListAllowsRepeatedFixedInstallRoot(t *testing.T) {
 	})
 	if _, err := inspectOpenBSDPkg(context.Background(), packageData); err != nil {
 		t.Fatalf("repeated fixed install root was rejected: %v", err)
+	}
+}
+
+func TestOpenBSDPackingListUsesVerifiedArchiveModesWhenUnspecified(t *testing.T) {
+	packageData := bsdFixturePacking(t, "openbsd", func(packing *string, _ *[]bsdFixtureEntry) {
+		*packing = strings.ReplaceAll(*packing, "@mode 0755\n", "")
+		*packing = strings.ReplaceAll(*packing, "@mode 0644\n", "")
+	})
+	if _, err := inspectOpenBSDPkg(context.Background(), packageData); err != nil {
+		t.Fatalf("OpenBSD archive modes were rejected without packing-list modes: %v", err)
 	}
 }
 
