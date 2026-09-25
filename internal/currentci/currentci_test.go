@@ -596,7 +596,7 @@ func addPassingGateFixtures(f map[string]any) {
 	f[apiPrefix+"/actions/workflows/ci.yml"] = map[string]any{"id": 100, "name": "CI", "path": workflowPath, "state": "active"}
 	run := map[string]any{"id": 200, "run_attempt": 2, "workflow_id": 100, "path": workflowPath, "event": "push", "head_branch": "main", "head_sha": testCommit, "status": "completed", "conclusion": "success", "repository": map[string]string{"full_name": repository}, "head_repository": map[string]string{"full_name": repository}}
 	f[apiPrefix+"/actions/workflows/100/runs?head_sha="+testCommit+"&branch=main&per_page=100&page=1"] = map[string]any{"total_count": 1, "workflow_runs": []any{run}}
-	names := []string{"Test (ubuntu-24.04)", "Minimum Go compatibility", "Coverage", "Reachable vulnerability scan", "Reproducible release smoke test", "Native packages (Linux)", "Attest Linux race/vet subject", "Verify signed CI attestations", "Verify signed native runtime attestations", "Verify signed native package attestations"}
+	names := []string{"Test (ubuntu-24.04)", "Minimum Go compatibility", "Coverage", "Reachable vulnerability scan", "Reproducible release smoke test", "Native packages (Linux amd64)", "Native packages (Linux arm64)", "Attest Linux race/vet subject", "Verify signed CI attestations", "Verify signed native runtime attestations", "Verify signed eleven-cell native package attestations"}
 	labels := map[string]string{"freebsd": "FreeBSD 15.1", "openbsd": "OpenBSD 7.9", "netbsd": "NetBSD 11.0", "dragonfly": "DragonFly BSD 6.4.2"}
 	for _, candidate := range target.Ordered() {
 		cell := candidate.GOOS + "/" + candidate.GOARCH

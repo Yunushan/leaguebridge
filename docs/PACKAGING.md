@@ -44,10 +44,10 @@ containing:
 - no portable installer or uninstaller scripts.
 
 The supported staging family-to-target mapping is deliberately explicit.
-Debian and RPM staging now cover both shipped Linux architectures. The
-existing CI reference package builders and v1 attestation subjects still
-exercise Linux amd64 only; staging support does not claim an arm64 package was
-built, signed, published, or installed.
+Debian and RPM reference package builders now exercise both shipped Linux
+architectures on native amd64 and arm64 hosted runners. Their CI attestations
+cover build and smoke outputs only; they do not claim a stable-release package
+was signed, published, or independently installed.
 
 | Family | Target | Package root |
 | --- | --- | --- |
@@ -121,7 +121,9 @@ ownership on their private payload copies before archiving, independently of
 staging ownership. Their temporary directories remain caller-owned for cleanup.
 
 FreeBSD and DragonFly package creation supplies an explicit packing list for
-the seven staged payload files and the two owned directories. The `pkg create
+the seven staged payload files and the two owned directories. Their packing
+lists, and the OpenBSD packing list, explicitly set `root:wheel` ownership.
+The `pkg create
 -r` argument only selects the source root; the packing list determines which
 files enter the package. CI creates each family staging parent before the
 exclusive staging command and preserves executable modes across artifact
@@ -156,9 +158,40 @@ into a package-manager signature.
 Debian and RPM on Linux amd64/arm64 and the seven BSD family/target pairs. Its
 score-free verifier binds canonical candidate metadata and package bytes to an
 authenticated published release archive and a complete staging tree. It does
-not inspect package-manager payload metadata, verify a publisher signature or
-repository index, prove installation, or award native package readiness points.
-Those checks belong to a separately governed production verifier.
+not verify a publisher signature or repository index, prove installation, or
+award native package readiness points. Those checks belong to a separately
+governed production verifier.
+`productionpackage.VerifySet` accepts the opaque verified release and exactly
+one candidate per fixed inventory cell. It verifies every candidate against
+the release and local bytes, rejects missing or repeated cells, and returns
+summaries in inventory order for the later production checks. The set remains
+score-free until the separately governed checks authenticate signatures,
+publication, and native installation. `VerifiedSet.Recheck` rederives all eleven
+summaries and checks the live release again before a publisher uses the set.
+The publisher must sign an immutable package snapshot and independently hash
+the published bytes; mutable local paths can change after any recheck.
+The [release-set staging command](../packaging/README.md) prepares all eleven
+score-free inputs from one authenticated stable release.
+
+`productionpackage.VerifyPayloadSet` extends the authenticated candidate set
+with bounded inspection of each package's metadata and installed files. It
+requires all eleven cells and compares each file path, mode, size, and SHA-256
+digest with verified staging, rejecting extra files and unsafe package entries.
+It remains score-free and does not authenticate package signatures, an index,
+publication, or native installation. CI uses the narrower
+`productionpackage.VerifyStagedPayload` check for synthetic packages, before
+creating package subjects; that local check has no live release binding.
+FreeBSD/DragonFly manifest BLAKE2 sums are checked for syntax, while SHA-256
+of each archive payload file is compared with staging; the BLAKE2 sums are not
+independently recomputed by this inspector.
+
+To inspect one built package against its staging tree from this checkout:
+
+```sh
+go run -mod=vendor ./tools/nativepackagepayloadcheck \
+  -package /path/to/leaguebridge-package.deb \
+  -staging /path/to/native-package-staging/debian/amd64
+```
 
 ### Live package candidate command
 
@@ -188,9 +221,9 @@ evidence, derives the candidate from current package bytes and staging, then
 rechecks the live release. Build mode also rederives the freshly written
 temporary candidate before creating the output exclusively, then checks the
 published link's file identity and exact bytes. A saved release
-JSON or caller-supplied score is never accepted. The candidate remains
-score-free: package payload inspection, signing, publication, and native
-installation require independent production evidence.
+JSON or caller-supplied score is never accepted. The candidate command remains
+score-free; run the separate payload inspector for package contents. Signing,
+publication, and native installation require independent production evidence.
 
 The hermetic release builder exercises the 11 target/architecture-family
 staging mappings in its private work directory after `tools/releasecheck` succeeds.

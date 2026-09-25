@@ -77,15 +77,16 @@ func inventory(kind, goos, goarch, family string) ([]member, error) {
 			add(evidence+"/"+name, 0644, 8<<20)
 		}
 	case "package":
-		base, prefix, filename := family, "usr/local", ""
-		if goos != "linux" {
-			base += "/" + goarch
-		}
+		base, prefix, filename := family+"/"+goarch, "usr/local", ""
 		switch {
 		case goos == "linux" && goarch == "amd64" && family == "debian":
 			prefix, filename = "usr", "leaguebridge_0.0.0~ci_amd64.deb"
+		case goos == "linux" && goarch == "arm64" && family == "debian":
+			prefix, filename = "usr", "leaguebridge_0.0.0~ci_arm64.deb"
 		case goos == "linux" && goarch == "amd64" && family == "rpm":
 			prefix, filename = "usr", "leaguebridge-0.0.0-1.ci.x86_64.rpm"
+		case goos == "linux" && goarch == "arm64" && family == "rpm":
+			prefix, filename = "usr", "leaguebridge-0.0.0-1.ci.aarch64.rpm"
 		case goos == "freebsd" && family == "freebsd-pkg", goos == "dragonfly" && family == "dports":
 			filename = "leaguebridge-0.0.0-ci-" + goos + "-" + goarch + ".pkg"
 		case goos == "openbsd" && family == "openbsd-pkg", goos == "netbsd" && family == "pkgsrc":

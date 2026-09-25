@@ -256,7 +256,7 @@ func NormalizeRelativePath(value string) (string, error) { return normalizedRela
 // ExpectedHostClass returns the bounded CI host class for a package family.
 func ExpectedHostClass(family string) string { return expectedHostClass(family) }
 
-// Verify authenticates every member of the fixed nine-package CI set. The
+// Verify authenticates every member of the fixed eleven-package CI set. The
 // result is a prerequisite for later publication assessment, not publication
 // evidence by itself.
 func Verify(ctx context.Context, input VerifyRequest) (VerifiedSet, error) {
@@ -658,7 +658,9 @@ func validateInstallEvidence(path, family, version, filename string, targetValue
 func validateSetShape(values []loadedDocument) error {
 	expected := map[string]string{
 		"debian/linux/amd64":        "linux/amd64",
+		"debian/linux/arm64":        "linux/arm64",
 		"rpm/linux/amd64":           "linux/amd64",
+		"rpm/linux/arm64":           "linux/arm64",
 		"freebsd-pkg/freebsd/amd64": "freebsd/amd64",
 		"freebsd-pkg/freebsd/arm64": "freebsd/arm64",
 		"openbsd-pkg/openbsd/amd64": "openbsd/amd64",
@@ -705,7 +707,11 @@ func validateSetShape(values []loadedDocument) error {
 func expectedExecution(targetValue target, family string) (job, runner, architecture, hostClass string) {
 	switch targetValue.GOOS {
 	case "linux":
-		return "native-package-linux", "Linux", "X64", "hosted"
+		architecture = "X64"
+		if targetValue.GOARCH == "arm64" {
+			architecture = "ARM64"
+		}
+		return "native-package-linux", "Linux", architecture, "hosted"
 	case "freebsd", "openbsd", "netbsd":
 		return "native-package-bsd", "Linux", "X64", "virtualized"
 	case "dragonfly":
@@ -1200,7 +1206,7 @@ func validateExecution(value execution) error {
 	if value.RunnerOS != "Linux" {
 		return fmt.Errorf("unsupported runner OS %q", value.RunnerOS)
 	}
-	if value.RunnerArchitecture != "X64" {
+	if value.RunnerArchitecture != "X64" && value.RunnerArchitecture != "ARM64" {
 		return fmt.Errorf("unsupported runner architecture %q", value.RunnerArchitecture)
 	}
 	if value.HostClass != expectedHostClass(value.Package.Family) {
@@ -1235,12 +1241,6 @@ func validateExecution(value execution) error {
 }
 
 func validFamilyTarget(family string, value target) bool {
-	// This v1 verifier authenticates the fixed nine-subject CI smoke matrix.
-	// Production staging also supports Linux arm64, but no v1 CI job or schema
-	// subject exists for its Debian/RPM packages.
-	if value.GOOS == "linux" && value.GOARCH == "arm64" {
-		return false
-	}
 	for _, candidate := range nativepackage.SupportedFamilies() {
 		if string(candidate) == family {
 			for _, targetFamily := range nativepackage.PackageFamiliesForTarget(value.GOOS, value.GOARCH) {

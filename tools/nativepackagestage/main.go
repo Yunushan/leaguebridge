@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -57,6 +58,12 @@ var canonicalUnixArchiveOrder = []string{
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "release-set" {
+		if err := runReleaseSet(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fatalf("release-set: %v", err)
+		}
+		return
+	}
 	archivePath := flag.String("archive", "", "portable Unix release tar.gz to stage")
 	familyRaw := flag.String("family", "", "native package family")
 	output := flag.String("output", "", "new staging directory to create")

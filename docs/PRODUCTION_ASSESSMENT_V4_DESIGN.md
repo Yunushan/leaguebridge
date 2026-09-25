@@ -26,10 +26,15 @@ verified release identity whose zero value is invalid. It retains the version,
 commit, tree, release ID, CI/Release run and attempt, released scorecard digest
 and expiry, exact release asset digests, full publication state, and local
 evidence digests. Only the verifier may construct it. The full assessor must
+pass this opaque identity to future external verifiers alongside a copied
+release binding, so a package candidate can be checked against the authenticated
+release rather than an assessment JSON document. The full assessor must
 call its final live recheck after all additional verification, because the
 release verifier's own final check happens before the extra evidence would be
-inspected. A saved release-assessment result or caller-supplied commit is never
-an input.
+inspected. It also rechecks mutable external state after that live release
+recheck, since authorization or package publication can change while the
+release check runs. A saved release-assessment result or caller-supplied commit
+is never an input.
 
 The live release verifier checks that the six rows below occur exactly once in the released
 fixed contract with their reviewed IDs, weights, evidence types, and verifier
@@ -62,7 +67,7 @@ is an observation at that time, not a durable certificate.
 | `implementation-native-validated-integration` | 3 | Authenticate a complete reviewed target inventory of native client integration runs against the assessed release binary, its dependencies, and an actually usable physical host route. The proposed inventory is the nine shipped Linux/BSD target cells. Verify native OS/architecture, Moonlight installation and execution, display/audio/input behavior, exact release digests, the host route's prerequisites, complete artifacts, and fresh signed observations. A cross-build, headless CLI smoke, or self-authored log is insufficient. | A separately governed physical-run lab observer and independent reviewer policy, scoped to each target and release; publisher CI identity alone is insufficient. |
 | `tests-native-bsd-physical-smoke` | 5 | Authenticate native-kernel execution and install/smoke results on physical hardware for the seven shipped BSD cells: FreeBSD, OpenBSD, and NetBSD on amd64/arm64, plus DragonFly BSD on amd64. Bind the exact release binary, target, machine/run pseudonym, challenge, raw result artifacts, reviewer observations, and expiry. Verify physical presence through independently witnessed machine and boot evidence; a `host_class: physical` string, VM, QEMU guest, or hosted runner cannot qualify. | Provisioned physical-lab keys with distinct observer and independent-reviewer principals and organizations, rooted in a reviewed policy and checked for revocation. |
 | `security-independent-audit-closed` | 2 | Authenticate an independent auditor's engagement scope for the exact release source and artifacts, signed findings inventory, severity and disposition, and signed closure/retest evidence for every finding required by the reviewed closure policy. Recheck report version and withdrawal status. A project-authored threat model or its own security scan is insufficient. | Reviewed independent auditor identity/key and independence policy, separate from project publisher and physical-lab keys. |
-| `packaging-native-os-packages` | 3 | Define and verify a reviewed 11-cell package family/target inventory: Debian and RPM on Linux amd64/arm64; FreeBSD, OpenBSD, and NetBSD on amd64/arm64; DragonFly BSD on amd64. Match each published package's bytes to a signed native-package build subject for the assessed release, its staging manifest, exact assessed release binary, package metadata, and authoritative index. Verify the approved package-manager signature or signed repository metadata and live publication/withdrawal state. Current CI covers only nine cells, omitting Linux arm64, and its `v0.0.0-ci` smoke subjects do not match a stable release's version or binary. The new Linux arm64 staging capability produces inputs, not signed or published packages. | Reviewed package publisher keys and separately authenticated repository/index roots for each package family, with key scope, revocation, and rotation. GitHub OIDC/Sigstore authenticates CI subjects only. |
+| `packaging-native-os-packages` | 3 | Define and verify a reviewed 11-cell package family/target inventory: Debian and RPM on Linux amd64/arm64; FreeBSD, OpenBSD, and NetBSD on amd64/arm64; DragonFly BSD on amd64. Match each published package's bytes to a signed native-package build subject for the assessed release, its staging manifest, exact assessed release binary, package metadata, and authoritative index. Verify the approved package-manager signature or signed repository metadata and live publication/withdrawal state. CI now builds and smoke-tests all eleven cells with synthetic `v0.0.0-ci` archives. Those subjects still do not establish stable-release provenance, package-manager signatures, or publication. | Reviewed package publisher keys and separately authenticated repository/index roots for each package family, with key scope, revocation, and rotation. GitHub OIDC/Sigstore authenticates CI subjects only. |
 | `packaging-install-uninstall-native-smoke` | 2 | Verify an independently authenticated install, upgrade/repair, native CLI smoke, and uninstall run for the exact published production package in every reviewed package target cell. Confirm native OS/kernel and architecture, package-manager status, installed file digests and modes, unrelated-file preservation, cleanup, and link to the package signature and publication proof above. A CI VM install log or staged but unpublished package cannot qualify. | The provisioned physical/native-run reviewer policy plus authenticated package publisher identity; the observer must be independent of a self-authored CI log. |
 
 The proposed target inventories and test profile are review decisions, not
@@ -105,6 +110,22 @@ the authenticated released archive and verified staging tree, including the
 exact released executable digest. The candidate is not a production package
 attestation: package-manager payload parsing, approved publisher signatures,
 authoritative index state, and native installation remain separate checks.
+`VerifySet` requires the opaque authenticated release and verifies exactly one
+candidate for each of the eleven fixed cells. It returns a score-free complete
+inventory for those later production checks.
+`VerifyPayloadSet` additionally snapshots and inspects every package's native
+metadata and installed regular files, comparing their paths, modes, sizes, and
+digests with the authenticated release's verified staging for all eleven cells.
+The score-free `VerifyStagedPayload` command applies the same built-in format
+inspectors to synthetic CI packages before their subjects are attested. Neither
+check authenticates publisher keys, live repository indexes, package-manager
+signatures, or native installation. The FreeBSD-family inspector compares
+archive payload SHA-256 with staging but only syntax-checks native BLAKE2
+manifest sums; package-manager acceptance remains a separate observation.
+`nativepackagestage release-set` prepares those eleven staging inputs from an
+opaque authenticated stable release and records package building, signing,
+publication, and lifecycle verification as outstanding. It does not build
+production packages or award points.
 
 The existing release assessor requires exactly nine archives and
 `checksums.txt` in the GitHub release. Publishing native packages as additional

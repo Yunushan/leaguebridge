@@ -1036,15 +1036,27 @@ jobs:
             -verify-subject bsd-evidence/netbsd/arm64/native-runtime.json \
             -verify-subject bsd-evidence/dragonfly/amd64/native-runtime.json
   native-package-linux:
-    name: Native packages (Linux)
+    name: Native packages (Linux ${{ matrix.goarch }})
     if: github.event_name != 'pull_request'
     needs: release-smoke
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       id-token: write
       attestations: write
       artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: ubuntu-24.04
+            debian_filename: leaguebridge_0.0.0~ci_amd64.deb
+            rpm_filename: leaguebridge-0.0.0-1.ci.x86_64.rpm
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
+            debian_filename: leaguebridge_0.0.0~ci_arm64.deb
+            rpm_filename: leaguebridge-0.0.0-1.ci.aarch64.rpm
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1061,18 +1073,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends rpm file
-      - name: Download validated release archive
+      - name: Download validated release archives
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-smoke-dist
           path: dist
       - name: Build and smoke native Linux packages
+        run: bash scripts/native-package-linux-smoke.sh v0.0.0-ci dist/leaguebridge_0.0.0-ci_linux_${{ matrix.goarch }}.tar.gz native-package-linux
+      - name: Verify native Linux package payloads against staging
+        shell: bash
         run: |
           set -euo pipefail
-          bash scripts/native-package-linux-smoke.sh \
-            v0.0.0-ci \
-            dist/leaguebridge_0.0.0-ci_linux_amd64.tar.gz
+          arch="${{ matrix.goarch }}"
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package "native-package-linux/native-package-output/debian/$arch/${{ matrix.debian_filename }}" \
+            -staging "native-package-linux/native-package-staging/debian/$arch"
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package "native-package-linux/native-package-output/rpm/$arch/${{ matrix.rpm_filename }}" \
+            -staging "native-package-linux/native-package-staging/rpm/$arch"
       - name: Create signed native Linux package subjects
+        working-directory: native-package-linux
         shell: bash
         run: |
           set -euo pipefail
@@ -1082,60 +1102,46 @@ jobs:
             exit 1
           fi
           export CI_ATTESTATION_TREE="$(git rev-parse HEAD^{tree})"
-          go run -mod=vendor ./tools/nativepackageattestation \
-            -target-goos linux -target-goarch amd64 -family debian -format deb \
-            -package native-package-output/debian/leaguebridge_0.0.0~ci_amd64.deb \
-            -staging-dir native-package-staging/debian \
-            -install-evidence native-package-evidence/debian/install.txt \
-            -output native-package-evidence/debian/native-package.json \
-            -command 'dpkg native package build; package-manager install and uninstall; native install smoke'
-          go run -mod=vendor ./tools/nativepackageattestation \
-            -target-goos linux -target-goarch amd64 -family rpm -format rpm \
-            -package native-package-output/rpm/leaguebridge-0.0.0-1.ci.x86_64.rpm \
-            -staging-dir native-package-staging/rpm \
-            -install-evidence native-package-evidence/rpm/install.txt \
-            -output native-package-evidence/rpm/native-package.json \
-            -command 'rpm native package build; package-manager install and uninstall; native install smoke'
+          arch="${{ matrix.goarch }}"
+          go run -mod=vendor github.com/Yunushan/leaguebridge/tools/nativepackageattestation -target-goos linux -target-goarch "$arch" -family debian -format deb -package "native-package-output/debian/$arch/${{ matrix.debian_filename }}" -staging-dir "native-package-staging/debian/$arch" -install-evidence "native-package-evidence/debian/$arch/install.txt" -output "native-package-evidence/debian/$arch/native-package.json" -command 'dpkg native package build; package-manager install and uninstall; native install smoke'
+          go run -mod=vendor github.com/Yunushan/leaguebridge/tools/nativepackageattestation -target-goos linux -target-goarch "$arch" -family rpm -format rpm -package "native-package-output/rpm/$arch/${{ matrix.rpm_filename }}" -staging-dir "native-package-staging/rpm/$arch" -install-evidence "native-package-evidence/rpm/$arch/install.txt" -output "native-package-evidence/rpm/$arch/native-package.json" -command 'rpm native package build; package-manager install and uninstall; native install smoke'
       - name: Attest native Linux package subjects
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            native-package-evidence/debian/native-package.json
-            native-package-output/debian/leaguebridge_0.0.0~ci_amd64.deb
-            native-package-staging/debian/NATIVE-PACKAGE-MANIFEST.json
-            native-package-staging/debian/root/usr/bin/leaguebridge
-            native-package-staging/debian/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh
-            native-package-staging/debian/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh
-            native-package-staging/debian/root/usr/share/doc/leaguebridge/LICENSE
-            native-package-staging/debian/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json
-            native-package-staging/debian/root/usr/share/doc/leaguebridge/README.md
-            native-package-staging/debian/root/usr/share/doc/leaguebridge/SBOM.spdx.json
-            native-package-evidence/debian/install.txt
-            native-package-evidence/rpm/native-package.json
-            native-package-output/rpm/leaguebridge-0.0.0-1.ci.x86_64.rpm
-            native-package-staging/rpm/NATIVE-PACKAGE-MANIFEST.json
-            native-package-staging/rpm/root/usr/bin/leaguebridge
-            native-package-staging/rpm/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh
-            native-package-staging/rpm/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh
-            native-package-staging/rpm/root/usr/share/doc/leaguebridge/LICENSE
-            native-package-staging/rpm/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json
-            native-package-staging/rpm/root/usr/share/doc/leaguebridge/README.md
-            native-package-staging/rpm/root/usr/share/doc/leaguebridge/SBOM.spdx.json
-            native-package-evidence/rpm/install.txt
+            native-package-linux/native-package-evidence/debian/${{ matrix.goarch }}/native-package.json
+            native-package-linux/native-package-output/debian/${{ matrix.goarch }}/${{ matrix.debian_filename }}
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/NATIVE-PACKAGE-MANIFEST.json
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/bin/leaguebridge
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/LICENSE
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/README.md
+            native-package-linux/native-package-staging/debian/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/SBOM.spdx.json
+            native-package-linux/native-package-evidence/debian/${{ matrix.goarch }}/install.txt
+            native-package-linux/native-package-evidence/rpm/${{ matrix.goarch }}/native-package.json
+            native-package-linux/native-package-output/rpm/${{ matrix.goarch }}/${{ matrix.rpm_filename }}
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/NATIVE-PACKAGE-MANIFEST.json
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/bin/leaguebridge
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/libexec/leaguebridge/linux-bsd-remote-session.sh
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/LICENSE
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/PACKAGE-MANIFEST.json
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/README.md
+            native-package-linux/native-package-staging/rpm/${{ matrix.goarch }}/root/usr/share/doc/leaguebridge/SBOM.spdx.json
+            native-package-linux/native-package-evidence/rpm/${{ matrix.goarch }}/install.txt
       - name: Preserve native Linux package staging modes
         run: |
+          set -euo pipefail
           for family in debian rpm; do
-            go run -mod=vendor ./tools/ciartifact -kind package \
-              -goos linux -goarch amd64 -family "$family" \
-              -archive "package-transport-$family.tar"
+            go run -mod=vendor ./tools/ciartifact -kind package -goos linux -goarch "${{ matrix.goarch }}" -family "$family" -root native-package-linux -archive "native-package-linux/package-transport-$family.tar"
           done
       - name: Retain native Linux package evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: native-package-linux
-          path: |
-            package-transport-debian.tar
-            package-transport-rpm.tar
+          name: native-package-linux-${{ matrix.goarch }}
+          path: native-package-linux/package-transport-*.tar
           if-no-files-found: error
           retention-days: 30
 
@@ -1274,6 +1280,14 @@ jobs:
       - name: Synchronize BSD package evidence to the runner
         if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
         run: cpa.sh --sync-files vm-to-runner
+      - name: Verify native BSD package payload against staging
+        if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package "native-package-output/${{ matrix.family }}/${{ matrix.goarch }}/${{ matrix.package_file }}" \
+            -staging "native-package-staging/${{ matrix.family }}/${{ matrix.goarch }}"
       - name: Create signed native BSD package subject
         if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success' && github.event_name != 'pull_request'
         shell: bash
@@ -1410,6 +1424,14 @@ jobs:
           set -euo pipefail
           test -f native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg
           test -f native-package-evidence/dports/amd64/install.txt
+      - name: Verify DragonFly package payload against staging
+        if: success() && steps.start-dragonfly-vm.outcome == 'success' && steps.dragonfly-ready.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run -mod=vendor ./tools/nativepackagepayloadcheck \
+            -package native-package-output/dports/amd64/leaguebridge-0.0.0-ci-dragonfly-amd64.pkg \
+            -staging native-package-staging/dports/amd64
       - name: Create signed DragonFly native package subject
         if: success() && steps.start-dragonfly-vm.outcome == 'success' && steps.dragonfly-ready.outcome == 'success' && github.event_name != 'pull_request'
         shell: bash
@@ -1460,7 +1482,7 @@ jobs:
           retention-days: 30
 
   verify-native-package-attestations:
-    name: Verify signed native package attestations
+    name: Verify signed eleven-cell native package attestations
     if: github.event_name != 'pull_request'
     needs: [native-package-linux, native-package-bsd, dragonfly-native-package]
     runs-on: ubuntu-24.04
@@ -1477,11 +1499,16 @@ jobs:
         with:
           go-version: "1.27.1"
           cache: false
-      - name: Download Linux native package evidence
+      - name: Download Linux amd64 package evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: native-package-linux
-          path: native-package-input/linux
+          name: native-package-linux-amd64
+          path: native-package-input/linux/amd64
+      - name: Download Linux arm64 package evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-package-linux-arm64
+          path: native-package-input/linux/arm64
       - name: Download BSD native package evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1493,14 +1520,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p native-package-output native-package-staging native-package-evidence
-          for family in debian rpm; do
-            source_root="native-package-input/restored-$family"
-            go run -mod=vendor ./tools/ciartifact -unpack -kind package \
-              -goos linux -goarch amd64 -family "$family" \
-              -archive "native-package-input/linux/package-transport-$family.tar" -root "$source_root"
-            cp -a "$source_root/native-package-output/$family" native-package-output/
-            cp -a "$source_root/native-package-staging/$family" native-package-staging/
-            cp -a "$source_root/native-package-evidence/$family" native-package-evidence/
+          for arch in amd64 arm64; do
+            for family in debian rpm; do
+              artifact_root="native-package-input/linux/$arch"
+              source_root="native-package-input/restored-linux-$arch-$family"
+              go run -mod=vendor ./tools/ciartifact -unpack -kind package -goos linux -goarch "$arch" -family "$family" -archive "$artifact_root/package-transport-$family.tar" -root "$source_root"
+              mkdir -p "native-package-output/$family" "native-package-staging/$family" "native-package-evidence/$family"
+              cp -a "$source_root/native-package-output/$family/$arch" "native-package-output/$family/"
+              cp -a "$source_root/native-package-staging/$family/$arch" "native-package-staging/$family/"
+              cp -a "$source_root/native-package-evidence/$family/$arch" "native-package-evidence/$family/"
+            done
           done
           for target in freebsd openbsd netbsd; do
             case "$target" in
@@ -1554,8 +1583,10 @@ jobs:
             -expected-workflow-sha "$EXPECTED_WORKFLOW_SHA" \
             -run-id "$EXPECTED_RUN_ID" \
             -run-attempt "$EXPECTED_RUN_ATTEMPT" \
-            -verify-subject native-package-evidence/debian/native-package.json \
-            -verify-subject native-package-evidence/rpm/native-package.json \
+            -verify-subject native-package-evidence/debian/amd64/native-package.json \
+            -verify-subject native-package-evidence/debian/arm64/native-package.json \
+            -verify-subject native-package-evidence/rpm/amd64/native-package.json \
+            -verify-subject native-package-evidence/rpm/arm64/native-package.json \
             -verify-subject native-package-evidence/freebsd-pkg/amd64/native-package.json \
             -verify-subject native-package-evidence/freebsd-pkg/arm64/native-package.json \
             -verify-subject native-package-evidence/openbsd-pkg/amd64/native-package.json \

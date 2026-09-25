@@ -1,7 +1,8 @@
 // Package productionpackage verifies score-free native package candidate
 // metadata against a live, authenticated release and a complete staging tree.
-// It does not parse package-manager payloads, authenticate a publisher,
-// establish publication, or attest to native installation.
+// VerifyPayloadSet additionally inspects the native archive payload. This
+// package does not authenticate a publisher, establish publication, or attest
+// to native installation.
 package productionpackage
 
 import (
@@ -43,9 +44,9 @@ var (
 	digestPattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-// Cell is one proposed production package family and target. This inventory
-// deliberately includes Linux arm64 even though the separate hosted CI smoke
-// contract currently tests only nine package cells.
+// Cell is one proposed production package family and target. The eleven-cell
+// inventory matches the hosted CI package smoke matrix; that synthetic CI
+// evidence does not establish stable-release package publication.
 type Cell struct {
 	Family nativepackage.Family
 	GOOS   string
@@ -164,8 +165,9 @@ func Build(ctx context.Context, release releaseassessment.VerifiedRelease, archi
 
 // Verify strictly decodes the candidate file and rederives every field from
 // the opaque live release, complete staging tree, and current package bytes.
-// A full assessor must independently verify native package format, publisher
-// signature, live index, and installation, then recheck mutable state.
+// VerifyPayloadSet additionally checks native package format and payload. A
+// full assessor must independently verify publisher signatures, live indexes,
+// and installation, then recheck mutable state.
 func Verify(ctx context.Context, release releaseassessment.VerifiedRelease, candidatePath, archivePath, stagingDir, packagePath string) (VerifiedCandidate, error) {
 	facts, err := factsFromRelease(release)
 	if err != nil {

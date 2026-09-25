@@ -553,20 +553,25 @@ func TestGitSourceCannotSubstituteEvidenceOrPolicy(t *testing.T) {
 	}
 }
 
-func TestResolveSourceSupportsPreviousCIWorkflow(t *testing.T) {
+func TestResolveSourceSupportsReviewedCIWorkflowPins(t *testing.T) {
 	current, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(ciWorkflow)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	previous := bytes.ReplaceAll(current,
-		[]byte("uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0"),
-		[]byte("uses: cross-platform-actions/action@faa0c6197e94aacf1c5956460152c8380d3560a5 # v1.5.0"))
-	if bytes.Equal(current, previous) || digestBytes(previous) != supportedCIWorkflow {
-		t.Fatal("previous CI workflow fixture does not match its reviewed digest")
+	if digestBytes(current) != supportedCIWorkflowV18 {
+		t.Fatal("current CI workflow does not match its reviewed digest")
 	}
-	f := newFixtureWithCIWorkflow(t, previous)
+	f := newFixtureWithCIWorkflow(t, current)
 	if _, _, _, err := resolveSource(context.Background(), f.api, fixtureCommit, fixtureNow); err != nil {
-		t.Fatalf("previous reviewed CI workflow was rejected: %v", err)
+		t.Fatalf("current reviewed CI workflow was rejected: %v", err)
+	}
+	for _, digest := range []string{supportedCIWorkflow, supportedCIWorkflowV16, supportedCIWorkflowV17, supportedCIWorkflowV18} {
+		if !isSupportedSourceWorkflow(ciWorkflow, digest) {
+			t.Errorf("reviewed CI workflow digest %s was rejected", digest)
+		}
+	}
+	if isSupportedSourceWorkflow(ciWorkflow, strings.Repeat("0", 64)) {
+		t.Fatal("unsupported CI workflow digest was accepted")
 	}
 }
 

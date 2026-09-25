@@ -19,15 +19,15 @@ const (
 	testTree   = "89abcdef0123456789abcdef0123456789abcdef"
 )
 
-func TestCIPackageV1MatrixStaysNineSubjectsAfterArm64StagingExpansion(t *testing.T) {
+func TestCIPackageV1MatrixIncludesLinuxArm64Packages(t *testing.T) {
 	if !validFamilyTarget("debian", target{GOOS: "linux", GOARCH: "amd64"}) ||
+		!validFamilyTarget("debian", target{GOOS: "linux", GOARCH: "arm64"}) ||
+		!validFamilyTarget("rpm", target{GOOS: "linux", GOARCH: "arm64"}) ||
 		!validFamilyTarget("freebsd-pkg", target{GOOS: "freebsd", GOARCH: "arm64"}) {
-		t.Fatal("existing CI native-package subjects are no longer accepted")
+		t.Fatal("native package matrix targets are no longer accepted")
 	}
-	for _, family := range []string{"debian", "rpm"} {
-		if validFamilyTarget(family, target{GOOS: "linux", GOARCH: "arm64"}) {
-			t.Fatalf("CI native-package v1 accepted an unshipped %s/Linux arm64 subject", family)
-		}
+	if job, runner, architecture, host := expectedExecution(target{GOOS: "linux", GOARCH: "arm64"}, "debian"); job != "native-package-linux" || runner != "Linux" || architecture != "ARM64" || host != "hosted" {
+		t.Fatalf("Linux arm64 execution = %q/%q/%q/%q", job, runner, architecture, host)
 	}
 }
 
@@ -173,7 +173,7 @@ func TestMarshalRejectsForgedNativePackageIdentityAndSubjects(t *testing.T) {
 		{"wrong runner", "execution:", func(value *document) { value.Execution.RunnerOS = "Windows" }},
 		{"physical host spoof", "execution:", func(value *document) { value.Execution.HostClass = "physical" }},
 		{"invalid package version", "execution:", func(value *document) { value.Execution.Package.Version = "1.2.3" }},
-		{"unshipped Linux arm64 target", "execution:", func(value *document) { value.Execution.Target.GOARCH = "arm64" }},
+		{"unsupported Linux architecture", "execution:", func(value *document) { value.Execution.Target.GOARCH = "386" }},
 		{"wrong package format", "execution:", func(value *document) { value.Execution.Package.Format = "rpm" }},
 		{"unsafe staging manifest path", "execution:", func(value *document) { value.Execution.Package.StagingManifestPath = "../manifest.json" }},
 		{"missing subjects", "exactly 10", func(value *document) { value.Subjects = value.Subjects[:len(value.Subjects)-1] }},
@@ -331,8 +331,8 @@ func TestVerifyGitHubOutputRequiresSignedDigestAndCertificateIdentity(t *testing
 }
 
 func TestValidateSetShapeRequiresCompleteNativePackageSet(t *testing.T) {
-	if err := validateSetShape(nil); err == nil || !strings.Contains(err.Error(), "exactly 9") {
-		t.Fatalf("incomplete package set error = %v; want exact nine-subject requirement", err)
+	if err := validateSetShape(nil); err == nil || !strings.Contains(err.Error(), "exactly 11") {
+		t.Fatalf("incomplete package set error = %v; want exact eleven-subject requirement", err)
 	}
 }
 
@@ -483,7 +483,9 @@ func TestVerifySetAuthenticatesAndRehashesCompleteNativePackageSet(t *testing.T)
 		format             string
 	}{
 		{"debian", "linux", "amd64", nativepackage.FamilyDebian, "deb"},
+		{"debian-arm64", "linux", "arm64", nativepackage.FamilyDebian, "deb"},
 		{"rpm", "linux", "amd64", nativepackage.FamilyRPM, "rpm"},
+		{"rpm-arm64", "linux", "arm64", nativepackage.FamilyRPM, "rpm"},
 		{"freebsd", "freebsd", "amd64", nativepackage.FamilyFreeBSD, "pkg"},
 		{"freebsd-arm64", "freebsd", "arm64", nativepackage.FamilyFreeBSD, "pkg"},
 		{"openbsd", "openbsd", "amd64", nativepackage.FamilyOpenBSD, "pkg"},
@@ -549,7 +551,13 @@ func createPackageFixture(t *testing.T, name, goos, goarch string, family native
 	packageDir := filepath.ToSlash(filepath.Join("packages", name))
 	packageFilename := "leaguebridge-1.2.3." + format
 	if family == nativepackage.FamilyDebian {
-		packageFilename = "leaguebridge_1.2.3~ci_amd64.deb"
+		packageFilename = "leaguebridge_1.2.3~ci_" + goarch + ".deb"
+	} else if family == nativepackage.FamilyRPM {
+		rpmArchitecture := "x86_64"
+		if goarch == "arm64" {
+			rpmArchitecture = "aarch64"
+		}
+		packageFilename = "leaguebridge-1.2.3-1.ci." + rpmArchitecture + ".rpm"
 	} else if format == "pkg" {
 		packageFilename = "leaguebridge-1.2.3.pkg"
 	}

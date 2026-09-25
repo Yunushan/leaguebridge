@@ -30,7 +30,7 @@ const (
 	workflowPath = ".github/workflows/ci.yml"
 	// This reviewed non-reusable workflow uses the event source revision for
 	// push/workflow_dispatch on main. Changes require explicit contract review.
-	supportedWorkflowSHA256 = "51d78bfb7b7cc6e3a5c28d2792f0743e0b70df1abef6be15bfc34aa741ead28e"
+	supportedWorkflowSHA256 = "60e7b99dce7b6f418a66d191a4e97700fd10d31af4848de51ed041bf40aa7b80"
 	maximumResponse         = 8 << 20
 	maximumTreeEntries      = 1000
 	maximumWorkflowSize     = 256 << 10
