@@ -188,4 +188,52 @@ func TestCandidateSetRejectsInvalidReleaseContextAndResult(t *testing.T) {
 	if summaries, err := zero.Summaries(); err == nil || len(summaries) != 0 {
 		t.Fatalf("zero candidate set disclosed summaries: %+v, %v", summaries, err)
 	}
+	if err := zero.Recheck(context.Background(), releaseassessment.VerifiedRelease{}, fixture.inputs); err == nil {
+		t.Fatal("zero candidate set was rechecked")
+	}
+}
+
+func TestCandidateSetRecheckDetectsChangedPackageBytes(t *testing.T) {
+	fixture := makeCandidateSetFixture(t)
+	previous, err := verifySetWithFacts(context.Background(), fixture.facts, fixture.inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := verifySetWithFacts(context.Background(), fixture.facts, fixture.inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compareVerifiedSets(previous, current); err != nil {
+		t.Fatalf("unchanged complete set failed recheck: %v", err)
+	}
+
+	input := fixture.inputs[0]
+	packageData, err := os.ReadFile(input.PackagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageData[0] ^= 0xff
+	if err := os.WriteFile(input.PackagePath, packageData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Even if the candidate metadata is regenerated for the modified package,
+	// it cannot silently replace a package in an earlier verified set.
+	updated, err := derive(context.Background(), fixture.facts, input.ArchivePath, input.StagingDir, input.PackagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := marshal(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input.CandidatePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current, err = verifySetWithFacts(context.Background(), fixture.facts, fixture.inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compareVerifiedSets(previous, current); err == nil || !strings.Contains(err.Error(), "changed after verification") {
+		t.Fatalf("changed package candidate replaced an earlier verified cell: %v", err)
+	}
 }

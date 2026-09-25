@@ -164,7 +164,12 @@ one candidate per fixed inventory cell. It verifies every candidate against
 the release and local bytes, rejects missing or repeated cells, and returns
 summaries in inventory order for the later production checks. The set remains
 score-free until the separately governed checks authenticate signatures,
-publication, and native installation.
+publication, and native installation. `VerifiedSet.Recheck` rederives all eleven
+summaries and checks the live release again before a publisher uses the set.
+The publisher must sign an immutable package snapshot and independently hash
+the published bytes; mutable local paths can change after any recheck.
+The [release-set staging command](../packaging/README.md) prepares all eleven
+score-free inputs from one authenticated stable release.
 
 ### Live package candidate command
 

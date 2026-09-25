@@ -56,6 +56,39 @@ func VerifySet(ctx context.Context, release releaseassessment.VerifiedRelease, i
 	})
 }
 
+// Recheck rederives all eleven candidate summaries and compares them with the
+// retained set after rechecking the live release. A production publisher must
+// additionally authenticate the exact bytes it signs and publishes; local
+// files can change again after this score-free observation.
+func (set VerifiedSet) Recheck(ctx context.Context, release releaseassessment.VerifiedRelease, inputs []CandidatePaths) error {
+	if !set.valid || len(set.summaries) != len(productionCells) {
+		return errors.New("production package candidate set has not been verified")
+	}
+	if ctx == nil {
+		return errors.New("verification context is required")
+	}
+	if err := release.Recheck(ctx); err != nil {
+		return fmt.Errorf("recheck authenticated release: %w", err)
+	}
+	current, err := VerifySet(ctx, release, inputs)
+	if err != nil {
+		return err
+	}
+	return compareVerifiedSets(set, current)
+}
+
+func compareVerifiedSets(previous, current VerifiedSet) error {
+	if !previous.valid || !current.valid || len(previous.summaries) != len(productionCells) || len(current.summaries) != len(productionCells) {
+		return errors.New("production package candidate set has not been verified")
+	}
+	for index, expected := range previous.summaries {
+		if current.summaries[index] != expected {
+			return fmt.Errorf("production package candidate cell %+v changed after verification", productionCells[index])
+		}
+	}
+	return nil
+}
+
 // verifySetWithFacts exercises the same per-candidate bytes check for package
 // tests, which cannot construct a live VerifiedRelease. It is not a public
 // trust path and cannot award readiness credit.

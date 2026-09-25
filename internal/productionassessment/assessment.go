@@ -215,10 +215,16 @@ func verify(ctx context.Context, input releaseassessment.Request, deps dependenc
 		return Result{}, err
 	}
 	if err := external.recheck(ctx); err != nil {
-		return Result{}, fmt.Errorf("final external evidence recheck failed: %w", err)
+		return Result{}, fmt.Errorf("initial external evidence recheck failed: %w", err)
 	}
 	if err := verified.Recheck(ctx); err != nil {
 		return Result{}, fmt.Errorf("final live release recheck failed: %w", err)
+	}
+	// A release recheck may take long enough for mutable external authorization,
+	// audit, or package-index state to change. Check it again before taking the
+	// final observation time.
+	if err := external.recheck(ctx); err != nil {
+		return Result{}, fmt.Errorf("final external evidence recheck failed: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err

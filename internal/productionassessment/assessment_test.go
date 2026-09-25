@@ -25,6 +25,19 @@ type fixtureIdentity struct {
 	rechecks   int
 }
 
+type recheckHookIdentity struct {
+	verifiedRelease
+	after func()
+}
+
+func (value recheckHookIdentity) Recheck(ctx context.Context) error {
+	err := value.verifiedRelease.Recheck(ctx)
+	if value.after != nil {
+		value.after()
+	}
+	return err
+}
+
 func (f *fixtureIdentity) Assessment() (releaseassessment.Result, error) { return f.result, nil }
 func (f *fixtureIdentity) ScorecardSHA256() (string, error)              { return f.digest, nil }
 func (f *fixtureIdentity) PublishedAssets() ([]releaseassessment.PublishedAsset, error) {
@@ -203,7 +216,7 @@ func TestVerifyDerivesScoreFromReleaseBoundCriteria(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Score != 100 || result.ReleaseScore != 83 || result.RepositoryScore != 74 ||
-		!result.EvidenceExpiresAt.Equal(fixtureTime.Add(2*time.Hour)) || rechecks != 1 || identity.rechecks != 1 {
+		!result.EvidenceExpiresAt.Equal(fixtureTime.Add(2*time.Hour)) || rechecks != 2 || identity.rechecks != 1 {
 		t.Fatalf("complete release-bound evidence did not derive 100 with final rechecks: %+v; external=%d release=%d", result, rechecks, identity.rechecks)
 	}
 	assertProductionAssessmentSchema(t, result)
@@ -211,6 +224,31 @@ func TestVerifyDerivesScoreFromReleaseBoundCriteria(t *testing.T) {
 		if criterion.Status != "verified" || criterion.Points != criterion.Weight || len(criterion.MissingEvidence) != 0 {
 			t.Fatalf("criterion was not derived as complete: %+v", criterion)
 		}
+	}
+}
+
+func TestVerifyRejectsExternalRevocationDuringReleaseRecheck(t *testing.T) {
+	identity := fixtureRelease()
+	var proofs []criterionProof
+	for _, spec := range externalCriterionSpecs {
+		proofs = append(proofs, fixtureProof(t, identity, spec.id, fixtureTime.Add(2*time.Hour)))
+	}
+	active := true
+	externalRechecks := 0
+	deps := fixtureDependencies(recheckHookIdentity{verifiedRelease: identity, after: func() { active = false }}, nil)
+	deps.verifyExternal = func(context.Context, verifiedRelease, releaseBinding) (externalVerification, error) {
+		return externalVerification{proofs: proofs, recheck: func(context.Context) error {
+			externalRechecks++
+			if !active {
+				return errors.New("external authorization was revoked")
+			}
+			return nil
+		}}, nil
+	}
+	result, err := verify(context.Background(), releaseassessment.Request{Version: "v1.2.3"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "external authorization was revoked") || result.Score != 0 ||
+		identity.rechecks != 1 || externalRechecks != 2 {
+		t.Fatalf("revocation during release recheck earned points: %+v, %v; release=%d external=%d", result, err, identity.rechecks, externalRechecks)
 	}
 }
 

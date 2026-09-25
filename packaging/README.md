@@ -29,7 +29,7 @@ non-symlink files, payload sizes, hashes, and POSIX modes when the host
 filesystem exposes them. It remains a staging-integrity check; the package
 builder still owns package metadata, signing, installation, and runtime tests.
 
-The non-PR CI workflow includes reference smoke builders for the nine supported
+The non-PR CI workflow includes reference smoke builders for the eleven supported
 target/architecture-family mappings. The Linux and BSD scripts under `scripts/` build temporary
 package-manager artifacts and test install/uninstall on the target runner or
 guest. These artifacts are unsigned CI outputs and are not published
@@ -51,9 +51,37 @@ go run -mod=vendor ./tools/nativepackageattestation \
 
 The subject hashes the package bytes, the staging manifest and all seven staged
 payload files, and the install log. Its verifier requires the complete
-nine-package Linux/BSD set and GitHub
+eleven-package Linux/BSD set and GitHub
 artifact attestations; it does not add package-manager signatures or publish
 packages.
+
+To prepare the complete fixed staging inventory from a published stable
+release, build this command from the repository checkout and run it from that
+release's downloaded CI evidence directory:
+
+```sh
+go build -mod=vendor -o /path/to/nativepackagestage ./tools/nativepackagestage
+cd /path/to/ci-evidence
+/path/to/nativepackagestage release-set \
+  --version v1.2.3 --release-dir /path/to/downloaded-release \
+  --output /path/to/new-release-package-inputs --gh /path/to/trusted/gh
+```
+
+`release-set` authenticates the live GitHub release and its complete local
+release and CI evidence, stages each of the eleven fixed family/target cells
+from the authenticated archive bytes, checks every staging tree, and rechecks
+the live release before completing the new directory. The
+`RELEASE-BOUND-NATIVE-PACKAGE-INPUTS.json` file binds each staging manifest to
+the release ID, commit, tree, scorecard digest, archive name, size, and digest.
+Every cell explicitly records package bytes as `unbuilt`, with signing,
+publication, and lifecycle verification outstanding. The command accepts no
+saved release JSON as authority and awards no readiness points.
+
+A separately governed builder must verify the staging tree again on its target
+platform, build its native package, inspect its payload metadata, and supply
+approved signing and publication evidence. Its verifier must rehash package
+bytes from the publication channel; mutable local staging or package paths
+cannot establish what was signed and published.
 
 Native package bytes require the target operating system's package toolchain,
 policy metadata, signing process, and independent attestation. Those tools are

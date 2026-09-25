@@ -68,6 +68,8 @@ release on 2026-09-23 verified 74 repository points and nine CI/release points.
 Re-run the command to assess current publication state. The
 remaining 17 require independently verified authorization, physical runs,
 audit, and signed native package publication and lifecycle evidence.
+The [external evidence intake checklist](docs/PRODUCTION_EVIDENCE_INTAKE.md)
+lists the records and trust roots needed for those rows.
 
 The CI workflow also runs native Ubuntu Linux amd64 and arm64 runtime smokes
 against the shipped archive's install lifecycle and the CLI's read-only client

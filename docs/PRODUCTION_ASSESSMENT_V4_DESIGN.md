@@ -31,8 +31,10 @@ release binding, so a package candidate can be checked against the authenticated
 release rather than an assessment JSON document. The full assessor must
 call its final live recheck after all additional verification, because the
 release verifier's own final check happens before the extra evidence would be
-inspected. A saved release-assessment result or caller-supplied commit is never
-an input.
+inspected. It also rechecks mutable external state after that live release
+recheck, since authorization or package publication can change while the
+release check runs. A saved release-assessment result or caller-supplied commit
+is never an input.
 
 The live release verifier checks that the six rows below occur exactly once in the released
 fixed contract with their reviewed IDs, weights, evidence types, and verifier
@@ -111,6 +113,10 @@ authoritative index state, and native installation remain separate checks.
 `VerifySet` requires the opaque authenticated release and verifies exactly one
 candidate for each of the eleven fixed cells. It returns a score-free complete
 inventory for those later production checks.
+`nativepackagestage release-set` prepares those eleven staging inputs from an
+opaque authenticated stable release and records package building, signing,
+publication, and lifecycle verification as outstanding. It does not build
+production packages or award points.
 
 The existing release assessor requires exactly nine archives and
 `checksums.txt` in the GitHub release. Publishing native packages as additional
