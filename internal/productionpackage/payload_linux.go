@@ -29,6 +29,7 @@ const (
 	maximumNativeEntries = 1024
 	maximumRPMHeader     = 16 << 20
 	maximumControlTar    = 4 << 20
+	rpmFileFlagDoc       = 1 << 1
 )
 
 func inspectDeb(ctx context.Context, packageData []byte) (inspectedPackage, error) {
@@ -731,8 +732,11 @@ func compareRPMFileHeader(h rpmHeader, payload []inspectedFile, directories map[
 		if digests[i] != file.SHA256 {
 			return fmt.Errorf("RPM header file %q SHA-256 differs from payload", full)
 		}
-		if (flags != nil && flags[i] != 0) || (links != nil && links[i] != "") {
-			return fmt.Errorf("RPM header file %q has unreviewed flags or link metadata", full)
+		if flags != nil && !reviewedRPMFileFlags(full, flags[i]) {
+			return fmt.Errorf("RPM header file %q has unreviewed flags 0x%x", full, flags[i])
+		}
+		if links != nil && links[i] != "" {
+			return fmt.Errorf("RPM header file %q has unreviewed link metadata", full)
 		}
 		delete(actual, full)
 	}
@@ -740,6 +744,13 @@ func compareRPMFileHeader(h rpmHeader, payload []inspectedFile, directories map[
 		return errors.New("RPM payload has files absent from its header")
 	}
 	return nil
+}
+
+func reviewedRPMFileFlags(filePath string, flags uint64) bool {
+	if flags == 0 {
+		return true
+	}
+	return strings.HasPrefix(filePath, "/usr/share/doc/leaguebridge/") && flags == rpmFileFlagDoc
 }
 
 func inspectCPIO(ctx context.Context, data []byte) ([]inspectedFile, map[string]string, error) {

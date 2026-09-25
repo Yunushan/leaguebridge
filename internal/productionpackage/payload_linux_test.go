@@ -245,6 +245,40 @@ func nativeTestRPM(t *testing.T, extra []nativeRPMTag, cpio []byte) []byte {
 	return nativeTestRPMVersion(t, "1.2.3", "1", false, extra, cpio)
 }
 
+func nativeTestRPMWithFile(t *testing.T, filePath string, flags uint32) []byte {
+	t.Helper()
+	separator := strings.LastIndex(filePath, "/")
+	if separator <= 0 || separator == len(filePath)-1 || filePath[0] != '/' {
+		t.Fatalf("invalid test RPM path %q", filePath)
+	}
+	content := []byte("binary")
+	sha := sha256.Sum256(content)
+	mode := uint32(0o100644)
+	if strings.HasPrefix(filePath, "/usr/bin/") {
+		mode = 0o100755
+	}
+	tags := []nativeRPMTag{
+		nativeRPMString(1000, "leaguebridge"), nativeRPMString(1001, "1.2.3"), nativeRPMString(1002, "1"),
+		nativeRPMString(1021, "linux"), nativeRPMString(1022, "x86_64"),
+		nativeRPMInt32s(1028, uint32(len(content))), nativeRPMInt16s(1030, uint16(mode)),
+		nativeRPMStrings(1035, hex.EncodeToString(sha[:])), nativeRPMInt32s(1037, flags),
+		nativeRPMStrings(1039, "root"), nativeRPMStrings(1040, "root"),
+		nativeRPMString(1124, "cpio"), nativeRPMString(1125, "gzip"), nativeRPMInt32s(5011, 8),
+		nativeRPMInt32s(1116, 0), nativeRPMStrings(1117, filePath[separator+1:]),
+		nativeRPMStrings(1118, filePath[:separator+1]),
+	}
+	cpio := nativeCPIOEntry("."+filePath, mode, content)
+	cpio = append(cpio, nativeCPIOEntry("TRAILER!!!", 0, nil)...)
+	lead := make([]byte, 96)
+	copy(lead, []byte{0xed, 0xab, 0xee, 0xdb, 3, 0, 0, 0})
+	out := append(lead, nativeRPMHeader()...)
+	for len(out)%8 != 0 {
+		out = append(out, 0)
+	}
+	out = append(out, nativeRPMHeader(tags...)...)
+	return append(out, nativeTestGzip(t, cpio)...)
+}
+
 func nativeTestRPMVersion(t *testing.T, version, release string, withDirectory bool, extra []nativeRPMTag, cpio []byte) []byte {
 	t.Helper()
 	sha := sha256.Sum256([]byte("binary"))
@@ -312,6 +346,32 @@ func TestInspectRPMEmptyFileLanguages(t *testing.T) {
 	got, err := inspectRPM(context.Background(), nativeTestRPM(t, []nativeRPMTag{nativeRPMStrings(1097, "")}, nativeTestCPIO()))
 	if err != nil || len(got.Files) != 1 {
 		t.Fatalf("empty RPM file languages: %+v, %v", got, err)
+	}
+}
+
+func TestInspectRPMReviewedDocumentationFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		path    string
+		flags   uint32
+		wantErr bool
+	}{
+		{"documentation without flags", "/usr/share/doc/leaguebridge/LICENSE", 0, false},
+		{"documentation marker", "/usr/share/doc/leaguebridge/LICENSE", rpmFileFlagDoc, false},
+		{"binary without flags", "/usr/bin/leaguebridge", 0, false},
+		{"config flag on documentation", "/usr/share/doc/leaguebridge/LICENSE", 1, true},
+		{"documentation flag on binary", "/usr/bin/leaguebridge", rpmFileFlagDoc, true},
+		{"combined documentation and config flags", "/usr/share/doc/leaguebridge/LICENSE", rpmFileFlagDoc | 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := inspectRPM(context.Background(), nativeTestRPMWithFile(t, tc.path, tc.flags))
+			if tc.wantErr && err == nil {
+				t.Fatal("RPM file flags were accepted")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("reviewed RPM file flags were rejected: %v", err)
+			}
+		})
 	}
 }
 
