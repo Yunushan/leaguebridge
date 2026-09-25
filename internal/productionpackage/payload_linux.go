@@ -716,10 +716,23 @@ func compareRPMFileHeader(h rpmHeader, payload []inspectedFile, directories map[
 			continue
 		}
 		file, ok := actual[full]
-		if !ok || modes[i]&0o170000 != 0o100000 || modes[i]&0o7000 != 0 ||
-			fmt.Sprintf("%04o", modes[i]&0o777) != file.Mode || sizes[i] != uint64(file.Size) ||
-			digests[i] != file.SHA256 || (flags != nil && flags[i] != 0) || (links != nil && links[i] != "") {
-			return errors.New("RPM header file metadata differs from payload")
+		if !ok {
+			return fmt.Errorf("RPM header file %q is missing from payload", full)
+		}
+		if modes[i]&0o170000 != 0o100000 || modes[i]&0o7000 != 0 {
+			return fmt.Errorf("RPM header file %q has unsafe mode bits %06o", full, modes[i])
+		}
+		if headerMode := fmt.Sprintf("%04o", modes[i]&0o777); headerMode != file.Mode {
+			return fmt.Errorf("RPM header file %q mode %s differs from payload mode %s", full, headerMode, file.Mode)
+		}
+		if sizes[i] != uint64(file.Size) {
+			return fmt.Errorf("RPM header file %q size %d differs from payload size %d", full, sizes[i], file.Size)
+		}
+		if digests[i] != file.SHA256 {
+			return fmt.Errorf("RPM header file %q SHA-256 differs from payload", full)
+		}
+		if (flags != nil && flags[i] != 0) || (links != nil && links[i] != "") {
+			return fmt.Errorf("RPM header file %q has unreviewed flags or link metadata", full)
 		}
 		delete(actual, full)
 	}

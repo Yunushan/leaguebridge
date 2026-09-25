@@ -244,6 +244,15 @@ func TestBSDInspectorsAcceptReviewedCIPreReleaseVersion(t *testing.T) {
 	}
 }
 
+func TestBSDPackingListAllowsRepeatedFixedInstallRoot(t *testing.T) {
+	packageData := bsdFixturePacking(t, "openbsd", func(packing *string, _ *[]bsdFixtureEntry) {
+		*packing = strings.Replace(*packing, "@mode 0755\n", "@cwd /usr/local\n@mode 0755\n", 1)
+	})
+	if _, err := inspectOpenBSDPkg(context.Background(), packageData); err != nil {
+		t.Fatalf("repeated fixed install root was rejected: %v", err)
+	}
+}
+
 func TestInspectBSDPackagesRejectInstallSideEffectsAndInventoryChanges(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {

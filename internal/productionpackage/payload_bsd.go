@@ -467,8 +467,21 @@ func bsdFreeBSDManifest(data []byte, goos string) (bsdPkgManifest, error) {
 
 func bsdPkgAttributes(raw json.RawMessage, file bool) (bsdPkgFile, error) {
 	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) != nil || len(object) == 0 {
-		return bsdPkgFile{}, errors.New("attributes are not an object")
+	if err := json.Unmarshal(raw, &object); err != nil {
+		var value any
+		if valueErr := json.Unmarshal(raw, &value); valueErr != nil {
+			return bsdPkgFile{}, errors.New("attributes are invalid JSON")
+		}
+		if text, ok := value.(string); ok {
+			if len(text) > 128 {
+				text = text[:128]
+			}
+			return bsdPkgFile{}, fmt.Errorf("attributes are a string (%q)", text)
+		}
+		return bsdPkgFile{}, fmt.Errorf("attributes are not an object (%T)", value)
+	}
+	if len(object) == 0 {
+		return bsdPkgFile{}, errors.New("attributes are an empty object")
 	}
 	allowed := map[string]bool{"sum": file, "uname": true, "gname": true, "perm": true, "mtime": file}
 	for key := range object {
@@ -573,13 +586,13 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 	last := ""
 	ownerSeen := false
 	groupSeen := false
-	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+	for lineNumber, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
 		if line == "" || strings.ContainsRune(line, '\r') {
-			return bsdPacking{}, errors.New("BSD packing list contains an empty or malformed line")
+			return bsdPacking{}, fmt.Errorf("BSD packing list line %d is empty or malformed", lineNumber+1)
 		}
 		if !strings.HasPrefix(line, "@") {
 			if cwd != "/usr/local" || mode == "" {
-				return bsdPacking{}, errors.New("BSD packing file has no fixed install root or mode")
+				return bsdPacking{}, fmt.Errorf("BSD packing file line %d %q has no fixed install root or mode (cwd=%q mode=%q)", lineNumber+1, line, cwd, mode)
 			}
 			installed, err := bsdInstalledPath(line, false)
 			if err != nil {
@@ -609,8 +622,8 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 			result.arch = arg
 		case "@cwd":
-			if cwd != "" || arg != "/usr/local" {
-				return bsdPacking{}, errors.New("BSD package changes install root")
+			if arg != "/usr/local" || (cwd != "" && cwd != arg) {
+				return bsdPacking{}, fmt.Errorf("BSD package changes install root on line %d: current=%q requested=%q", lineNumber+1, cwd, arg)
 			}
 			cwd = arg
 		case "@mode":
