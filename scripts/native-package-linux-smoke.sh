@@ -6,7 +6,7 @@ export LC_ALL=C
 umask 022
 
 usage() {
-  echo "usage: native-package-linux-smoke.sh VERSION RELEASE_ARCHIVE" >&2
+  echo "usage: native-package-linux-smoke.sh VERSION RELEASE_ARCHIVE [OUTPUT_ROOT]" >&2
   exit 2
 }
 
@@ -15,12 +15,38 @@ fail() {
   exit 1
 }
 
-if [[ "$#" -ne 2 ]]; then
+if [[ "$#" -lt 2 || "$#" -gt 3 ]]; then
   usage
 fi
 
 version=$1
 archive=$2
+output_root=${3:-.}
+output_prefix=
+if [[ "$output_root" != "." ]]; then
+  if [[ "$output_root" == /* || "$output_root" == */ || "$output_root" == *$'\n'* || "$output_root" == *$'\r'* || "$output_root" == *[^A-Za-z0-9._/-]* ]]; then
+    fail "OUTPUT_ROOT must be a safe workspace-relative path"
+  fi
+  IFS=/ read -r -a output_parts <<< "$output_root"
+  output_current=
+  for output_part in "${output_parts[@]}"; do
+    if [[ -z "$output_part" || "$output_part" == "." || "$output_part" == ".." ]]; then
+      fail "OUTPUT_ROOT must not contain empty or traversing path components"
+    fi
+    if [[ -n "$output_current" ]]; then
+      output_current="$output_current/$output_part"
+    else
+      output_current=$output_part
+    fi
+    if [[ -L "$output_current" ]]; then
+      fail "OUTPUT_ROOT contains a symlinked path component: $output_current"
+    fi
+  done
+  output_prefix="$output_root/"
+fi
+staging_root="${output_prefix}native-package-staging"
+package_root="${output_prefix}native-package-output"
+evidence_root="${output_prefix}native-package-evidence"
 # Keep the shell guard to the required prefix only. The repository's Go
 # semantic-version checker below is authoritative; duplicating SemVer grammar
 # in a shell glob can reject valid prerelease forms before that checker runs.
@@ -87,20 +113,30 @@ verify_installed_payload() {
   echo 'payload=pass'
 }
 
-ensure_directory native-package-staging
-ensure_directory native-package-output
-ensure_directory native-package-evidence
+ensure_directory "$output_root"
+staging_debian="$staging_root/debian/$target_goarch"
+staging_rpm="$staging_root/rpm/$target_goarch"
+packages_debian="$package_root/debian/$target_goarch"
+packages_rpm="$package_root/rpm/$target_goarch"
+evidence_debian="$evidence_root/debian/$target_goarch"
+evidence_rpm="$evidence_root/rpm/$target_goarch"
+ensure_directory "$staging_debian"
+ensure_directory "$staging_rpm"
+ensure_directory "$packages_debian"
+ensure_directory "$packages_rpm"
+ensure_directory "$evidence_debian"
+ensure_directory "$evidence_rpm"
 
 go run -mod=vendor ./tools/nativepackagestage \
   -archive "$archive" -family debian \
-  -output native-package-staging/debian
+  -output "$staging_debian"
 go run -mod=vendor ./tools/nativepackagecheck \
-  -staging native-package-staging/debian
+  -staging "$staging_debian"
 go run -mod=vendor ./tools/nativepackagestage \
   -archive "$archive" -family rpm \
-  -output native-package-staging/rpm
+  -output "$staging_rpm"
 go run -mod=vendor ./tools/nativepackagecheck \
-  -staging native-package-staging/rpm
+  -staging "$staging_rpm"
 
 package_version=${version#v}
 package_version=${package_version%%+*}
@@ -113,15 +149,10 @@ fi
 rpm_release=${rpm_release//-/.}
 rpm_release=${rpm_release//+/.}
 
-ensure_directory native-package-output/debian
-ensure_directory native-package-output/rpm
-ensure_directory native-package-evidence/debian
-ensure_directory native-package-evidence/rpm
-
-debian_package="native-package-output/debian/leaguebridge_${deb_version}_${debian_arch}.deb"
-rpm_package="native-package-output/rpm/leaguebridge-${rpm_version}-${rpm_release}.${rpm_arch}.rpm"
-debian_evidence="native-package-evidence/debian/install.txt"
-rpm_evidence="native-package-evidence/rpm/install.txt"
+debian_package="$packages_debian/leaguebridge_${deb_version}_${debian_arch}.deb"
+rpm_package="$packages_rpm/leaguebridge-${rpm_version}-${rpm_release}.${rpm_arch}.rpm"
+debian_evidence="$evidence_debian/install.txt"
+rpm_evidence="$evidence_rpm/install.txt"
 for output in "$debian_package" "$rpm_package"; do
   if [[ -e "$output" || -L "$output" ]]; then
     fail "package output already exists: $output"
@@ -161,7 +192,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$debian_root" "$rpm_top" "$rpm_payload"
-cp -a native-package-staging/debian/root/. "$debian_root/"
+cp -a "$staging_debian/root/." "$debian_root/"
 mkdir -p "$debian_root/DEBIAN"
 printf '%s\n' \
   'Package: leaguebridge' \
@@ -176,7 +207,7 @@ printf '%s\n' \
 chmod 0644 "$debian_root/DEBIAN/control"
 dpkg-deb --build --root-owner-group "$debian_root" "$debian_package" >/dev/null
 
-cp -a native-package-staging/rpm/root/. "$rpm_payload/"
+cp -a "$staging_rpm/root/." "$rpm_payload/"
 mkdir -p "$rpm_top/BUILD" "$rpm_top/BUILDROOT" "$rpm_top/RPMS" "$rpm_top/SOURCES" \
   "$rpm_top/SPECS" "$rpm_top/SRPMS"
 rpm_spec=$rpm_top/SPECS/leaguebridge.spec
@@ -230,7 +261,7 @@ sudo dpkg --root="$debian_scratch" --admindir="$debian_scratch/var/lib/dpkg" \
   echo "target=linux/$target_goarch"
   dpkg-deb --info "$debian_package"
   sudo dpkg-query --admindir="$debian_scratch/var/lib/dpkg" -W leaguebridge
-  verify_installed_payload native-package-staging/debian/root "$debian_scratch"
+  verify_installed_payload "$staging_debian/root" "$debian_scratch"
   test -x "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
   test -x "$debian_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   "$debian_scratch/usr/bin/leaguebridge" status
@@ -255,7 +286,7 @@ sudo rpm --root "$rpm_scratch" --install "$rpm_package"
   rpm --version
   rpm -qip "$rpm_package"
   sudo rpm --root "$rpm_scratch" -q leaguebridge
-  verify_installed_payload native-package-staging/rpm/root "$rpm_scratch"
+  verify_installed_payload "$staging_rpm/root" "$rpm_scratch"
   test -x "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-client-smoke.sh"
   test -x "$rpm_scratch/usr/libexec/leaguebridge/linux-bsd-remote-session.sh"
   "$rpm_scratch/usr/bin/leaguebridge" status

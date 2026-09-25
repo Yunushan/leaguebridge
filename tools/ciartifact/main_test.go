@@ -48,7 +48,7 @@ func TestTransportRoundTripPreservesNativePackageVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stagingDir := filepath.Join(input, "native-package-staging", "debian")
+	stagingDir := filepath.Join(input, "native-package-staging", "debian", "amd64")
 	write(t, filepath.Join(stagingDir, nativepackage.StagingManifestName), stagingData, 0644)
 	for _, item := range staging.Payload {
 		body := sourceData
@@ -72,7 +72,7 @@ func TestTransportRoundTripPreservesNativePackageVerification(t *testing.T) {
 	if err := restore(archive, output, members); err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.OpenRoot(filepath.Join(output, "native-package-staging", "debian"))
+	root, err := os.OpenRoot(filepath.Join(output, "native-package-staging", "debian", "amd64"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestTransportRoundTripPreservesNativePackageVerification(t *testing.T) {
 	}
 	// Reproduction control: raw ZIP transport loses executable bits and fails.
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(filepath.Join(output, "native-package-staging", "debian", "root", "usr", "bin", "leaguebridge"), 0644); err != nil {
+		if err := os.Chmod(filepath.Join(output, "native-package-staging", "debian", "amd64", "root", "usr", "bin", "leaguebridge"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := nativepackage.VerifyStagingRoot(root); err == nil {
@@ -139,7 +139,8 @@ func TestPackageInventoryMatchesEveryPublishedCIArtifactPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, target := range [][3]string{
-		{"linux", "amd64", "debian"}, {"linux", "amd64", "rpm"},
+		{"linux", "amd64", "debian"}, {"linux", "arm64", "debian"},
+		{"linux", "amd64", "rpm"}, {"linux", "arm64", "rpm"},
 		{"freebsd", "amd64", "freebsd-pkg"}, {"freebsd", "arm64", "freebsd-pkg"},
 		{"openbsd", "amd64", "openbsd-pkg"}, {"openbsd", "arm64", "openbsd-pkg"},
 		{"netbsd", "amd64", "pkgsrc"}, {"netbsd", "arm64", "pkgsrc"},
@@ -288,7 +289,7 @@ func TestPackRejectsMissingOrSymlinkedInputAndExistingOutput(t *testing.T) {
 }
 
 func TestInventoryRejectsUnsupportedCombinations(t *testing.T) {
-	for _, tc := range [][4]string{{"other", "linux", "amd64", ""}, {"runtime", "windows", "amd64", ""}, {"runtime", "dragonfly", "arm64", ""}, {"runtime", "linux", "amd64", "debian"}, {"package", "linux", "arm64", "debian"}, {"package", "freebsd", "amd64", "debian"}} {
+	for _, tc := range [][4]string{{"other", "linux", "amd64", ""}, {"runtime", "windows", "amd64", ""}, {"runtime", "dragonfly", "arm64", ""}, {"runtime", "linux", "amd64", "debian"}, {"package", "linux", "386", "debian"}, {"package", "freebsd", "amd64", "debian"}} {
 		if _, err := inventory(tc[0], tc[1], tc[2], tc[3]); err == nil {
 			t.Errorf("invalid inventory accepted: %v", tc)
 		}

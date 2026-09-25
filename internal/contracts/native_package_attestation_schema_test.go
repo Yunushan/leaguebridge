@@ -51,6 +51,27 @@ func TestNativePackageAttestationSchemaIsScoreFreeAndTargetBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	linuxArm64 := decodeJSONBytes(t, data).(map[string]any)
+	linuxArm64Execution := linuxArm64["execution"].(map[string]any)
+	linuxArm64Execution["runner_architecture"] = "ARM64"
+	linuxArm64Target := linuxArm64Execution["target"].(map[string]any)
+	linuxArm64Target["goarch"] = "arm64"
+	linuxArm64Package := linuxArm64Execution["package"].(map[string]any)
+	linuxArm64Package["filename"] = "leaguebridge_1.2.3~ci_arm64.deb"
+	linuxArm64Package["staging_manifest_path"] = "staging/debian/arm64/NATIVE-PACKAGE-MANIFEST.json"
+	linuxArm64Package["install_evidence_path"] = "package-evidence/debian/arm64/install.txt"
+	linuxArm64Subjects := linuxArm64["subjects"].([]any)
+	for _, subject := range linuxArm64Subjects {
+		item := subject.(map[string]any)
+		item["path"] = strings.ReplaceAll(item["path"].(string), "debian/", "debian/arm64/")
+	}
+	if err := schema.Validate(linuxArm64); err != nil {
+		t.Fatalf("valid Linux arm64 native package subject rejected: %v", err)
+	}
+	linuxArm64Execution["runner_architecture"] = "X64"
+	if err := schema.Validate(linuxArm64); err == nil {
+		t.Fatal("schema accepted Linux arm64 package evidence from an x64 runner")
+	}
 	freebsdArm64 := decodeJSONBytes(t, data).(map[string]any)
 	freebsdArm64Execution := freebsdArm64["execution"].(map[string]any)
 	freebsdArm64Execution["job"] = "native-package-bsd"

@@ -43,9 +43,9 @@ var (
 	digestPattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-// Cell is one proposed production package family and target. This inventory
-// deliberately includes Linux arm64 even though the separate hosted CI smoke
-// contract currently tests only nine package cells.
+// Cell is one proposed production package family and target. The eleven-cell
+// inventory matches the hosted CI package smoke matrix; that synthetic CI
+// evidence does not establish stable-release package publication.
 type Cell struct {
 	Family nativepackage.Family
 	GOOS   string

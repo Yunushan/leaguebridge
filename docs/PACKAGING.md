@@ -44,10 +44,10 @@ containing:
 - no portable installer or uninstaller scripts.
 
 The supported staging family-to-target mapping is deliberately explicit.
-Debian and RPM staging now cover both shipped Linux architectures. The
-existing CI reference package builders and v1 attestation subjects still
-exercise Linux amd64 only; staging support does not claim an arm64 package was
-built, signed, published, or installed.
+Debian and RPM reference package builders now exercise both shipped Linux
+architectures on native amd64 and arm64 hosted runners. Their CI attestations
+cover build and smoke outputs only; they do not claim a stable-release package
+was signed, published, or independently installed.
 
 | Family | Target | Package root |
 | --- | --- | --- |
@@ -159,6 +159,12 @@ authenticated published release archive and a complete staging tree. It does
 not inspect package-manager payload metadata, verify a publisher signature or
 repository index, prove installation, or award native package readiness points.
 Those checks belong to a separately governed production verifier.
+`productionpackage.VerifySet` accepts the opaque verified release and exactly
+one candidate per fixed inventory cell. It verifies every candidate against
+the release and local bytes, rejects missing or repeated cells, and returns
+summaries in inventory order for the later production checks. The set remains
+score-free until the separately governed checks authenticate signatures,
+publication, and native installation.
 
 ### Live package candidate command
 

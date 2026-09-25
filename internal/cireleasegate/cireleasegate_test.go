@@ -16,6 +16,7 @@ import (
 const testCommit = "0123456789abcdef0123456789abcdef01234567"
 
 type fakeGitHub struct {
+	commit     string
 	definition workflow
 	runs       []workflowRun
 	jobs       []job
@@ -25,11 +26,15 @@ type fakeGitHub struct {
 }
 
 func passingGitHub() *fakeGitHub {
-	run := workflowRun{ID: 200, Attempt: 1, WorkflowID: 100, Path: workflowPath, Event: "push", Branch: "main", Commit: testCommit, Status: "completed", Conclusion: "success", Repository: repoIdentity{repository}, HeadRepository: repoIdentity{repository}}
-	fake := &fakeGitHub{definition: workflow{100, "CI", workflowPath, "active"}, runs: []workflowRun{run}}
-	for index, name := range requiredJobs() {
+	return passingGitHubForCommit(testCommit)
+}
+
+func passingGitHubForCommit(commit string) *fakeGitHub {
+	run := workflowRun{ID: 200, Attempt: 1, WorkflowID: 100, Path: workflowPath, Event: "push", Branch: "main", Commit: commit, Status: "completed", Conclusion: "success", Repository: repoIdentity{repository}, HeadRepository: repoIdentity{repository}}
+	fake := &fakeGitHub{commit: commit, definition: workflow{100, "CI", workflowPath, "active"}, runs: []workflowRun{run}}
+	for index, name := range requiredJobs(commit) {
 		attempt := run.Attempt
-		fake.jobs = append(fake.jobs, job{ID: int64(1000 + index), RunID: run.ID, Attempt: &attempt, Commit: testCommit, Name: name, Status: "completed", Conclusion: "success"})
+		fake.jobs = append(fake.jobs, job{ID: int64(1000 + index), RunID: run.ID, Attempt: &attempt, Commit: commit, Name: name, Status: "completed", Conclusion: "success"})
 	}
 	return fake
 }
@@ -52,7 +57,7 @@ func (f *fakeGitHub) api(ctx context.Context, endpoint string, destination any) 
 	}
 	start := (page - 1) * pageSize
 	if strings.HasSuffix(u.Path, "/runs") {
-		if u.Query().Get("head_sha") != testCommit || u.Query().Get("branch") != "main" {
+		if u.Query().Get("head_sha") != f.commit || u.Query().Get("branch") != "main" {
 			return errors.New("request is not scoped to exact-commit main CI")
 		}
 		f.runReads++
@@ -93,8 +98,45 @@ func TestFullSuccessfulCommitAndAttemptPass(t *testing.T) {
 	}
 }
 
+func TestNativePackageJobNamesMatchWorkflow(t *testing.T) {
+	workflowData, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowData)
+	linuxStart := strings.Index(workflow, "  native-package-linux:\n")
+	linuxEnd := strings.Index(workflow, "  native-package-bsd:\n")
+	if linuxStart < 0 || linuxEnd <= linuxStart {
+		t.Fatal("native Linux package job is missing from the CI workflow")
+	}
+	linuxJob := workflow[linuxStart:linuxEnd]
+	if !strings.Contains(linuxJob, "name: Native packages (Linux ${{ matrix.goarch }})") ||
+		strings.Count(linuxJob, "- goarch:") != 2 ||
+		!strings.Contains(linuxJob, "- goarch: amd64") ||
+		!strings.Contains(linuxJob, "- goarch: arm64") {
+		t.Fatal("CI workflow does not define both required Linux package jobs")
+	}
+	verifierStart := strings.Index(workflow, "  verify-native-package-attestations:\n")
+	if verifierStart < 0 || !strings.Contains(workflow[verifierStart:], "name: Verify signed eleven-cell native package attestations") {
+		t.Fatal("eleven-cell package verifier job is missing from the CI workflow")
+	}
+	required := make(map[string]bool)
+	for _, name := range requiredJobs(testCommit) {
+		required[name] = true
+	}
+	for _, name := range []string{
+		"Native packages (Linux amd64)",
+		"Native packages (Linux arm64)",
+		"Verify signed eleven-cell native package attestations",
+	} {
+		if !required[name] {
+			t.Fatalf("release gate does not require CI job %q", name)
+		}
+	}
+}
+
 func TestEveryRequiredJobMustActuallySucceed(t *testing.T) {
-	for _, name := range requiredJobs() {
+	for _, name := range requiredJobs(testCommit) {
 		for _, state := range []string{"missing", "skipped", "failure", "cancelled", "neutral", "in_progress"} {
 			t.Run(name+"/"+state, func(t *testing.T) {
 				fake := passingGitHub()
@@ -116,6 +158,77 @@ func TestEveryRequiredJobMustActuallySucceed(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestHistoricalReleaseCommitUsesOnlyItsOriginalPackageJobs(t *testing.T) {
+	fake := passingGitHubForCommit(historicalReleaseCommit)
+	if _, err := verify(context.Background(), fake.api, historicalReleaseCommit); err != nil {
+		t.Fatalf("published v0.1.0 CI run was rejected: %v", err)
+	}
+	newOnly := passingGitHubForCommit(historicalReleaseCommit)
+	var jobs []job
+	for _, item := range newOnly.jobs {
+		if item.Name != "Native packages (Linux)" && item.Name != "Verify signed native package attestations" {
+			jobs = append(jobs, item)
+		}
+	}
+	for index, name := range []string{"Native packages (Linux amd64)", "Native packages (Linux arm64)", "Verify signed eleven-cell native package attestations"} {
+		item := newOnly.jobs[0]
+		item.ID = int64(5000 + index)
+		item.Name = name
+		jobs = append(jobs, item)
+	}
+	newOnly.jobs = jobs
+	if _, err := verify(context.Background(), newOnly.api, historicalReleaseCommit); err == nil {
+		t.Fatal("new package job names were accepted for the historical CI commit")
+	}
+	for _, name := range []string{"Native packages (Linux)", "Verify signed native package attestations"} {
+		for _, state := range []string{"missing", "skipped"} {
+			t.Run(name+"/"+state, func(t *testing.T) {
+				fake := passingGitHubForCommit(historicalReleaseCommit)
+				for i := range fake.jobs {
+					if fake.jobs[i].Name != name {
+						continue
+					}
+					if state == "missing" {
+						fake.jobs = append(fake.jobs[:i], fake.jobs[i+1:]...)
+					} else {
+						fake.jobs[i].Conclusion = "skipped"
+					}
+					break
+				}
+				if _, err := verify(context.Background(), fake.api, historicalReleaseCommit); err == nil {
+					t.Fatal("incomplete historical package CI authorized a release")
+				}
+			})
+		}
+	}
+}
+
+func TestHistoricalPackageJobNamesCannotAuthorizeOtherCommits(t *testing.T) {
+	for _, commit := range []string{testCommit, strings.Repeat("f", 40)} {
+		t.Run(commit, func(t *testing.T) {
+			fake := passingGitHubForCommit(commit)
+			var jobs []job
+			for _, item := range fake.jobs {
+				if item.Name == "Native packages (Linux amd64)" || item.Name == "Native packages (Linux arm64)" ||
+					item.Name == "Verify signed eleven-cell native package attestations" {
+					continue
+				}
+				jobs = append(jobs, item)
+			}
+			for index, name := range []string{"Native packages (Linux)", "Verify signed native package attestations"} {
+				item := fake.jobs[0]
+				item.ID = int64(5000 + index)
+				item.Name = name
+				jobs = append(jobs, item)
+			}
+			fake.jobs = jobs
+			if _, err := verify(context.Background(), fake.api, commit); err == nil {
+				t.Fatal("historical nine-cell CI jobs authorized a different commit")
+			}
+		})
 	}
 }
 

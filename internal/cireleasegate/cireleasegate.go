@@ -18,11 +18,14 @@ import (
 )
 
 const (
-	repository      = "Yunushan/leaguebridge"
-	workflowPath    = ".github/workflows/ci.yml"
-	pageSize        = 100
-	maximumEntries  = 1000
-	maximumResponse = 8 << 20
+	repository   = "Yunushan/leaguebridge"
+	workflowPath = ".github/workflows/ci.yml"
+	// The published v0.1.0 commit used the reviewed nine-cell CI job names.
+	// No other commit may inherit this historical acceptance profile.
+	historicalReleaseCommit = "a2202eb7072cdfef5e62c179d341a3d79d4d91ce"
+	pageSize                = 100
+	maximumEntries          = 1000
+	maximumResponse         = 8 << 20
 )
 
 var commitPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -232,7 +235,7 @@ func verifyJobs(run workflowRun, jobs []job) error {
 		}
 		ids[item.ID], names[item.Name] = true, true
 	}
-	for _, required := range requiredJobs() {
+	for _, required := range requiredJobs(run.Commit) {
 		if !names[required] {
 			return fmt.Errorf("required CI job %q is missing; run a complete CI attempt", required)
 		}
@@ -242,13 +245,18 @@ func verifyJobs(run workflowRun, jobs []job) error {
 
 // These job names are the release acceptance contract, not a caller-supplied
 // allowlist. Updating the target or guest matrix also requires reviewing it.
-func requiredJobs() []string {
+func requiredJobs(commit string) []string {
 	result := []string{
 		"Test (ubuntu-24.04)", "Minimum Go compatibility", "Coverage",
 		"Reachable vulnerability scan", "Reproducible release smoke test",
-		"Native packages (Linux)", "Attest Linux race/vet subject",
+		"Attest Linux race/vet subject",
 		"Verify signed CI attestations", "Verify signed native runtime attestations",
-		"Verify signed native package attestations",
+	}
+	if commit == historicalReleaseCommit {
+		result = append(result, "Native packages (Linux)", "Verify signed native package attestations")
+	} else {
+		result = append(result, "Native packages (Linux amd64)", "Native packages (Linux arm64)",
+			"Verify signed eleven-cell native package attestations")
 	}
 	labels := map[string]string{"freebsd": "FreeBSD 15.1", "openbsd": "OpenBSD 7.9", "netbsd": "NetBSD 11.0", "dragonfly": "DragonFly BSD 6.4.2"}
 	for _, candidate := range target.Ordered() {

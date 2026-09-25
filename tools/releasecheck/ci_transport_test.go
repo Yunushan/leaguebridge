@@ -146,12 +146,12 @@ func TestLinuxPackageInstalledPayloadRejectsMutation(t *testing.T) {
 	}
 	script := string(data)
 	start := strings.Index(script, "verify_installed_payload() {\n")
-	end := strings.Index(script, "\nensure_directory native-package-staging\n")
+	end := strings.Index(script, "\nensure_directory \"$output_root\"\n")
 	if start < 0 || end < start {
 		t.Fatal("installed payload verification absent")
 	}
 	for _, family := range []string{"debian", "rpm"} {
-		call := "verify_installed_payload native-package-staging/" + family + "/root \"$" + family + "_scratch\""
+		call := "verify_installed_payload \"$staging_" + family + "/root\" \"$" + family + "_scratch\""
 		if !strings.Contains(script, call) {
 			t.Fatalf("%s installation does not verify payload", family)
 		}

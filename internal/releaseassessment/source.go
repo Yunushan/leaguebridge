@@ -24,6 +24,7 @@ import (
 const (
 	supportedCIWorkflow      = "deb4351ce333350397d1bc0a08732dcab869325e6c94c53d87d321a76b1ed0e9"
 	supportedCIWorkflowV16   = "51d78bfb7b7cc6e3a5c28d2792f0743e0b70df1abef6be15bfc34aa741ead28e"
+	supportedCIWorkflowV17   = "34b1df07dcaf3e3ba532954dc40b2dfc69e5abf3bd9f300c3cc0b9985db173be"
 	supportedReleaseWorkflow = "c3865515e0e015f3a2cc835c66101a4883ee2e484533af0086091ececfe082d1"
 	// This exact released v3 policy predates the current verifier's source-file
 	// inventory. The pin approves policy bytes only, never execution evidence.
@@ -96,7 +97,7 @@ func resolveCommit(ctx context.Context, api apiClient, commit string) (sourceIde
 func isSupportedSourceWorkflow(name, digest string) bool {
 	switch name {
 	case ciWorkflow:
-		return digest == supportedCIWorkflow || digest == supportedCIWorkflowV16
+		return digest == supportedCIWorkflow || digest == supportedCIWorkflowV16 || digest == supportedCIWorkflowV17
 	case releaseWorkflow:
 		return digest == supportedReleaseWorkflow
 	default:

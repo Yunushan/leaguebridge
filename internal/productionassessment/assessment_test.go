@@ -70,8 +70,32 @@ func fixtureDependencies(identity verifiedRelease, verifyErr error) dependencies
 		verifyRelease: func(context.Context, releaseassessment.Request) (verifiedRelease, error) {
 			return identity, verifyErr
 		},
-		now: func() time.Time { return fixtureTime.Add(time.Minute) },
+		verifyExternal: unprovisionedExternalEvidence,
+		now:            func() time.Time { return fixtureTime.Add(time.Minute) },
 	}
+}
+
+func fixtureBinding(identity *fixtureIdentity) releaseBinding {
+	assets := make([]Asset, len(identity.assets))
+	for i, item := range identity.assets {
+		assets[i] = Asset{Name: item.Name, SHA256: item.SHA256, SizeBytes: item.SizeBytes}
+	}
+	return releaseBinding{
+		version: identity.result.Version, commit: identity.result.Commit, tree: identity.result.Tree,
+		releaseID: identity.result.ReleaseID, releaseRunID: identity.result.ReleaseRunID,
+		releaseRunAttempt: identity.result.ReleaseRunAttempt, ciRunID: identity.result.CIRunID,
+		ciRunAttempt: identity.result.CIRunAttempt, scorecardSHA256: identity.digest,
+		scorecardExpiresAt: identity.result.ScorecardExpiresAt, assets: assets,
+	}
+}
+
+func fixtureProof(t *testing.T, identity *fixtureIdentity, criterionID string, expiresAt time.Time) criterionProof {
+	t.Helper()
+	proof, err := newCriterionProof(criterionID, fixtureBinding(identity), strings.Repeat("e", 64), fixtureTime, expiresAt)
+	if err != nil {
+		t.Fatalf("construct opaque fixture proof: %v", err)
+	}
+	return proof
 }
 
 func TestVerifyProducesSchemaConformingMissingEvidenceWithoutCredit(t *testing.T) {
@@ -96,8 +120,13 @@ func TestVerifyProducesSchemaConformingMissingEvidenceWithoutCredit(t *testing.T
 	if weight != 17 {
 		t.Fatalf("external criterion weights total %d, want 17", weight)
 	}
-	// The fixture is deliberately synthetic and cannot authenticate a release;
-	// schema validation checks only the emitted shape and order.
+	assertProductionAssessmentSchema(t, result)
+}
+
+func assertProductionAssessmentSchema(t *testing.T, result Result) {
+	t.Helper()
+	// The fixtures are deliberately synthetic and cannot authenticate a
+	// release; schema validation checks only the emitted shape and order.
 	data, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +159,99 @@ func TestVerifyProducesSchemaConformingMissingEvidenceWithoutCredit(t *testing.T
 	}
 	if err := schema.Validate(decoded); err != nil {
 		t.Fatalf("composition output violates production schema: %v", err)
+	}
+}
+
+func TestVerifyPassesAuthenticatedReleaseToExternalVerifier(t *testing.T) {
+	identity := fixtureRelease()
+	called := false
+	deps := fixtureDependencies(identity, nil)
+	deps.verifyExternal = func(ctx context.Context, authenticated verifiedRelease, binding releaseBinding) (externalVerification, error) {
+		called = true
+		if authenticated != identity {
+			t.Fatal("external verifier did not receive the authenticated release capability")
+		}
+		assessment, err := authenticated.Assessment()
+		if err != nil || binding.version != assessment.Version || binding.commit != assessment.Commit || binding.tree != assessment.Tree {
+			t.Fatalf("external verifier received inconsistent release identity: %+v, %v", binding, err)
+		}
+		binding.assets[0].Name = "mutated"
+		return unprovisionedExternalEvidence(ctx, authenticated, binding)
+	}
+	result, err := verify(context.Background(), releaseassessment.Request{Version: "v1.2.3"}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || result.Release.Assets[0].Name != "checksums.txt" || identity.assets[0].Name != "checksums.txt" {
+		t.Fatalf("external verifier changed authenticated release output: %+v", result.Release.Assets)
+	}
+}
+
+func TestVerifyDerivesScoreFromReleaseBoundCriteria(t *testing.T) {
+	identity := fixtureRelease()
+	var proofs []criterionProof
+	for _, spec := range externalCriterionSpecs {
+		proofs = append(proofs, fixtureProof(t, identity, spec.id, fixtureTime.Add(2*time.Hour)))
+	}
+	rechecks := 0
+	deps := fixtureDependencies(identity, nil)
+	deps.verifyExternal = func(context.Context, verifiedRelease, releaseBinding) (externalVerification, error) {
+		return externalVerification{proofs: proofs, recheck: func(context.Context) error { rechecks++; return nil }}, nil
+	}
+	result, err := verify(context.Background(), releaseassessment.Request{Version: "v1.2.3"}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score != 100 || result.ReleaseScore != 83 || result.RepositoryScore != 74 ||
+		!result.EvidenceExpiresAt.Equal(fixtureTime.Add(2*time.Hour)) || rechecks != 1 || identity.rechecks != 1 {
+		t.Fatalf("complete release-bound evidence did not derive 100 with final rechecks: %+v; external=%d release=%d", result, rechecks, identity.rechecks)
+	}
+	assertProductionAssessmentSchema(t, result)
+	for _, criterion := range result.Criteria {
+		if criterion.Status != "verified" || criterion.Points != criterion.Weight || len(criterion.MissingEvidence) != 0 {
+			t.Fatalf("criterion was not derived as complete: %+v", criterion)
+		}
+	}
+}
+
+func TestVerifyDerivesPartialScoreAndRejectsInvalidExternalProofs(t *testing.T) {
+	identity := fixtureRelease()
+	proof := fixtureProof(t, identity, externalCriterionSpecs[0].id, fixtureTime.Add(2*time.Hour))
+	deps := fixtureDependencies(identity, nil)
+	deps.verifyExternal = func(context.Context, verifiedRelease, releaseBinding) (externalVerification, error) {
+		return externalVerification{proofs: []criterionProof{proof}, recheck: func(context.Context) error { return nil }}, nil
+	}
+	result, err := verify(context.Background(), releaseassessment.Request{Version: "v1.2.3"}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score != 85 || result.Criteria[0].Status != "verified" || result.Criteria[0].Points != 2 ||
+		result.Criteria[1].Status != "missing_evidence" {
+		t.Fatalf("partial external evidence was not scored all-or-nothing: %+v", result)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		change func(*criterionProof)
+	}{
+		{"wrong release binding", func(value *criterionProof) { value.releaseBindingSHA256 = strings.Repeat("0", 64) }},
+		{"expired proof", func(value *criterionProof) { value.expiresAt = fixtureTime.Add(30 * time.Second) }},
+		{"invalid evidence digest", func(value *criterionProof) { value.evidenceSHA256 = "caller" }},
+		{"zero proof", func(value *criterionProof) { *value = criterionProof{} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			identity := fixtureRelease()
+			candidate := fixtureProof(t, identity, externalCriterionSpecs[0].id, fixtureTime.Add(2*time.Hour))
+			tc.change(&candidate)
+			deps := fixtureDependencies(identity, nil)
+			deps.verifyExternal = func(context.Context, verifiedRelease, releaseBinding) (externalVerification, error) {
+				return externalVerification{proofs: []criterionProof{candidate}, recheck: func(context.Context) error { return nil }}, nil
+			}
+			result, err := verify(context.Background(), releaseassessment.Request{Version: "v1.2.3"}, deps)
+			if err == nil || result.Score != 0 || identity.rechecks != 0 {
+				t.Fatalf("invalid external proof earned points or reached final release recheck: %+v, %v; rechecks=%d", result, err, identity.rechecks)
+			}
+		})
 	}
 }
 
@@ -190,7 +312,14 @@ func TestVerifyRejectsRecheckDriftAndExpiry(t *testing.T) {
 
 	identity = fixtureRelease()
 	deps := fixtureDependencies(identity, nil)
-	deps.now = func() time.Time { return identity.result.ScorecardExpiresAt }
+	clockReads := 0
+	deps.now = func() time.Time {
+		clockReads++
+		if clockReads == 1 {
+			return fixtureTime.Add(time.Minute)
+		}
+		return identity.result.ScorecardExpiresAt
+	}
 	result, err = verify(context.Background(), input, deps)
 	if err == nil || result.Score != 0 || identity.rechecks != 1 {
 		t.Fatalf("expired final observation was accepted: %+v, %v; rechecks=%d", result, err, identity.rechecks)
