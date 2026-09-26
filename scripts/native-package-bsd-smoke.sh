@@ -280,7 +280,7 @@ cleanup() {
     remove_owned_doc_directory
   fi
   if [ -n "${temporary_root:-}" ] && [ -e "$temporary_root" ] && [ ! -L "$temporary_root" ]; then
-    if [ -n "$release_staging_root" ] && [ "$expected_goos" = dragonfly ]; then
+    if [ -n "${release_staging_root:-}" ] && [ "$expected_goos" = dragonfly ]; then
       as_root rm -rf -- "$temporary_root"
     else
       rm -rf -- "$temporary_root"
