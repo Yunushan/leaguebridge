@@ -503,7 +503,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-      attestations: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     env:
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
@@ -674,13 +676,70 @@ jobs:
             --inputs "$GITHUB_WORKSPACE/release-set" \
             --packages "$GITHUB_WORKSPACE/merged-packages" \
             --output "$GITHUB_WORKSPACE/CANDIDATE-SET.json"
+      - name: Require the exact twelve attestation subjects
+        id: attestation-subjects
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "stable release tag is not a canonical version" >&2
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          subjects=(
+            CANDIDATE-SET.json
+            "merged-packages/native-package-output/debian/amd64/leaguebridge_${version}_amd64.deb"
+            "merged-packages/native-package-output/debian/arm64/leaguebridge_${version}_arm64.deb"
+            "merged-packages/native-package-output/rpm/amd64/leaguebridge-${version}-1.x86_64.rpm"
+            "merged-packages/native-package-output/rpm/arm64/leaguebridge-${version}-1.aarch64.rpm"
+            "merged-packages/native-package-output/freebsd-pkg/amd64/leaguebridge-${version}-freebsd-amd64.pkg"
+            "merged-packages/native-package-output/freebsd-pkg/arm64/leaguebridge-${version}-freebsd-arm64.pkg"
+            "merged-packages/native-package-output/openbsd-pkg/amd64/leaguebridge-${version}-openbsd-amd64.tgz"
+            "merged-packages/native-package-output/openbsd-pkg/arm64/leaguebridge-${version}-openbsd-arm64.tgz"
+            "merged-packages/native-package-output/pkgsrc/amd64/leaguebridge-${version}-netbsd-amd64.tgz"
+            "merged-packages/native-package-output/pkgsrc/arm64/leaguebridge-${version}-netbsd-arm64.tgz"
+            "merged-packages/native-package-output/dports/amd64/leaguebridge-${version}-dragonfly-amd64.pkg"
+          )
+          if [[ "${#subjects[@]}" -ne 12 ]]; then
+            echo "attestation requires one record and exactly eleven packages" >&2
+            exit 1
+          fi
+          for subject in "${subjects[@]}"; do
+            if [[ -L "$subject" || ! -f "$subject" || ! -s "$subject" ]]; then
+              echo "missing, empty, or symlinked attestation subject: $subject" >&2
+              exit 1
+            fi
+          done
+          sha256sum -- "${subjects[@]}" >"$RUNNER_TEMP/stable-native-candidate-subjects.sha256"
+          printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+      - name: Attest the exact eleven stable candidate packages and record
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            CANDIDATE-SET.json
+            merged-packages/native-package-output/debian/amd64/leaguebridge_${{ steps.attestation-subjects.outputs.version }}_amd64.deb
+            merged-packages/native-package-output/debian/arm64/leaguebridge_${{ steps.attestation-subjects.outputs.version }}_arm64.deb
+            merged-packages/native-package-output/rpm/amd64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-1.x86_64.rpm
+            merged-packages/native-package-output/rpm/arm64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-1.aarch64.rpm
+            merged-packages/native-package-output/freebsd-pkg/amd64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-freebsd-amd64.pkg
+            merged-packages/native-package-output/freebsd-pkg/arm64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-freebsd-arm64.pkg
+            merged-packages/native-package-output/openbsd-pkg/amd64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-openbsd-amd64.tgz
+            merged-packages/native-package-output/openbsd-pkg/arm64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-openbsd-arm64.tgz
+            merged-packages/native-package-output/pkgsrc/amd64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-netbsd-amd64.tgz
+            merged-packages/native-package-output/pkgsrc/arm64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-netbsd-arm64.tgz
+            merged-packages/native-package-output/dports/amd64/leaguebridge-${{ steps.attestation-subjects.outputs.version }}-dragonfly-amd64.pkg
+      - name: Pack score-free attested candidates for retention
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum --check --strict "$RUNNER_TEMP/stable-native-candidate-subjects.sha256"
           tar -C "$GITHUB_WORKSPACE" \
             -cpf "$GITHUB_WORKSPACE/eleven-score-free-candidates.tar" \
             CANDIDATE-SET.json merged-packages
-      - name: Retain unsigned and unpublished eleven-package candidate set
+      - name: Retain GitHub-attested, unpublished eleven-package candidate set
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: score-free-unsigned-unpublished-eleven-native-packages
+          name: score-free-github-attested-unpublished-eleven-native-packages
           path: eleven-score-free-candidates.tar
           if-no-files-found: error
           retention-days: 30
