@@ -359,14 +359,45 @@ func TestCIWorkflowKeepsSmokeArgumentsAndVMHelperGuardsIntact(t *testing.T) {
 			t.Errorf("ci.yml is missing smoke/VM safety contract fragment %q", required)
 		}
 	}
-	if count := strings.Count(workflow, "id: start-vm"); count != 2 {
-		t.Fatalf("ci.yml has %d VM startup step IDs; want runtime and package jobs", count)
+	if count := strings.Count(workflow, "id: start-vm"); count != 3 {
+		t.Fatalf("ci.yml has %d VM startup step IDs; want runtime, main package, and pull-request package jobs", count)
 	}
-	if count := strings.Count(workflow, "id: cpa-ready"); count != 2 {
-		t.Fatalf("ci.yml has %d cpa.sh readiness gates; want runtime and package jobs", count)
+	if count := strings.Count(workflow, "id: cpa-ready"); count != 3 {
+		t.Fatalf("ci.yml has %d cpa.sh readiness gates; want runtime, main package, and pull-request package jobs", count)
 	}
-	if count := strings.Count(workflow, "if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'"); count != 3 {
+	if count := strings.Count(workflow, "if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'"); count != 4 {
 		t.Fatalf("ci.yml has %d guarded always-steps; want install and sync coverage", count)
+	}
+}
+
+func TestPullRequestNativePackageJobsHaveReadOnlyPermissions(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(data)
+	for _, job := range []string{"pull-request-bsd-package-payload", "pull-request-dragonfly-package-payload"} {
+		start := strings.Index(workflow, "\n  "+job+":")
+		if start < 0 {
+			t.Fatalf("ci.yml is missing pull-request package job %q", job)
+		}
+		nextJob := "verify-native-package-attestations"
+		if job == "pull-request-bsd-package-payload" {
+			nextJob = "dragonfly-native-package"
+		}
+		end := strings.Index(workflow[start+1:], "\n  "+nextJob+":")
+		if end < 0 {
+			end = len(workflow) - (start + 1)
+		}
+		block := workflow[start+1 : start+1+end]
+		if !strings.Contains(block, "if: github.event_name == 'pull_request'\n") || !strings.Contains(block, "permissions:\n      contents: read\n") {
+			t.Errorf("%s is not restricted to pull requests with contents: read", job)
+		}
+		for _, forbidden := range []string{"id-token:", "attestations:", "packages:", "contents: write"} {
+			if strings.Contains(block, forbidden) {
+				t.Errorf("%s unexpectedly grants %q", job, forbidden)
+			}
+		}
 	}
 }
 
