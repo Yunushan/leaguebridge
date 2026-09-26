@@ -84,7 +84,8 @@ func inspectFreeBSDPkg(ctx context.Context, packageData []byte, goos string) (in
 		// checked below, but this inspector does not recompute BLAKE2.
 		// matchInspectedPayload separately compares SHA-256 of these tar
 		// bytes with the authenticated staging manifest.
-		if metadata, listed := manifest.files[installed]; !listed || metadata.mode != file.Mode ||
+		if metadata, listed := manifest.files[installed]; !listed ||
+			(metadata.mode != file.Mode && !(goos == "dragonfly" && metadata.mode == "")) ||
 			(digestPattern.MatchString(metadata.sum) && metadata.sum != file.SHA256) {
 			return inspectedPackage{}, fmt.Errorf("pkg manifest does not bind payload %q", installed)
 		}
@@ -430,7 +431,7 @@ func bsdFreeBSDManifest(data []byte, goos string) (bsdPkgManifest, error) {
 		if !bsdSafeInstallPath(installed) {
 			return bsdPkgManifest{}, fmt.Errorf("unsafe pkg manifest path %q", installed)
 		}
-		attrs, err := bsdPkgAttributes(raw, true)
+		attrs, err := bsdPkgAttributes(raw, true, goos)
 		if err != nil {
 			return bsdPkgManifest{}, fmt.Errorf("pkg manifest file %q: %w", installed, err)
 		}
@@ -449,7 +450,7 @@ func bsdFreeBSDManifest(data []byte, goos string) (bsdPkgManifest, error) {
 			if dir != "/usr/local/libexec/leaguebridge" && dir != "/usr/local/share/doc/leaguebridge" {
 				return bsdPkgManifest{}, fmt.Errorf("pkg manifest owns unexpected directory %q", dir)
 			}
-			attrs, err := bsdPkgAttributes(raw, false)
+			attrs, err := bsdPkgAttributes(raw, false, goos)
 			if err != nil || attrs.mode != "0755" {
 				return bsdPkgManifest{}, fmt.Errorf("pkg manifest directory %q has unreviewed attributes", dir)
 			}
@@ -465,10 +466,28 @@ func bsdFreeBSDManifest(data []byte, goos string) (bsdPkgManifest, error) {
 	return bsdPkgManifest{name: name, version: version, arch: arch, rawArch: archField, files: files, dirs: dirs}, nil
 }
 
-func bsdPkgAttributes(raw json.RawMessage, file bool) (bsdPkgFile, error) {
+func bsdPkgAttributes(raw json.RawMessage, file bool, goos string) (bsdPkgFile, error) {
 	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) != nil || len(object) == 0 {
-		return bsdPkgFile{}, errors.New("attributes are not an object")
+	if err := json.Unmarshal(raw, &object); err != nil {
+		var value any
+		if valueErr := json.Unmarshal(raw, &value); valueErr != nil {
+			return bsdPkgFile{}, errors.New("attributes are invalid JSON")
+		}
+		if text, ok := value.(string); ok {
+			if file && goos == "dragonfly" && bsdChecksumPattern.MatchString(text) {
+				// DragonFly's pkg emits the legacy checksum-only files map.
+				// Archive modes and the staged SHA-256 are verified separately.
+				return bsdPkgFile{sum: text}, nil
+			}
+			if len(text) > 128 {
+				text = text[:128]
+			}
+			return bsdPkgFile{}, fmt.Errorf("attributes are a string (%q)", text)
+		}
+		return bsdPkgFile{}, fmt.Errorf("attributes are not an object (%T)", value)
+	}
+	if len(object) == 0 {
+		return bsdPkgFile{}, errors.New("attributes are an empty object")
 	}
 	allowed := map[string]bool{"sum": file, "uname": true, "gname": true, "perm": true, "mtime": file}
 	for key := range object {
@@ -573,13 +592,13 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 	last := ""
 	ownerSeen := false
 	groupSeen := false
-	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+	for lineNumber, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
 		if line == "" || strings.ContainsRune(line, '\r') {
-			return bsdPacking{}, errors.New("BSD packing list contains an empty or malformed line")
+			return bsdPacking{}, fmt.Errorf("BSD packing list line %d is empty or malformed", lineNumber+1)
 		}
 		if !strings.HasPrefix(line, "@") {
-			if cwd != "/usr/local" || mode == "" {
-				return bsdPacking{}, errors.New("BSD packing file has no fixed install root or mode")
+			if cwd != "/usr/local" || (mode == "" && goos != "openbsd") {
+				return bsdPacking{}, fmt.Errorf("BSD packing file line %d %q has no fixed install root or mode (cwd=%q mode=%q)", lineNumber+1, line, cwd, mode)
 			}
 			installed, err := bsdInstalledPath(line, false)
 			if err != nil {
@@ -609,8 +628,8 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 			result.arch = arg
 		case "@cwd":
-			if cwd != "" || arg != "/usr/local" {
-				return bsdPacking{}, errors.New("BSD package changes install root")
+			if arg != "/usr/local" || (cwd != "" && cwd != arg) {
+				return bsdPacking{}, fmt.Errorf("BSD package changes install root on line %d: current=%q requested=%q", lineNumber+1, cwd, arg)
 			}
 			cwd = arg
 		case "@mode":
@@ -719,7 +738,7 @@ func bsdMatchPackingPayload(entries []bsdEntry, packing bsdPacking) ([]inspected
 			return nil, err
 		}
 		listed, ok := packing.files[installed]
-		if !ok || listed.mode != file.Mode || (listed.sha != "" && listed.sha != file.SHA256) ||
+		if !ok || (listed.mode != "" && listed.mode != file.Mode) || (listed.sha != "" && listed.sha != file.SHA256) ||
 			(listed.hasSize && listed.size != file.Size) {
 			return nil, fmt.Errorf("BSD packing list does not bind payload %q", installed)
 		}
