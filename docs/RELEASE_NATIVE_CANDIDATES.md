@@ -72,10 +72,11 @@ The command authenticates the live release, rechecks every release-set cell,
 derives ephemeral candidate metadata from the exact package bytes, calls
 `productionpackage.VerifyPayloadSet` for all eleven cells, then rechecks the
 release and package digests. It writes an exclusive canonical JSON record of
-the observed release identity and eleven SHA-256 package digests. This record
-is score-free descriptive data, not a reusable authentication token. A future
-publisher must independently bind the exact
-bytes it signs and uploads to approved package-family signing keys and live
-index records, and must observe installation and withdrawal through that
-channel. Green candidate verification alone does not establish any of those
-facts.
+the observed release identity and eleven SHA-256 package digests. The record
+is a score-free point-in-time observation, not a reusable authentication token:
+GitHub release state and local files can change later or between these
+non-atomic checks. A future publisher must reauthenticate the live release,
+hash the exact immutable bytes it signs and uploads, bind them to approved
+package-family signing keys and live index records, and observe installation
+and withdrawal through that channel. Green candidate verification alone does
+not establish any of those facts.
