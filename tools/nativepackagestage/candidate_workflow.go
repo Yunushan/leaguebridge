@@ -495,10 +495,7 @@ func verifyCandidateWorkflowSet(ctx context.Context, opts candidateWorkflowOptio
 	if err != nil {
 		return err
 	}
-	recheck := func() error {
-		if err := release.Recheck(ctx); err != nil {
-			return fmt.Errorf("live release recheck: %w", err)
-		}
+	checkLocal := func() error {
 		if err := verifyReleaseSetInputs(ctx, facts, releaseDir, inputRoot); err != nil {
 			return fmt.Errorf("release-set recheck: %w", err)
 		}
@@ -509,6 +506,17 @@ func verifyCandidateWorkflowSet(ctx context.Context, opts candidateWorkflowOptio
 			return fmt.Errorf("exact package tree: %w", err)
 		}
 		return nil
+	}
+	recheck := func() error {
+		if err := checkLocal(); err != nil {
+			return err
+		}
+		if err := release.Recheck(ctx); err != nil {
+			return fmt.Errorf("live release recheck: %w", err)
+		}
+		// The release request can take minutes; reject package or staging
+		// changes that occur while it runs before accepting the record.
+		return checkLocal()
 	}
 	if err := publishCandidateSetRecord(output, record, recheck); err != nil {
 		return err
