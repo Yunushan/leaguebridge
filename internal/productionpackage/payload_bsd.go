@@ -586,9 +586,10 @@ func bsdSafeInstallPath(value string) bool {
 }
 
 type bsdPacking struct {
-	name  string
-	arch  string
-	files map[string]bsdPackingFile
+	name     string
+	arch     string
+	files    map[string]bsdPackingFile
+	controls map[string]bool
 }
 
 type bsdPackingFile struct {
@@ -599,7 +600,7 @@ type bsdPackingFile struct {
 }
 
 func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
-	result := bsdPacking{files: make(map[string]bsdPackingFile)}
+	result := bsdPacking{files: make(map[string]bsdPackingFile), controls: make(map[string]bool)}
 	if len(data) == 0 || len(data) > int(bsdMaximumControl) || data[len(data)-1] != '\n' {
 		return bsdPacking{}, errors.New("BSD packing list is invalid")
 	}
@@ -608,9 +609,27 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 	last := ""
 	ownerSeen := false
 	groupSeen := false
+	ignoreNext := false
 	for lineNumber, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
 		if line == "" || strings.ContainsRune(line, '\r') {
 			return bsdPacking{}, fmt.Errorf("BSD packing list line %d is empty or malformed", lineNumber+1)
+		}
+		if ignoreNext {
+			if goos != "netbsd" || (line != "+COMMENT" && line != "+DESC" && line != "+BUILD_INFO") || result.controls[line] {
+				return bsdPacking{}, fmt.Errorf("BSD packing list line %d has an unreviewed ignored entry %q", lineNumber+1, line)
+			}
+			result.controls[line] = true
+			ignoreNext = false
+			last = ""
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			if goos != "openbsd" || line != "+DESC" || result.controls[line] {
+				return bsdPacking{}, fmt.Errorf("unreviewed BSD packing control entry %q", line)
+			}
+			result.controls[line] = true
+			last = ""
+			continue
 		}
 		if !strings.HasPrefix(line, "@") {
 			if cwd != "/usr/local" || (mode == "" && goos != "openbsd") {
@@ -633,6 +652,11 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			arg = parts[1]
 		}
 		switch parts[0] {
+		case "@ignore":
+			if goos != "netbsd" || arg != "" || ignoreNext {
+				return bsdPacking{}, errors.New("NetBSD ignore directive is malformed or misplaced")
+			}
+			ignoreNext = true
 		case "@name":
 			if result.name != "" || arg == "" {
 				return bsdPacking{}, errors.New("duplicate or empty BSD package name")
@@ -699,6 +723,26 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 		default:
 			return bsdPacking{}, fmt.Errorf("unreviewed BSD packing directive %q", parts[0])
+		}
+	}
+	if ignoreNext {
+		return bsdPacking{}, errors.New("NetBSD ignore directive has no following metadata entry")
+	}
+	wantControls := map[string]bool{}
+	switch goos {
+	case "openbsd":
+		wantControls["+DESC"] = true
+	case "netbsd":
+		wantControls["+COMMENT"] = true
+		wantControls["+DESC"] = true
+		wantControls["+BUILD_INFO"] = true
+	}
+	if len(result.controls) != len(wantControls) {
+		return bsdPacking{}, errors.New("BSD packing list has incomplete control-file inventory")
+	}
+	for control := range result.controls {
+		if !wantControls[control] {
+			return bsdPacking{}, fmt.Errorf("BSD packing list references unreviewed control file %q", control)
 		}
 	}
 	if result.name == "" || cwd != "/usr/local" || len(result.files) != 7 || !ownerSeen || !groupSeen ||

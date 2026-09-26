@@ -150,7 +150,7 @@ func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFix
 	payload := bsdFixturePayload()
 	lines := []string{}
 	if goos == "openbsd" {
-		lines = append(lines, "@name leaguebridge-1.2.3-openbsd-amd64", "@arch amd64", "@owner root", "@group wheel")
+		lines = append(lines, "@name leaguebridge-1.2.3-openbsd-amd64", "@comment pkgpath=sysutils/leaguebridge", "@arch amd64", "+DESC", "@owner root", "@group wheel")
 	} else {
 		lines = append(lines, "@name leaguebridge-1.2.3", "@owner root", "@group wheel")
 	}
@@ -169,6 +169,9 @@ func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFix
 			lines = append(lines, "@ts 1720000000")
 		}
 	}
+	if goos == "netbsd" {
+		lines = append(lines, "@ignore", "+COMMENT", "@ignore", "+DESC", "@ignore", "+BUILD_INFO")
+	}
 	packing := strings.Join(lines, "\n") + "\n"
 	if mutate != nil {
 		mutate(&packing, &payload)
@@ -185,6 +188,50 @@ func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFix
 	}
 	entries = append(entries, payload...)
 	return bsdFixtureTar(t, entries, goos)
+}
+
+func TestBSDPackingListBindsOnlyExpectedMetadataControls(t *testing.T) {
+	tests := []struct {
+		name   string
+		goos   string
+		mutate func(*string, *[]bsdFixtureEntry)
+	}{
+		{
+			name: "NetBSD ignore cannot hide an installed payload",
+			goos: "netbsd",
+			mutate: func(packing *string, _ *[]bsdFixtureEntry) {
+				*packing = strings.Replace(*packing, "@ignore\n+COMMENT\n", "@ignore\nbin/leaguebridge\n", 1)
+			},
+		},
+		{
+			name: "NetBSD ignore must be followed by metadata",
+			goos: "netbsd",
+			mutate: func(packing *string, _ *[]bsdFixtureEntry) {
+				*packing = strings.Replace(*packing, "@ignore\n+COMMENT\n", "@ignore\n@comment metadata\n+COMMENT\n", 1)
+			},
+		},
+		{
+			name: "OpenBSD control reference is fixed",
+			goos: "openbsd",
+			mutate: func(packing *string, _ *[]bsdFixtureEntry) {
+				*packing = strings.Replace(*packing, "+DESC\n", "+INSTALL\n", 1)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := bsdFixturePacking(t, test.goos, test.mutate)
+			var _, err = func() (inspectedPackage, error) {
+				if test.goos == "netbsd" {
+					return inspectNetBSDPkg(context.Background(), data)
+				}
+				return inspectOpenBSDPkg(context.Background(), data)
+			}()
+			if err == nil {
+				t.Fatal("malformed BSD metadata controls were accepted")
+			}
+		})
+	}
 }
 
 func TestInspectBSDPackageFormats(t *testing.T) {
