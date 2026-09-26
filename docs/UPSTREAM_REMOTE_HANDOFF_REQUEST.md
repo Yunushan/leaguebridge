@@ -1,20 +1,25 @@
 # Riot inquiry: physical Windows remote handoff to Linux and BSD
 
-**Status: draft; not submitted; not authorization.** This asks Riot for a
-scope-specific written determination. It does not claim that a physical test
-host exists or that Riot permits streamed play.
+**Status: submitted to Riot Developer Relations on 2026-09-26; awaiting a
+written determination; not authorization.** The request is held in the
+maintainer's Developer Support account. Its private ticket link is withheld
+here pending Riot's guidance on public citation. The inquiry does not claim
+that a physical test host exists or that Riot permits streamed play.
 
 Riot's current [League system requirements](https://support.riotgames.com/en-us/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends)
 support Windows and macOS, not Linux or BSD. Riot's [Vanguard third-party FAQ](https://www.riotgames.com/en/DevRel/vanguard-faq)
 says Developer Relations cannot grant a Vanguard allowlist or exception.
-Register the product through the [Developer Portal](https://developer.riotgames.com/docs/portal)
-and use the signed-in [Developer Relations request form](https://support-developer.riotgames.com/hc/en-us/requests/new)
-for this inquiry. A portal registration or support reply alone is not
+Product registration through the [Developer Portal](https://developer.riotgames.com/docs/portal)
+is an open question in the submitted
+[Developer Relations inquiry](https://support-developer.riotgames.com/hc/en-us/requests/new).
+A portal registration or support reply alone is not
 authorization for any scope Riot has not expressly approved.
 
-## Facts to confirm before sending
+## Facts to confirm before follow-up or an authorized test
 
-- Confirm the maintainer's name and registered Developer Portal product ID.
+- Confirm the maintainer's legal name if Riot requires it and register a
+  LeagueBridge product if Riot directs that step. The submitted request did
+  not include a registered product ID.
 - Confirm whether an eligible physical retail Windows 11 PC is actually
   available, its Windows version and hardware, and which Riot/Vanguard checks
   it passes. Do not describe a proposed host as an observed one.
@@ -27,13 +32,13 @@ authorization for any scope Riot has not expressly approved.
   nine observed physical installations.
 - Confirm the Sunshine version and input method on any proposed Windows host,
   including whether its separately licensed Virtual HID Driver is installed.
-  Remove the conditional Raw Input question if it is outside the planned test.
+  The submitted inquiry asked about that method conditionally.
 - Confirm which shipped viewer-side controls the first test will use. Pairing,
   application listing, streaming, and normal stream exit are proposed; optional
   Wake-on-LAN, unpairing, host-application quit, local controller mapping, and
   the separate hardware-KVM path need separate scope.
 
-## Copy-ready inquiry
+## Submitted inquiry
 
 **Subject:** LeagueBridge: written policy determination for physical Windows
 host streaming to Fedora/Linux and BSD viewers
@@ -71,9 +76,9 @@ stream. It is also outside the first test. No specific Windows host, Fedora 44
 viewer, or end-to-end League session is asserted to exist or work by this
 request.
 
-The first proposed viewer is Fedora 44 on **[confirm actual physical hardware,
-OS build, architecture, and Moonlight version]**. The release also targets
-Linux amd64 and arm64; FreeBSD, OpenBSD, and NetBSD on amd64 and arm64; and
+The first proposed viewer is Fedora 44 x86_64; its physical hardware and an
+end-to-end League session have not been independently verified. The release
+also targets Linux amd64 and arm64; FreeBSD, OpenBSD, and NetBSD on amd64 and arm64; and
 DragonFly BSD on amd64. Please assess each BSD OS separately rather than
 interpreting a Linux answer as BSD approval. This request covers only the
 Sunshine/Moonlight handoff to a physical Windows host. The shipped `remote kvm`
@@ -137,17 +142,19 @@ to verify its authenticity and current status without publishing private
 correspondence. A clear “not permitted” answer is useful and will keep the
 route blocked.
 
-We will not include account identifiers, passwords, tokens, machine secrets,
-or private diagnostic bundles in this inquiry.
+We will not include Riot player identifiers, passwords, tokens, machine
+secrets, or private diagnostic bundles in this inquiry. I have not included a
+registered Developer Portal product ID; please advise whether registration
+is required before this policy determination.
 
 Thank you,
 
-**[Maintainer name; registered Developer Portal product ID]**
+**CPL Yunushan, LeagueBridge maintainer**
 
 ## Review boundary
 
-This draft concerns the remote physical-host route only. The separate
-[local Linux/BSD runtime request](UPSTREAM_LINUX_BSD_REQUEST.md) remains a
+The submitted inquiry concerns the remote physical-host route only. The
+separate [local Linux/BSD runtime request](UPSTREAM_LINUX_BSD_REQUEST.md) remains a
 different question. Riot's [Terms of Service](https://www.riotgames.com/en/terms-of-service)
 require an express signed written contract for distribution of Riot Services
 or code. The [Developer Portal FAQ](https://developer.riotgames.com/docs/faqs)
