@@ -6,7 +6,7 @@ export LC_ALL=C
 umask 022
 
 usage() {
-  echo "usage: native-package-linux-smoke.sh VERSION RELEASE_ARCHIVE [OUTPUT_ROOT]" >&2
+  echo "usage: native-package-linux-smoke.sh VERSION RELEASE_ARCHIVE [OUTPUT_ROOT [RELEASE_SET_STAGING_ROOT]]" >&2
   exit 2
 }
 
@@ -15,25 +15,32 @@ fail() {
   exit 1
 }
 
-if [[ "$#" -lt 2 || "$#" -gt 3 ]]; then
+if [[ "$#" -lt 2 || "$#" -gt 4 ]]; then
   usage
 fi
 
 version=$1
 archive=$2
 output_root=${3:-.}
+release_staging_root=${4:-}
 output_prefix=
 if [[ "$output_root" != "." ]]; then
-  if [[ "$output_root" == /* || "$output_root" == */ || "$output_root" == *$'\n'* || "$output_root" == *$'\r'* || "$output_root" == *[^A-Za-z0-9._/-]* ]]; then
+  # An absolute private output is accepted only in release-set mode. The
+  # calling orchestrator creates it exclusively and verifies it afterwards.
+  if [[ ( "$output_root" == /* && -z "$release_staging_root" ) || "$output_root" == */ || "$output_root" == *$'\n'* || "$output_root" == *$'\r'* || "$output_root" == *[^A-Za-z0-9._/-]* ]]; then
     fail "OUTPUT_ROOT must be a safe workspace-relative path"
   fi
   IFS=/ read -r -a output_parts <<< "$output_root"
   output_current=
+  if [[ "$output_root" == /* ]]; then output_current=/; fi
   for output_part in "${output_parts[@]}"; do
-    if [[ -z "$output_part" || "$output_part" == "." || "$output_part" == ".." ]]; then
+    if [[ ( -z "$output_part" && "$output_root" != /* ) || "$output_part" == "." || "$output_part" == ".." ]]; then
       fail "OUTPUT_ROOT must not contain empty or traversing path components"
     fi
-    if [[ -n "$output_current" ]]; then
+    if [[ -z "$output_part" ]]; then continue; fi
+    if [[ "$output_current" == / ]]; then
+      output_current="/$output_part"
+    elif [[ -n "$output_current" ]]; then
       output_current="$output_current/$output_part"
     else
       output_current=$output_part
@@ -44,7 +51,13 @@ if [[ "$output_root" != "." ]]; then
   done
   output_prefix="$output_root/"
 fi
-staging_root="${output_prefix}native-package-staging"
+if [[ -n "$release_staging_root" ]]; then
+  [[ "$release_staging_root" == /* && -d "$release_staging_root" && ! -L "$release_staging_root" ]] || \
+    fail "RELEASE_SET_STAGING_ROOT must be an existing absolute non-symlink directory"
+  staging_root=$release_staging_root
+else
+  staging_root="${output_prefix}native-package-staging"
+fi
 package_root="${output_prefix}native-package-output"
 evidence_root="${output_prefix}native-package-evidence"
 # Keep the shell guard to the required prefix only. The repository's Go
@@ -54,7 +67,7 @@ case "$version" in
   v*) ;;
   *) fail "VERSION must be a v-prefixed semantic version" ;;
 esac
-if [[ "$archive" == /* || "$archive" == *$'\n'* || "$archive" == *$'\r'* ]]; then
+if [[ ( "$archive" == /* && -z "$release_staging_root" ) || "$archive" == *$'\n'* || "$archive" == *$'\r'* ]]; then
   fail "release archive must be a safe workspace-relative path"
 fi
 if [[ -L "$archive" || ! -f "$archive" ]]; then
@@ -120,21 +133,27 @@ packages_debian="$package_root/debian/$target_goarch"
 packages_rpm="$package_root/rpm/$target_goarch"
 evidence_debian="$evidence_root/debian/$target_goarch"
 evidence_rpm="$evidence_root/rpm/$target_goarch"
-ensure_directory "$staging_root/debian"
-ensure_directory "$staging_root/rpm"
+if [[ -z "$release_staging_root" ]]; then
+  ensure_directory "$staging_root/debian"
+  ensure_directory "$staging_root/rpm"
+fi
 ensure_directory "$packages_debian"
 ensure_directory "$packages_rpm"
 ensure_directory "$evidence_debian"
 ensure_directory "$evidence_rpm"
 
-go run -mod=vendor ./tools/nativepackagestage \
-  -archive "$archive" -family debian \
-  -output "$staging_debian"
+if [[ -z "$release_staging_root" ]]; then
+  go run -mod=vendor ./tools/nativepackagestage \
+    -archive "$archive" -family debian \
+    -output "$staging_debian"
+fi
 go run -mod=vendor ./tools/nativepackagecheck \
   -staging "$staging_debian"
-go run -mod=vendor ./tools/nativepackagestage \
-  -archive "$archive" -family rpm \
-  -output "$staging_rpm"
+if [[ -z "$release_staging_root" ]]; then
+  go run -mod=vendor ./tools/nativepackagestage \
+    -archive "$archive" -family rpm \
+    -output "$staging_rpm"
+fi
 go run -mod=vendor ./tools/nativepackagecheck \
   -staging "$staging_rpm"
 

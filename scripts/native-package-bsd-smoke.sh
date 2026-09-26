@@ -7,6 +7,7 @@ umask 022
 
 usage() {
   echo "usage: native-package-bsd-smoke.sh VERSION GOOS FAMILY [VERSION_CHECKER]" >&2
+  echo "   or: native-package-bsd-smoke.sh VERSION GOOS FAMILY VERSION_CHECKER RELEASE_SET_STAGING_ROOT OUTPUT_ROOT" >&2
   exit 2
 }
 
@@ -16,13 +17,25 @@ fail() {
 }
 
 if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-  usage
+  if [ "$#" -ne 6 ]; then
+    usage
+  fi
 fi
 
 version=$1
 expected_goos=$2
 family=$3
 version_checker=${4:-}
+release_staging_root=${5:-}
+output_root=${6:-.}
+if [ -n "$release_staging_root" ]; then
+  case "$release_staging_root" in /*) ;; *) fail "release-set staging root must be absolute" ;; esac
+  case "$output_root" in /*) ;; *) fail "release-set output root must be absolute" ;; esac
+  if [ -L "$release_staging_root" ] || [ ! -d "$release_staging_root" ] ||
+     [ -L "$output_root" ] || [ ! -d "$output_root" ]; then
+    fail "release-set staging and output roots must be real directories"
+  fi
+fi
 # Keep the shell guard to the required prefix only. The repository's Go
 # semantic-version checker below (or the shipped checker binary) is
 # authoritative; duplicating SemVer grammar in a shell glob can reject valid
@@ -89,9 +102,9 @@ fi
 package_version=${version#v}
 package_name="leaguebridge-$package_version"
 installed_package_name=$package_name
-staging_parent="native-package-staging/$family"
-package_parent="native-package-output/$family"
-evidence_parent="native-package-evidence/$family"
+staging_parent="${release_staging_root:-native-package-staging}/$family"
+package_parent="$output_root/native-package-output/$family"
+evidence_parent="$output_root/native-package-evidence/$family"
 staging="$staging_parent/$expected_goarch"
 package_dir="$package_parent/$expected_goarch"
 evidence_dir="$evidence_parent/$expected_goarch"
@@ -107,9 +120,14 @@ ensure_directory() {
   fi
 }
 
-ensure_directory native-package-staging
-ensure_directory native-package-output
-ensure_directory native-package-evidence
+if [ -z "$release_staging_root" ]; then
+  ensure_directory native-package-staging
+  ensure_directory native-package-output
+  ensure_directory native-package-evidence
+else
+  ensure_directory "$output_root/native-package-output"
+  ensure_directory "$output_root/native-package-evidence"
+fi
 ensure_directory "$package_parent"
 ensure_directory "$evidence_parent"
 ensure_directory "$package_dir"
@@ -262,11 +280,23 @@ cleanup() {
     remove_owned_doc_directory
   fi
   if [ -n "${temporary_root:-}" ] && [ -e "$temporary_root" ] && [ ! -L "$temporary_root" ]; then
-    rm -rf -- "$temporary_root"
+    if [ -n "${release_staging_root:-}" ] && [ "$expected_goos" = dragonfly ]; then
+      as_root rm -rf -- "$temporary_root"
+    else
+      rm -rf -- "$temporary_root"
+    fi
   fi
   exit "$cleanup_status"
 }
 trap cleanup EXIT HUP INT TERM
+
+# Release-set inputs must remain unchanged while the builder runs. DragonFly
+# pkg requires root ownership and would otherwise chown the authenticated
+# staging tree. Work from a private copy for every release-bound BSD build.
+if [ -n "$release_staging_root" ]; then
+  cp -Rp "$staging" "$temporary_root/staging"
+  staging="$temporary_root/staging"
+fi
 
 case "$expected_goos" in
   openbsd)
@@ -436,7 +466,10 @@ case "$expected_goos" in
         fail "pkg_create is unavailable and neither tar/gzip nor pax is available in the NetBSD guest"
       fi
       package_root="$temporary_root/netbsd-package-root"
-      package_path_absolute=$(pwd -P)/$package
+      case "$package" in
+        /*) package_path_absolute=$package ;;
+        *) package_path_absolute=$(pwd -P)/$package ;;
+      esac
       mkdir -p "$package_root/bin" "$package_root/libexec/leaguebridge" "$package_root/share/doc/leaguebridge"
       cp -p "$staging/root/usr/local/bin/leaguebridge" "$package_root/bin/leaguebridge"
       cp -p "$staging/root/usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh" "$package_root/libexec/leaguebridge/linux-bsd-client-smoke.sh"
