@@ -181,9 +181,9 @@ It remains score-free and does not authenticate package signatures, an index,
 publication, or native installation. CI uses the narrower
 `productionpackage.VerifyStagedPayload` check for synthetic packages, before
 creating package subjects; that local check has no live release binding.
-FreeBSD/DragonFly manifest BLAKE2 sums are checked for syntax, while SHA-256
-of each archive payload file is compared with staging; the BLAKE2 sums are not
-independently recomputed by this inspector.
+FreeBSD/DragonFly pkg manifest `1$` SHA-256 and `2$` BLAKE2b-512 sums are
+recomputed from each archive payload file. Its SHA-256 is also compared with
+verified staging; package-manager acceptance remains a separate observation.
 
 To inspect one built package against its staging tree from this checkout:
 
@@ -261,8 +261,8 @@ source tree containing the vendor bytes. Go's vendored build information
 records the dependency path and version but not its checksum, so the binary
 verifier requires that exact path and version with an empty build-information
 sum and rejects replacements or additional compiled modules. Other modules in
-`go.mod` and the vendor tree support repository schema tests and are not
-compiled into the release executable. The release process checks a clean
+`go.mod` and the vendor tree support repository tooling and tests. They are
+not compiled into the release executable. The release process checks a clean
 `HEAD`, rejects gitlinks, symlinks, and archive-affecting
 `export-ignore`/`export-subst` attributes. It rejects every `.gitmodules` path
 except the exact inert file generated at

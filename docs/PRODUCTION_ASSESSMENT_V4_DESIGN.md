@@ -119,9 +119,10 @@ digests with the authenticated release's verified staging for all eleven cells.
 The score-free `VerifyStagedPayload` command applies the same built-in format
 inspectors to synthetic CI packages before their subjects are attested. Neither
 check authenticates publisher keys, live repository indexes, package-manager
-signatures, or native installation. The FreeBSD-family inspector compares
-archive payload SHA-256 with staging but only syntax-checks native BLAKE2
-manifest sums; package-manager acceptance remains a separate observation.
+signatures, or native installation. The FreeBSD-family inspector recomputes
+pkg manifest `1$` SHA-256 and `2$` BLAKE2b-512 sums from archive payload bytes,
+then compares payload SHA-256 with staging; package-manager acceptance remains
+a separate observation.
 `nativepackagestage release-set` prepares those eleven staging inputs from an
 opaque authenticated stable release and records package building, signing,
 publication, and lifecycle verification as outstanding. It does not build

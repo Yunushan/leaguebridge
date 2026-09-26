@@ -5,10 +5,10 @@ release executable also contains exactly one approved external Go module,
 `filippo.io/edwards25519` v1.2.0, under the BSD-3-Clause license. Its source is
 committed under `vendor/`, its upstream license remains in that tree, and the
 full binary-redistribution notice is appended to the root `LICENSE` shipped in
-every archive. Additional vendored modules support repository schema tests and
-are not compiled into the release executable. LeagueBridge does not ship Riot
-Client, League of Legends, Vanguard, Riot assets, Windows media, proprietary
-DLLs, Moonlight, or Sunshine.
+every archive. Additional vendored modules support repository tooling and
+tests. They are not compiled into the release executable. LeagueBridge does
+not ship Riot Client, League of Legends, Vanguard, Riot assets, Windows
+media, proprietary DLLs, Moonlight, or Sunshine.
 
 Except for the disclosed vendored Go modules, users obtain third-party software
 from its publisher and remain responsible for its terms and licenses. A Windows
