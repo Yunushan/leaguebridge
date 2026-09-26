@@ -90,6 +90,11 @@ func bsdFixtureTar(t *testing.T, entries []bsdFixtureEntry, goos string) []byte 
 }
 
 func bsdFixtureFreeBSD(t *testing.T, goos, arch string, mutate func(map[string]any, *[]bsdFixtureEntry)) []byte {
+	return bsdFixtureFreeBSDWithDirectoryMutation(t, goos, arch, mutate, nil)
+}
+
+func bsdFixtureFreeBSDWithDirectoryMutation(t *testing.T, goos, arch string,
+	mutate func(map[string]any, *[]bsdFixtureEntry), mutateDirectories func(*[]bsdFixtureEntry)) []byte {
 	t.Helper()
 	payload := bsdFixturePayload()
 	files := make(map[string]map[string]string)
@@ -129,10 +134,14 @@ func bsdFixtureFreeBSD(t *testing.T, goos, arch string, mutate func(map[string]a
 		item.name = "/usr/local/" + item.name
 		entries = append(entries, item)
 	}
-	entries = append(entries,
+	directories := []bsdFixtureEntry{
 		bsdFixtureEntry{"/usr/local/libexec/leaguebridge", nil, 0o755, tar.TypeDir},
 		bsdFixtureEntry{"/usr/local/share/doc/leaguebridge", nil, 0o755, tar.TypeDir},
-	)
+	}
+	if mutateDirectories != nil {
+		mutateDirectories(&directories)
+	}
+	entries = append(entries, directories...)
 	return bsdFixtureTar(t, entries, goos)
 }
 
@@ -266,6 +275,38 @@ func TestBSDInspectorsAcceptReviewedCIPreReleaseVersion(t *testing.T) {
 		if err != nil || value.Version != "v0.0.0-ci" {
 			t.Fatalf("%s CI version = %q, %v", test.name, value.Version, err)
 		}
+	}
+}
+
+func TestDragonFlyPkgManifestDirectoryMarkerUsesReviewedArchiveMode(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		marker        string
+		directoryMode int64
+		wantErr       bool
+	}{
+		{name: "reviewed marker and mode", marker: "y", directoryMode: 0o755},
+		{name: "unknown marker", marker: "yes", directoryMode: 0o755, wantErr: true},
+		{name: "unsafe archive mode", marker: "y", directoryMode: 0o700, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			packageData := bsdFixtureFreeBSDWithDirectoryMutation(t, "dragonfly", "amd64",
+				func(manifest map[string]any, _ *[]bsdFixtureEntry) {
+					manifest["directories"] = map[string]string{
+						"/usr/local/libexec/leaguebridge":   test.marker,
+						"/usr/local/share/doc/leaguebridge": test.marker,
+					}
+				},
+				func(directories *[]bsdFixtureEntry) {
+					for index := range *directories {
+						(*directories)[index].mode = test.directoryMode
+					}
+				})
+			_, err := inspectFreeBSDPkg(context.Background(), packageData, "dragonfly")
+			if (err != nil) != test.wantErr {
+				t.Fatalf("DragonFly directory metadata err = %v, wantErr %t", err, test.wantErr)
+			}
+		})
 	}
 }
 

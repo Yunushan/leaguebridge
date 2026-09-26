@@ -67,7 +67,15 @@ func inspectFreeBSDPkg(ctx context.Context, packageData []byte, goos string) (in
 			return inspectedPackage{}, err
 		}
 		if entry.typeflag == tar.TypeDir {
-			if expectedMode, ok := manifest.dirs[installed]; !ok || expectedMode != fmt.Sprintf("%04o", entry.mode) || seenDirs[installed] {
+			expectedMode, listed := manifest.dirs[installed]
+			actualMode := fmt.Sprintf("%04o", entry.mode)
+			modeMatches := expectedMode == actualMode
+			if goos == "dragonfly" && expectedMode == "" {
+				// DragonFly pkg manifests use "y" as a directory-presence
+				// marker. The archive still has to bind the reviewed mode.
+				modeMatches = actualMode == "0755"
+			}
+			if !listed || !modeMatches || seenDirs[installed] {
 				return inspectedPackage{}, fmt.Errorf("unlisted pkg directory %q", installed)
 			}
 			seenDirs[installed] = true
@@ -451,10 +459,13 @@ func bsdFreeBSDManifest(data []byte, goos string) (bsdPkgManifest, error) {
 				return bsdPkgManifest{}, fmt.Errorf("pkg manifest owns unexpected directory %q", dir)
 			}
 			attrs, err := bsdPkgAttributes(raw, false, goos)
-			if err != nil || attrs.mode != "0755" {
+			if err != nil {
+				return bsdPkgManifest{}, fmt.Errorf("pkg manifest directory %q has unreviewed attributes: %w", dir, err)
+			}
+			if attrs.mode != "0755" && !(goos == "dragonfly" && attrs.mode == "") {
 				return bsdPkgManifest{}, fmt.Errorf("pkg manifest directory %q has unreviewed attributes", dir)
 			}
-			if dirs[dir] != "" {
+			if _, duplicate := dirs[dir]; duplicate {
 				return bsdPkgManifest{}, fmt.Errorf("duplicate pkg directory %q", dir)
 			}
 			dirs[dir] = attrs.mode
@@ -478,6 +489,11 @@ func bsdPkgAttributes(raw json.RawMessage, file bool, goos string) (bsdPkgFile, 
 				// DragonFly's pkg emits the legacy checksum-only files map.
 				// Archive modes and the staged SHA-256 are verified separately.
 				return bsdPkgFile{sum: text}, nil
+			}
+			if !file && goos == "dragonfly" && text == "y" {
+				// DragonFly pkg uses a presence marker for directories; their
+				// mode and ownership are checked from the package archive.
+				return bsdPkgFile{}, nil
 			}
 			if len(text) > 128 {
 				text = text[:128]
