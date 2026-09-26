@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const expectedFileManifest = `3eb31844839ec73d7947a4b27c7cdad92348368ebe3c7165cc2fcf629fe0a629	714	modules.txt
+const expectedFileManifest = `d114417e6082366cf080e6fb17760074c2847ad38bf9b2f04f8c73fa413ae8a9	862	modules.txt
 d6616c2fb2fb2d14d4fa886057286cab81f877fd945638618bc9966203fc0a84	889	filippo.io/edwards25519/doc.go
 cd82641c426a8c294e2b80d746116eb1b1707bfb980199599ef4cbb94cbb25b3	10523	filippo.io/edwards25519/edwards25519.go
 e646542ebc4c8f751de2ca30d98d66a6289d5885b91ed3a3f44327b1d937dd24	11765	filippo.io/edwards25519/extra.go
@@ -67,6 +67,68 @@ cd2e94b6154c7ab9ee90f8bfa8d8addf9f6ae75a58fc090099605401303653cb	472	github.com/
 5e4a46b433800681b8da4911df61cd72212d5bce2839e1c772e2b99a89fbbf09	3251	github.com/santhosh-tekuri/jsonschema/v6/metaschemas/draft-04/schema
 bf7460259b94e8291eaeec1b077f98caff3d16df17ee2a99208f74f1412c4932	3195	github.com/santhosh-tekuri/jsonschema/v6/metaschemas/draft-06/schema
 943da3dc9a29dbfbd325aec2ca01cfd6304a1cd53fde2c9775bcca6523f6410e	3656	github.com/santhosh-tekuri/jsonschema/v6/metaschemas/draft-07/schema
+2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067	1479	golang.org/x/crypto/LICENSE
+96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc	1303	golang.org/x/crypto/PATENTS
+f370186a863f5ef09589b842c688747c480dfd4d3d6bb89661e08de78ed49bb8	7503	golang.org/x/crypto/blake2b/blake2b.go
+1a2952821dcf30e5f49a9eec1091ba5f74d6f900cde45eb842bdf36204430982	905	golang.org/x/crypto/blake2b/blake2bAVX2_amd64.go
+6f1cda9e75d4ce889fcb834cb8733bda26a38db4b842c1475795ca7ffb5cf59c	24237	golang.org/x/crypto/blake2b/blake2bAVX2_amd64.s
+5d1ec2a6232c3aa8d2c6abc8577f56c4cf6d9e0b5d443136f823a82628f24c6d	8558	golang.org/x/crypto/blake2b/blake2b_amd64.s
+3ca806fe8939d7688d4dfa70003bef7ff55e66088176b6c6b794fb32fe02725f	4131	golang.org/x/crypto/blake2b/blake2b_generic.go
+d7e3c0c71f323f0226badb07a0a04daba5b40e7d5f8d31ac622608c7d6761f25	328	golang.org/x/crypto/blake2b/blake2b_ref.go
+0bbc2fbd298ee663cebf28716bd1946682e96abad982fc1a54e2396cb4ca596b	4135	golang.org/x/crypto/blake2b/blake2x.go
+f010131c5e272dde27a5d1d30ce1329d681fdd74b5f5025d197c29448e57deae	594	golang.org/x/crypto/blake2b/register.go
+2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067	1479	golang.org/x/sys/LICENSE
+96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc	1303	golang.org/x/sys/PATENTS
+5a50f8f52ea89a7c638bdd6798f576523ecfc1e4ec2cb657d445f1a7dc0dfab2	407	golang.org/x/sys/cpu/asm_aix_ppc64.s
+825146fd4557b1cbd8161fa28bb4be8820089848d695316edeecb7fd5a551f8a	1868	golang.org/x/sys/cpu/byteorder.go
+2cde798de4d6010a7faf9bd5e0c6abcd9a57b9ca0bdd82ca58d38b7c8027cf65	12364	golang.org/x/sys/cpu/cpu.go
+1e9265c7703fe4b8b2bd6813e05f2fc15a83eb60e237dcafa0911b5b19a7e25f	605	golang.org/x/sys/cpu/cpu_aix.go
+23e6d65d2ba6bf988f6413643cb336b49b438b2b15659c0b22c2d0c63a25e3c0	2163	golang.org/x/sys/cpu/cpu_arm.go
+7af15eb3d3f406ce6ac3cfe027295dc8485e7630c8214d7172969f8426649827	3767	golang.org/x/sys/cpu/cpu_arm64.go
+6fc0c6ee0dcf741981018271639085f94e91cd955207ff6acc03a1ebbdc16c83	758	golang.org/x/sys/cpu/cpu_arm64.s
+6316b8b49d85239203bc4b8e60617a4420bb3f4769a30017128fd62293688e9e	256	golang.org/x/sys/cpu/cpu_gc_arm64.go
+9af08f2d1f95402635813d6303faae72ddd1218fc27115252002282da415f7e8	674	golang.org/x/sys/cpu/cpu_gc_s390x.go
+21711aec00bd43881cbf8b233763adea3db57f17631eb303ec706b6948c43263	499	golang.org/x/sys/cpu/cpu_gc_x86.go
+db9c59162435505021c13a5f0a3c78cb4acbf611032746fa5c637e487789511b	299	golang.org/x/sys/cpu/cpu_gccgo_arm64.go
+89f09aa36fdb1fef1a4ec171178cc12daf4f49e6ee368fec496c482d04ddf145	1029	golang.org/x/sys/cpu/cpu_gccgo_s390x.go
+50585132982aa1dda61a887bb62f468a1a843cf1993d59a4b0fe6ca2e8a5c8f7	1095	golang.org/x/sys/cpu/cpu_gccgo_x86.c
+63076f1a1b8669db58e902ddd9653fcccce44fe046f0c62574224c2a2d2d6729	795	golang.org/x/sys/cpu/cpu_gccgo_x86.go
+cf0f4c7211c4cc912689fecbd30bd4747b6dadf577b065ac03823d74ae1ac870	322	golang.org/x/sys/cpu/cpu_linux.go
+5c2f68fd8e53218eb96b8d67375564242a6bf825021a4ecbc8347af6f47898c0	1393	golang.org/x/sys/cpu/cpu_linux_arm.go
+ee480c4f8102228249f8389f96b2f6b869504e09fbf80b245cd9144df9ae3050	3437	golang.org/x/sys/cpu/cpu_linux_arm64.go
+2527fa939ae3ba4ff7a7a5190c865cdde199d079e5f25b7aa52b1b56e4e11016	480	golang.org/x/sys/cpu/cpu_linux_mips64x.go
+7dc9069abfc5566ac4a0c2642cce5650d86fea693f62af356ef536915e1573ec	282	golang.org/x/sys/cpu/cpu_linux_noinit.go
+01d1a98f48bec3bbb204e88898ba6b5441d30671cb502790e9091471d25d304a	775	golang.org/x/sys/cpu/cpu_linux_ppc64x.go
+290f658b0d8e7e9dd93d3b908cd202f13b3a4f228071d4211f4e1947050dbbcc	890	golang.org/x/sys/cpu/cpu_linux_s390x.go
+9e9698be08b0bd12c6f33f9e470c8214b0c597d339e211f4432292a8fcaad76a	242	golang.org/x/sys/cpu/cpu_loong64.go
+77a333aebca444ef9f718d27df30422a9ac88cba29add1029c30d3dc1c6dc781	320	golang.org/x/sys/cpu/cpu_mips64x.go
+35bb6ba0d168ee41f3763110d65e39e8f6271995b59e6422dc65690fb69e2a9a	248	golang.org/x/sys/cpu/cpu_mipsx.go
+b250e2406e45f0c972605266c3d67dd7a6ad614cb0fba5467d87facf62464436	4359	golang.org/x/sys/cpu/cpu_netbsd_arm64.go
+681c260436ffe0d3d591bc99e9e08a3218e0017589552a7f6a374fcd4a54aad8	1702	golang.org/x/sys/cpu/cpu_openbsd_arm64.go
+5ab9396eff64294fd703389dfae36d4d794f6261c79b6cbfc347699b38f361cc	376	golang.org/x/sys/cpu/cpu_openbsd_arm64.s
+54da156f719d6aee6e14693c79a062680db425f5580d6222d56e57c53e228ca6	218	golang.org/x/sys/cpu/cpu_other_arm.go
+615305a105429a427461329ee47fe30ac1e0e7db93edb3a624a2d43069224290	241	golang.org/x/sys/cpu/cpu_other_arm64.go
+f0ff8ddcebee1e3652369ff24d1f09c22702048266e0c64e0ebac908247c0829	256	golang.org/x/sys/cpu/cpu_other_mips64x.go
+0baab277f0a08d9b958cd1dc3c06f35ebd63c453bfff47adb65e7bbdbf94cb97	285	golang.org/x/sys/cpu/cpu_other_ppc64x.go
+f4595d128c37d0b779b788170d6e7976b0b488644b3df07774c0ffbfb4fac28c	243	golang.org/x/sys/cpu/cpu_other_riscv64.go
+63aa31373ef16a2ca856ca2a1e54496d4cc91602ebf64bf5df99fbdfc334a896	360	golang.org/x/sys/cpu/cpu_ppc64x.go
+04d8fc187abb0d1caea131cd5d49bff0aff2fa4174d19f05f9daba1b4c7a3c1c	241	golang.org/x/sys/cpu/cpu_riscv64.go
+0abc36c54a82044ad48a406a2828e522f24b70247c922a79330cf8f616debbef	4993	golang.org/x/sys/cpu/cpu_s390x.go
+2ab869aa3b38626aba388fa6db352a3be80f1efdfd2085bdf97c2ef594a5e777	2007	golang.org/x/sys/cpu/cpu_s390x.s
+0da8add0ce546dfed3a844f94ce693137b6833712c016561f598e6d8b08c474e	439	golang.org/x/sys/cpu/cpu_wasm.go
+ec2bf2e0967876cbb696c364160f7697a904b243e8160f4afc2f471e4ce0d37a	4969	golang.org/x/sys/cpu/cpu_x86.go
+5ba35bcee387a818c370484f8e3a09b6eef842d7b5b110615dd758cf5e29f30b	600	golang.org/x/sys/cpu/cpu_x86.s
+ff82e534d4d81726e13f34919386becdcb65cb9fc24c0f5835314e00fe13070d	223	golang.org/x/sys/cpu/cpu_zos.go
+53b684a51586ff413570961780bea6526a6eab2568dce27c15efdf0d8e421d05	643	golang.org/x/sys/cpu/cpu_zos_s390x.go
+005d2761cef8d501304f73be92a7f43174bf738a380c9d5d7bc0cac926075f57	397	golang.org/x/sys/cpu/endian_big.go
+c6bc70c372d9e1fe86fcf295f406b17bf04bf8d1af25c2456f58520cdaef3be9	433	golang.org/x/sys/cpu/endian_little.go
+4101df793fddf76dfae477f917928008bc4a797446cd4ad44cde6e906c3f8713	1510	golang.org/x/sys/cpu/hwcap_linux.go
+2a7609201edd3538f89942ea8a32307c377d7937f6623bcba98d328986010e27	1029	golang.org/x/sys/cpu/parse.go
+dfdf71a1c8d94e7cc44117cadb1cf6f66fa2e8cdfb873dd5f1d85831d19841aa	1113	golang.org/x/sys/cpu/proc_cpuinfo_linux.go
+d898ace395866bed261d403c8cd0ea6eab6d6d77f52042204957e389c38938cf	393	golang.org/x/sys/cpu/runtime_auxv.go
+6eee9d1a593dce53d22545dc5d5f6ed9127a43e6568ef5f5521920946510d445	357	golang.org/x/sys/cpu/runtime_auxv_go121.go
+a384f5e0e1f961a15295f30078e8c8cf16ec28672b659b7ff80829ccf8a2a848	726	golang.org/x/sys/cpu/syscall_aix_gccgo.go
+33f76a8da28ee51d3db32944949fc2ddcb9870ba0f2d22d29732dfcf2a6ba119	988	golang.org/x/sys/cpu/syscall_aix_ppc64_gc.go
 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067	1479	golang.org/x/text/LICENSE
 96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc	1303	golang.org/x/text/PATENTS
 1c4510a2729ea9cc0fbf2aa7c68dc1ffdaf9bd10a9cfd9b504cda6dd5ae6e7df	1947	golang.org/x/text/feature/plural/common.go
@@ -153,16 +215,20 @@ golang.org/x/text/internal/number
 golang.org/x/text/internal/stringset
 golang.org/x/text/internal/tag
 golang.org/x/text/internal/language/compact
-golang.org/x/text/message/catalog`
+golang.org/x/text/message/catalog
+golang.org/x/crypto
+golang.org/x/crypto/blake2b
+golang.org/x/sys
+golang.org/x/sys/cpu`
 
 var expectedFiles = mustParseFileManifest(expectedFileManifest)
 
 var expectedDirectories = mustParseDirectoryManifest(expectedDirectoryManifest)
 
 var expectedMetadata = []fileRecord{
-	{path: "go.mod", size: 193, sha256: "c776235f38a2ce18c427d3fe4ce28b39d1d01b45e74d491fd70a195a6a228436"},
-	{path: "go.sum", size: 692, sha256: "abd71cc3df548cdb58029ed2928f478b8ff825faecb4aacdc635d193fd1b1ef3"},
-	{path: "vendor/modules.txt", size: 714, sha256: "3eb31844839ec73d7947a4b27c7cdad92348368ebe3c7165cc2fcf629fe0a629"},
+	{path: "go.mod", size: 265, sha256: "48b8c446099002e13b06c960e2a4ee409fe28b075c44b213d9ab547dcf754759"},
+	{path: "go.sum", size: 1004, sha256: "e33cba351e5d592f7dc067ae3d189a04fec94e9ba182d1d06a242dd0805fe692"},
+	{path: "vendor/modules.txt", size: 862, sha256: "d114417e6082366cf080e6fb17760074c2847ad38bf9b2f04f8c73fa413ae8a9"},
 }
 
 func mustParseFileManifest(manifest string) []fileRecord {
