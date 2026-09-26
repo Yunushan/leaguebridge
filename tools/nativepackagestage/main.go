@@ -64,6 +64,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && (os.Args[1] == "candidate-host" || os.Args[1] == "candidate-set") {
+		if err := runCandidateWorkflow(context.Background(), os.Args[1:], os.Stdout); err != nil {
+			fatalf("%s: %v", os.Args[1], err)
+		}
+		return
+	}
 	archivePath := flag.String("archive", "", "portable Unix release tar.gz to stage")
 	familyRaw := flag.String("family", "", "native package family")
 	output := flag.String("output", "", "new staging directory to create")

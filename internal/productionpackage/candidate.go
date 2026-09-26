@@ -461,6 +461,12 @@ func packageFilename(version string, family nativepackage.Family, goos, goarch s
 	}
 }
 
+// ExpectedPackageFilename returns the canonical filename for one fixed native
+// package cell. It is a naming contract, not evidence that a package exists.
+func ExpectedPackageFilename(version string, family nativepackage.Family, goos, goarch string) (string, error) {
+	return packageFilename(version, family, goos, goarch)
+}
+
 func stableVersion(value string) bool {
 	return len(value) <= 128 && releaseversion.Valid(value) && !strings.ContainsAny(value, "+-")
 }
