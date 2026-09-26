@@ -496,6 +496,9 @@ func verifyCandidateWorkflowSet(ctx context.Context, opts candidateWorkflowOptio
 		return err
 	}
 	recheck := func() error {
+		if err := release.Recheck(ctx); err != nil {
+			return fmt.Errorf("live release recheck: %w", err)
+		}
 		if err := verifyReleaseSetInputs(ctx, facts, releaseDir, inputRoot); err != nil {
 			return fmt.Errorf("release-set recheck: %w", err)
 		}
@@ -504,9 +507,6 @@ func verifyCandidateWorkflowSet(ctx context.Context, opts candidateWorkflowOptio
 		}
 		if _, err := scanPackageTree(opts.version, root, cells, false); err != nil {
 			return fmt.Errorf("exact package tree: %w", err)
-		}
-		if err := release.Recheck(ctx); err != nil {
-			return fmt.Errorf("live release recheck: %w", err)
 		}
 		return nil
 	}
