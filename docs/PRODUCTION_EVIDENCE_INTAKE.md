@@ -20,6 +20,8 @@ embedded only in the submitted record cannot establish its own authority.
 | Native OS packages | 3 | Approved publication channel and authenticated index roots; publisher signing keys for each family; eleven release-bound package files and signed build subjects; package-manager metadata, staged and published payload digests, signatures, live index membership, and withdrawal state. |
 | Package lifecycle smoke | 2 | Independent install, upgrade/repair, native CLI smoke, and uninstall observations for every published package cell, with native OS/kernel and architecture, installed file digests/modes, unrelated-file preservation, cleanup, and links to the signed published package. |
 
+A [draft remote-handoff Riot inquiry](UPSTREAM_REMOTE_HANDOFF_REQUEST.md) is ready for maintainer review; it has not been submitted and does not establish authorization.
+
 For each record, supply its location, immutable digest, producer and independent
 witness, creation and expiry times, exact release version/commit/tree and binary
 or package digests, and the authoritative way to recheck its current state.
