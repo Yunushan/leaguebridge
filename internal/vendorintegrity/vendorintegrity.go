@@ -38,12 +38,13 @@ const (
 	VendorModuleGoVersion = "1.24.0"
 	// ExpectedFileCount is the exact number of files in the complete vendor
 	// tree, including dependency licenses and build/test tooling dependencies.
-	ExpectedFileCount = 111
+	ExpectedFileCount = 173
 
 	// ExpectedLockSHA256 binds the upstream module identity and sums, vendoring
 	// metadata, directory inventory, and every vendored path, size, and digest.
-	// It is populated only after independently verifying the v1.2.0 vendor tree.
-	ExpectedLockSHA256 = "71584e216ec9597086b57c9c40d033c0db4ea1b80325369f0f7c8803fa9e665f"
+	// It binds the complete checked-in vendor tree, including the pinned
+	// v1.2.0 runtime dependency.
+	ExpectedLockSHA256 = "4770c835f8628093ca1f951aecaa72ac8e69f41ff61a911c8864105953858a36"
 
 	maximumMetadataSize = int64(1 << 20)
 	sha256HexLength     = sha256.Size * 2

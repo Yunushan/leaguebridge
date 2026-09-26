@@ -16,6 +16,18 @@ import (
 
 const bsdFixtureDescription = "A bounded, read-only compatibility and remote handoff controller.\n"
 
+// These pkg 2$ vectors were generated independently from the fixed fixture
+// bytes, so a change to the production encoder cannot silently update them.
+var bsdFixtureBlake2Checksums = map[string]string{
+	"executable": "2$eyofpi96znkisb3cja5s6sk4tbk835kwmoc98g44xa3nff9bogiptojqn7cjkqw3kdk5jxwau76wp54bof8bmt8w59m6g7r9y7tib3n",
+	"client":     "2$sgzjwzuj8btca9nnppt15hsqzb7esb3afdqmzynqoopudfkzs5cdndyjzkzpemjtgdreqxmuifek677zrmc5bugaynkg849gp3eeyky",
+	"remote":     "2$j7uaji8qsu8hxmtmq4k9ua5uga7pfhjksw7tt4jbqckmf6cfmpgwpgck78jzazcceye4juh477adrq54yyf37b5w7naixj8nwkmxyiy",
+	"license":    "2$qmhd33fx48njp3b6c7oapbmkpumywzk4qchufg9a3xn5i55jqcne7zge9oj95rrju455siopkx3n4rddwm5tenwi1wt3yxgmec6gp9d",
+	"readme":     "2$o97g6tygkcaqdjin85gsofczk8hb9teju5y91dbncb6m1r59m3s9z784sdhpr57hu6fcrqeiu85yox7qxww96aa1s6nuc6k35z31sjn",
+	"sbom":       "2$yodscowrkz6yd9jqa1e3esunopjzzjhe157pcifzpgwsg41thfff86ba4rbmzc47d8hzwrqta761d3nc4bfdc7epezyamh73ahbomjb",
+	"manifest":   "2$sq9upmef5rfh3zsnypd7wmrsuwumb1m6fu1p5189cqb4zhh13qowz6t3azsm98du6iepuwcxio3j5xy4itsc381zp1gtog5cck5e1ud",
+}
+
 type bsdFixtureEntry struct {
 	name string
 	data []byte
@@ -101,8 +113,16 @@ func bsdFixtureFreeBSDWithDirectoryMutation(t *testing.T, goos, arch string,
 	payload := bsdFixturePayload()
 	files := make(map[string]map[string]string)
 	for _, entry := range payload {
+		sum := bsdFixtureBlake2Checksums[string(entry.data)]
+		if goos == "dragonfly" {
+			hash := sha256.Sum256(entry.data)
+			sum = "1$" + fmt.Sprintf("%x", hash[:])
+		}
+		if sum == "" {
+			t.Fatalf("missing pkg checksum fixture for %q", entry.name)
+		}
 		files["/usr/local/"+entry.name] = map[string]string{
-			"sum": "3$" + strings.Repeat("a", 52), "uname": "root", "gname": "wheel", "perm": fmt.Sprintf("%04o", entry.mode),
+			"sum": sum, "uname": "root", "gname": "wheel", "perm": fmt.Sprintf("%04o", entry.mode),
 		}
 	}
 	platform := "FreeBSD"
@@ -327,9 +347,9 @@ func TestDragonFlyPkgAcceptsLegacyChecksumOnlyFiles(t *testing.T) {
 	if err != nil || got.Architecture != "amd64" || len(got.Files) != 7 {
 		t.Fatalf("legacy DragonFly package: %+v, %v", got, err)
 	}
-	invalid := bsdFixtureFreeBSD(t, "dragonfly", "x86:64", legacyFiles("/usr/local/bin/leaguebridge", "not:a:checksum"))
+	invalid := bsdFixtureFreeBSD(t, "dragonfly", "x86:64", legacyFiles("/usr/local/bin/leaguebridge", "1$"+strings.Repeat("0", 64)))
 	if _, err := inspectFreeBSDPkg(context.Background(), invalid, "dragonfly"); err == nil {
-		t.Fatal("malformed legacy DragonFly checksum was accepted")
+		t.Fatal("mismatched legacy DragonFly checksum was accepted")
 	}
 }
 
@@ -440,9 +460,9 @@ func TestInspectBSDPackagesRejectInstallSideEffectsAndInventoryChanges(t *testin
 		{"pkg-symlink", bsdFixtureFreeBSD(t, "freebsd", "amd64", func(_ map[string]any, files *[]bsdFixtureEntry) { (*files)[0].kind = tar.TypeSymlink }), func(ctx context.Context, data []byte) (inspectedPackage, error) {
 			return inspectFreeBSDPkg(ctx, data, "freebsd")
 		}},
-		{"pkg-unmatched-sha256", bsdFixtureFreeBSD(t, "freebsd", "amd64", func(manifest map[string]any, _ *[]bsdFixtureEntry) {
+		{"pkg-unmatched-blake2", bsdFixtureFreeBSD(t, "freebsd", "amd64", func(manifest map[string]any, _ *[]bsdFixtureEntry) {
 			files := manifest["files"].(map[string]map[string]string)
-			files["/usr/local/bin/leaguebridge"]["sum"] = strings.Repeat("f", 64)
+			files["/usr/local/bin/leaguebridge"]["sum"] = "2$" + strings.Repeat("y", 103)
 		}), func(ctx context.Context, data []byte) (inspectedPackage, error) {
 			return inspectFreeBSDPkg(ctx, data, "freebsd")
 		}},

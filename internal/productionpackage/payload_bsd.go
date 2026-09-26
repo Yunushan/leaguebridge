@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/Yunushan/leaguebridge/internal/releaseversion"
+	"golang.org/x/crypto/blake2b"
 )
 
 // The BSD inspectors parse the package bytes supplied by the private snapshot
@@ -28,13 +29,50 @@ import (
 // package features that this verifier cannot account for.
 const bsdMaximumControl = int64(1 << 20)
 
-var bsdChecksumPattern = regexp.MustCompile(`^[A-Za-z0-9$+/=_-]{16,256}$`)
+var bsdChecksumPattern = regexp.MustCompile(`^(?:1\$[0-9a-f]{64}|2\$[ybndrfg8ejkmcpqxot1uwisza345h769]{103})$`)
 
 type bsdEntry struct {
 	name     string
 	mode     int64
 	typeflag byte
 	data     []byte
+}
+
+// pkg uses SHA-256 hex for checksum type 1 and BLAKE2b-512 encoded with
+// z-base-32 for type 2. Keep the checksum tied to the extracted archive bytes.
+func bsdPkgFileChecksumMatches(sum string, data []byte, sha256Hex string) bool {
+	switch {
+	case strings.HasPrefix(sum, "1$"):
+		return sum == "1$"+sha256Hex
+	case strings.HasPrefix(sum, "2$"):
+		digest := blake2b.Sum512(data)
+		return sum == "2$"+bsdPkgZBase32(digest[:])
+	default:
+		return false
+	}
+}
+
+// pkg's z-base-32 encoder consumes the least significant bits first. The
+// final partial group is emitted without padding.
+func bsdPkgZBase32(data []byte) string {
+	const alphabet = "ybndrfg8ejkmcpqxot1uwisza345h769"
+	var result strings.Builder
+	result.Grow((len(data)*8 + 4) / 5)
+	var bits uint16
+	var available uint
+	for _, octet := range data {
+		bits |= uint16(octet) << available
+		available += 8
+		for available >= 5 {
+			result.WriteByte(alphabet[bits&31])
+			bits >>= 5
+			available -= 5
+		}
+	}
+	if available != 0 {
+		result.WriteByte(alphabet[bits&31])
+	}
+	return result.String()
 }
 
 func inspectFreeBSDPkg(ctx context.Context, packageData []byte, goos string) (inspectedPackage, error) {
@@ -88,13 +126,9 @@ func inspectFreeBSDPkg(ctx context.Context, packageData []byte, goos string) (in
 		if _, exists := files[installed]; exists {
 			return inspectedPackage{}, fmt.Errorf("duplicate pkg payload %q", installed)
 		}
-		// Modern pkg manifests use BLAKE2/base32 sums. Their syntax is
-		// checked below, but this inspector does not recompute BLAKE2.
-		// matchInspectedPayload separately compares SHA-256 of these tar
-		// bytes with the authenticated staging manifest.
 		if metadata, listed := manifest.files[installed]; !listed ||
 			(metadata.mode != file.Mode && !(goos == "dragonfly" && metadata.mode == "")) ||
-			(digestPattern.MatchString(metadata.sum) && metadata.sum != file.SHA256) {
+			!bsdPkgFileChecksumMatches(metadata.sum, entry.data, file.SHA256) {
 			return inspectedPackage{}, fmt.Errorf("pkg manifest does not bind payload %q", installed)
 		}
 		files[installed] = file
@@ -493,7 +527,7 @@ func bsdPkgAttributes(raw json.RawMessage, file bool, goos string) (bsdPkgFile, 
 		if text, ok := value.(string); ok {
 			if file && goos == "dragonfly" && bsdChecksumPattern.MatchString(text) {
 				// DragonFly's pkg emits the legacy checksum-only files map.
-				// Archive modes and the staged SHA-256 are verified separately.
+				// The checksum is recomputed from the archive payload.
 				return bsdPkgFile{sum: text}, nil
 			}
 			if !file && goos == "dragonfly" && text == "y" {
