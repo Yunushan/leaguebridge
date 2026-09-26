@@ -558,14 +558,14 @@ func TestResolveSourceSupportsReviewedCIWorkflowPins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digestBytes(current) != supportedCIWorkflowV18 {
+	if digestBytes(current) != supportedCIWorkflowV19 {
 		t.Fatal("current CI workflow does not match its reviewed digest")
 	}
 	f := newFixtureWithCIWorkflow(t, current)
 	if _, _, _, err := resolveSource(context.Background(), f.api, fixtureCommit, fixtureNow); err != nil {
 		t.Fatalf("current reviewed CI workflow was rejected: %v", err)
 	}
-	for _, digest := range []string{supportedCIWorkflow, supportedCIWorkflowV16, supportedCIWorkflowV17, supportedCIWorkflowV18} {
+	for _, digest := range []string{supportedCIWorkflow, supportedCIWorkflowV16, supportedCIWorkflowV17, supportedCIWorkflowV18, supportedCIWorkflowV19} {
 		if !isSupportedSourceWorkflow(ciWorkflow, digest) {
 			t.Errorf("reviewed CI workflow digest %s was rejected", digest)
 		}

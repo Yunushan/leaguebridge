@@ -67,7 +67,15 @@ func inspectFreeBSDPkg(ctx context.Context, packageData []byte, goos string) (in
 			return inspectedPackage{}, err
 		}
 		if entry.typeflag == tar.TypeDir {
-			if expectedMode, ok := manifest.dirs[installed]; !ok || expectedMode != fmt.Sprintf("%04o", entry.mode) || seenDirs[installed] {
+			expectedMode, listed := manifest.dirs[installed]
+			actualMode := fmt.Sprintf("%04o", entry.mode)
+			modeMatches := expectedMode == actualMode
+			if goos == "dragonfly" && expectedMode == "" {
+				// DragonFly pkg manifests use "y" as a directory-presence
+				// marker. The archive still has to bind the reviewed mode.
+				modeMatches = actualMode == "0755"
+			}
+			if !listed || !modeMatches || seenDirs[installed] {
 				return inspectedPackage{}, fmt.Errorf("unlisted pkg directory %q", installed)
 			}
 			seenDirs[installed] = true
@@ -109,6 +117,12 @@ func inspectOpenBSDPkg(ctx context.Context, packageData []byte) (inspectedPackag
 	packing, err := bsdPackingList(controls["+CONTENTS"], "openbsd")
 	if err != nil {
 		return inspectedPackage{}, err
+	}
+	description, ok := packing.controls["+DESC"]
+	descriptionHash := sha256.Sum256(controls["+DESC"])
+	if !ok || description.sha != hex.EncodeToString(descriptionHash[:]) ||
+		!description.hasSize || description.size != int64(len(controls["+DESC"])) {
+		return inspectedPackage{}, errors.New("OpenBSD +DESC does not match its packing-list checksum and size")
 	}
 	if !strings.HasPrefix(packing.name, "leaguebridge-") || !strings.HasSuffix(packing.name, "-openbsd-"+packing.arch) {
 		return inspectedPackage{}, errors.New("OpenBSD package name does not bind architecture")
@@ -451,10 +465,13 @@ func bsdFreeBSDManifest(data []byte, goos string) (bsdPkgManifest, error) {
 				return bsdPkgManifest{}, fmt.Errorf("pkg manifest owns unexpected directory %q", dir)
 			}
 			attrs, err := bsdPkgAttributes(raw, false, goos)
-			if err != nil || attrs.mode != "0755" {
+			if err != nil {
+				return bsdPkgManifest{}, fmt.Errorf("pkg manifest directory %q has unreviewed attributes: %w", dir, err)
+			}
+			if attrs.mode != "0755" && !(goos == "dragonfly" && attrs.mode == "") {
 				return bsdPkgManifest{}, fmt.Errorf("pkg manifest directory %q has unreviewed attributes", dir)
 			}
-			if dirs[dir] != "" {
+			if _, duplicate := dirs[dir]; duplicate {
 				return bsdPkgManifest{}, fmt.Errorf("duplicate pkg directory %q", dir)
 			}
 			dirs[dir] = attrs.mode
@@ -478,6 +495,11 @@ func bsdPkgAttributes(raw json.RawMessage, file bool, goos string) (bsdPkgFile, 
 				// DragonFly's pkg emits the legacy checksum-only files map.
 				// Archive modes and the staged SHA-256 are verified separately.
 				return bsdPkgFile{sum: text}, nil
+			}
+			if !file && goos == "dragonfly" && text == "y" {
+				// DragonFly pkg uses a presence marker for directories; their
+				// mode and ownership are checked from the package archive.
+				return bsdPkgFile{}, nil
 			}
 			if len(text) > 128 {
 				text = text[:128]
@@ -570,9 +592,10 @@ func bsdSafeInstallPath(value string) bool {
 }
 
 type bsdPacking struct {
-	name  string
-	arch  string
-	files map[string]bsdPackingFile
+	name     string
+	arch     string
+	files    map[string]bsdPackingFile
+	controls map[string]bsdPackingFile
 }
 
 type bsdPackingFile struct {
@@ -583,7 +606,7 @@ type bsdPackingFile struct {
 }
 
 func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
-	result := bsdPacking{files: make(map[string]bsdPackingFile)}
+	result := bsdPacking{files: make(map[string]bsdPackingFile), controls: make(map[string]bsdPackingFile)}
 	if len(data) == 0 || len(data) > int(bsdMaximumControl) || data[len(data)-1] != '\n' {
 		return bsdPacking{}, errors.New("BSD packing list is invalid")
 	}
@@ -592,9 +615,33 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 	last := ""
 	ownerSeen := false
 	groupSeen := false
+	ignoreNext := false
+	lastControl := ""
 	for lineNumber, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
 		if line == "" || strings.ContainsRune(line, '\r') {
 			return bsdPacking{}, fmt.Errorf("BSD packing list line %d is empty or malformed", lineNumber+1)
+		}
+		if ignoreNext {
+			if goos != "netbsd" || (line != "+COMMENT" && line != "+DESC" && line != "+BUILD_INFO") {
+				return bsdPacking{}, fmt.Errorf("BSD packing list line %d has an unreviewed ignored entry %q", lineNumber+1, line)
+			}
+			if _, exists := result.controls[line]; exists {
+				return bsdPacking{}, fmt.Errorf("BSD packing list line %d has an unreviewed ignored entry %q", lineNumber+1, line)
+			}
+			result.controls[line] = bsdPackingFile{}
+			ignoreNext = false
+			last = ""
+			lastControl = ""
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			if _, exists := result.controls[line]; goos != "openbsd" || line != "+DESC" || exists {
+				return bsdPacking{}, fmt.Errorf("unreviewed BSD packing control entry %q", line)
+			}
+			result.controls[line] = bsdPackingFile{}
+			last = ""
+			lastControl = line
+			continue
 		}
 		if !strings.HasPrefix(line, "@") {
 			if cwd != "/usr/local" || (mode == "" && goos != "openbsd") {
@@ -609,6 +656,7 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 			result.files[installed] = bsdPackingFile{mode: mode}
 			last = installed
+			lastControl = ""
 			continue
 		}
 		parts := strings.SplitN(line, " ", 2)
@@ -616,7 +664,16 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 		if len(parts) == 2 {
 			arg = parts[1]
 		}
+		if parts[0] != "@sha" && parts[0] != "@size" && parts[0] != "@ts" {
+			last = ""
+			lastControl = ""
+		}
 		switch parts[0] {
+		case "@ignore":
+			if goos != "netbsd" || arg != "" || ignoreNext {
+				return bsdPacking{}, errors.New("NetBSD ignore directive is malformed or misplaced")
+			}
+			ignoreNext = true
 		case "@name":
 			if result.name != "" || arg == "" {
 				return bsdPacking{}, errors.New("duplicate or empty BSD package name")
@@ -648,29 +705,47 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 			groupSeen = true
 		case "@sha":
-			if goos != "openbsd" || last == "" {
+			if goos != "openbsd" || (last == "" && lastControl == "") {
 				return bsdPacking{}, errors.New("OpenBSD checksum is misplaced")
 			}
 			hash, err := base64.StdEncoding.DecodeString(arg)
-			file := result.files[last]
+			var file bsdPackingFile
+			if lastControl != "" {
+				file = result.controls[lastControl]
+			} else {
+				file = result.files[last]
+			}
 			if err != nil || len(hash) != sha256.Size || file.sha != "" {
 				return bsdPacking{}, errors.New("OpenBSD checksum is invalid")
 			}
 			file.sha = hex.EncodeToString(hash)
-			result.files[last] = file
+			if lastControl != "" {
+				result.controls[lastControl] = file
+			} else {
+				result.files[last] = file
+			}
 		case "@size":
-			if goos != "openbsd" || last == "" {
+			if goos != "openbsd" || (last == "" && lastControl == "") {
 				return bsdPacking{}, errors.New("OpenBSD size is misplaced")
 			}
 			size, err := strconv.ParseInt(arg, 10, 64)
-			file := result.files[last]
+			var file bsdPackingFile
+			if lastControl != "" {
+				file = result.controls[lastControl]
+			} else {
+				file = result.files[last]
+			}
 			if err != nil || size < 0 || file.hasSize {
 				return bsdPacking{}, errors.New("OpenBSD size is invalid")
 			}
 			file.size, file.hasSize = size, true
-			result.files[last] = file
+			if lastControl != "" {
+				result.controls[lastControl] = file
+			} else {
+				result.files[last] = file
+			}
 		case "@ts":
-			if goos != "openbsd" || last == "" || arg == "" {
+			if goos != "openbsd" || (last == "" && lastControl == "") || arg == "" {
 				return bsdPacking{}, errors.New("OpenBSD timestamp is misplaced")
 			}
 		case "@comment":
@@ -685,11 +760,35 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			return bsdPacking{}, fmt.Errorf("unreviewed BSD packing directive %q", parts[0])
 		}
 	}
+	if ignoreNext {
+		return bsdPacking{}, errors.New("NetBSD ignore directive has no following metadata entry")
+	}
+	wantControls := map[string]bool{}
+	switch goos {
+	case "openbsd":
+		wantControls["+DESC"] = true
+	case "netbsd":
+		wantControls["+COMMENT"] = true
+		wantControls["+DESC"] = true
+		wantControls["+BUILD_INFO"] = true
+	}
+	if len(result.controls) != len(wantControls) {
+		return bsdPacking{}, errors.New("BSD packing list has incomplete control-file inventory")
+	}
+	for control := range result.controls {
+		if !wantControls[control] {
+			return bsdPacking{}, fmt.Errorf("BSD packing list references unreviewed control file %q", control)
+		}
+	}
 	if result.name == "" || cwd != "/usr/local" || len(result.files) != 7 || !ownerSeen || !groupSeen ||
 		(goos == "openbsd" && result.arch == "") {
 		return bsdPacking{}, errors.New("BSD packing list has incomplete identity or payload inventory")
 	}
 	if goos == "openbsd" {
+		description, ok := result.controls["+DESC"]
+		if !ok || description.sha == "" || !description.hasSize {
+			return bsdPacking{}, errors.New("OpenBSD packing list omits +DESC digest or size")
+		}
 		for installed, file := range result.files {
 			if file.sha == "" || !file.hasSize {
 				return bsdPacking{}, fmt.Errorf("OpenBSD packing list omits digest or size for %q", installed)
