@@ -1,0 +1,687 @@
+name: Stable native package candidates (score-free)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published stable release tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-native-candidates-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Authenticate release and stage eleven native inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    outputs:
+      ci_run_id: ${{ steps.resolve-ci.outputs.run_id }}
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Check out the manually dispatched source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Select the exact release commit and successful main CI attempt
+        id: resolve-ci
+        working-directory: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != Yunushan/leaguebridge || "$GITHUB_REF" != refs/heads/main ||
+                "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "run this manual workflow from Yunushan/leaguebridge main" >&2
+            exit 1
+          fi
+          go run -mod=vendor ./tools/versioncheck "$RELEASE_TAG"
+          if [[ "$RELEASE_TAG" == *-* || "$RELEASE_TAG" == *+* ]]; then
+            echo "native candidates require a stable published release tag" >&2
+            exit 1
+          fi
+          read -r object_type object_sha < <(
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" \
+              --jq '.object | [.type, .sha] | @tsv'
+          )
+          for _ in 1 2 3 4 5; do
+            [[ "$object_type" == tag ]] || break
+            read -r object_type object_sha < <(
+              gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" \
+                --jq '.object | [.type, .sha] | @tsv'
+            )
+          done
+          if [[ "$object_type" != commit || ! "$object_sha" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+            echo "release tag did not resolve to one commit" >&2
+            exit 1
+          fi
+          gate="$(go run -mod=vendor ./tools/cireleasegate -commit "$object_sha")"
+          if [[ "$gate" =~ ^verified\ complete\ CI\ run\ ([0-9]+)\ attempt\ ([0-9]+)\ for\ release\ commit\ ([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+            ci_run_id="${BASH_REMATCH[1]}"
+            ci_commit="${BASH_REMATCH[3]}"
+          else
+            echo "could not select the complete exact-release main CI run" >&2
+            exit 1
+          fi
+          if [[ "$ci_commit" != "$object_sha" ]]; then
+            echo "selected CI commit differs from the release tag" >&2
+            exit 1
+          fi
+          printf 'run_id=%s\n' "$ci_run_id" >>"$GITHUB_OUTPUT"
+      - name: Download the selected CI attestation subjects and binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          run-id: ${{ steps.resolve-ci.outputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: ci-attestation-*
+          path: source/ci-attestation-input
+          merge-multiple: false
+      - name: Authenticate the release and create score-free staging
+        working-directory: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-attestation ci-build "$GITHUB_WORKSPACE/release-assets"
+          cp ci-attestation-input/ci-attestation-race-vet-ubuntu-24.04/race-vet.json \
+            ci-attestation/race-vet-linux.json
+          targets=(
+            linux-amd64 linux-arm64 freebsd-amd64 freebsd-arm64
+            openbsd-amd64 openbsd-arm64 netbsd-amd64 netbsd-arm64
+            dragonfly-amd64
+          )
+          for target in "${targets[@]}"; do
+            artifact="ci-attestation-input/ci-attestation-cross-build-$target"
+            cp "$artifact/ci-attestation/cross-build.json" \
+              "ci-attestation/cross-build-$target.json"
+            cp "$artifact/ci-build/leaguebridge-$target" \
+              "ci-build/leaguebridge-$target"
+          done
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir "$GITHUB_WORKSPACE/release-assets"
+          go run -mod=vendor ./tools/nativepackagestage release-set \
+            --version "$RELEASE_TAG" \
+            --release-dir "$GITHUB_WORKSPACE/release-assets" \
+            --output "$GITHUB_WORKSPACE/release-set"
+          printf '%s\n' "$RELEASE_TAG" >"$GITHUB_WORKSPACE/release-tag.txt"
+          tar -C "$GITHUB_WORKSPACE" -cpf "$GITHUB_WORKSPACE/release-inputs.tar" \
+            release-tag.txt release-assets release-set
+      - name: Retain mode-preserving release inputs for this run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: score-free-release-inputs
+          path: release-inputs.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  linux:
+    name: Native Linux candidates (${{ matrix.goarch }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: ubuntu-24.04
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Install native Linux package tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends rpm file
+      - name: Download release-bound staging transport
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: score-free-release-inputs
+          path: .
+      - name: Restore release-bound inputs with their exact modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE/release-inputs.tar" "$GITHUB_WORKSPACE" <<'PY'
+          import pathlib
+          import sys
+          import tarfile
+
+          archive, destination = sys.argv[1:]
+          seen = set()
+          with tarfile.open(archive, "r:") as source:
+              members = source.getmembers()
+              for member in members:
+                  name = member.name.rstrip("/")
+                  path = pathlib.PurePosixPath(name)
+                  if (not name or name != str(path) or path.is_absolute()
+                          or ".." in path.parts or name in seen
+                          or not (member.isfile() or member.isdir())
+                          or not (name == "release-tag.txt"
+                                  or name == "release-assets"
+                                  or name.startswith("release-assets/")
+                                  or name == "release-set"
+                                  or name.startswith("release-set/"))):
+                      raise SystemExit("release transport has an unsafe or unexpected member")
+                  seen.add(name)
+              if not {"release-tag.txt", "release-assets", "release-set"} <= seen:
+                  raise SystemExit("release transport is incomplete")
+              source.extractall(destination, members=members, filter="data")
+          PY
+      - name: Build and smoke native Linux package candidates
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(cat "$GITHUB_WORKSPACE/release-tag.txt")"
+          go run -mod=vendor ./tools/nativepackagestage candidate-host \
+            --version "$tag" \
+            --release-dir "$GITHUB_WORKSPACE/release-assets" \
+            --inputs "$GITHUB_WORKSPACE/release-set" \
+            --repo "$GITHUB_WORKSPACE/source" \
+            --output "$GITHUB_WORKSPACE/host-output"
+          test -f "$GITHUB_WORKSPACE/host-output/CANDIDATE-HOST-COMPLETE.txt"
+          tar -C "$GITHUB_WORKSPACE/host-output" \
+            -cpf "$GITHUB_WORKSPACE/host-candidate.tar" \
+            native-package-output native-package-evidence CANDIDATE-HOST-COMPLETE.txt
+      - name: Retain score-free Linux candidate bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: score-free-native-host-linux-${{ matrix.goarch }}
+          path: host-candidate.tar
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  bsd:
+    name: Native BSD candidate (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: freebsd
+            goarch: amd64
+            family: freebsd-pkg
+            guest_version: "15.1"
+            guest_architecture: x86-64
+          - goos: freebsd
+            goarch: arm64
+            family: freebsd-pkg
+            guest_version: "15.1"
+            guest_architecture: arm64
+          - goos: openbsd
+            goarch: amd64
+            family: openbsd-pkg
+            guest_version: "7.9"
+            guest_architecture: x86-64
+          - goos: openbsd
+            goarch: arm64
+            family: openbsd-pkg
+            guest_version: "7.9"
+            guest_architecture: arm64
+          - goos: netbsd
+            goarch: amd64
+            family: pkgsrc
+            guest_version: "11.0"
+            guest_architecture: x86-64
+          - goos: netbsd
+            goarch: arm64
+            family: pkgsrc
+            guest_version: "11.0"
+            guest_architecture: arm64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - name: Set up Go for cross-compiled guest tools
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Download release-bound staging transport
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: score-free-release-inputs
+          path: .
+      - name: Restore release-bound inputs with their exact modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE/release-inputs.tar" "$GITHUB_WORKSPACE" <<'PY'
+          import pathlib
+          import sys
+          import tarfile
+
+          archive, destination = sys.argv[1:]
+          seen = set()
+          with tarfile.open(archive, "r:") as source:
+              members = source.getmembers()
+              for member in members:
+                  name = member.name.rstrip("/")
+                  path = pathlib.PurePosixPath(name)
+                  if (not name or name != str(path) or path.is_absolute()
+                          or ".." in path.parts or name in seen
+                          or not (member.isfile() or member.isdir())
+                          or not (name == "release-tag.txt"
+                                  or name == "release-assets"
+                                  or name.startswith("release-assets/")
+                                  or name == "release-set"
+                                  or name.startswith("release-set/"))):
+                      raise SystemExit("release transport has an unsafe or unexpected member")
+                  seen.add(name)
+              if not {"release-tag.txt", "release-assets", "release-set"} <= seen:
+                  raise SystemExit("release transport is incomplete")
+              source.extractall(destination, members=members, filter="data")
+          PY
+      - name: Build the two native BSD guest tools
+        working-directory: source
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p bsd-tools
+          go build -mod=vendor -trimpath -buildvcs=true \
+            -o bsd-tools/nativepackagestage ./tools/nativepackagestage
+          go build -mod=vendor -trimpath -buildvcs=true \
+            -o bsd-tools/versioncheck ./tools/versioncheck
+      - name: Boot disposable BSD guest
+        id: start-vm
+        uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
+        with:
+          operating_system: ${{ matrix.goos }}
+          architecture: ${{ matrix.guest_architecture }}
+          version: ${{ matrix.guest_version }}
+          shell: sh
+          memory: 4G
+          cpu_count: 2
+      - name: Verify guest shell helper
+        id: cpa-ready
+        if: steps.start-vm.outcome == 'success'
+        shell: bash
+        run: command -v cpa.sh
+      - name: Build and smoke native BSD package in the guest
+        if: success() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
+        shell: cpa.sh {0}
+        run: |
+          set -eu
+          workspace=$(pwd -P)
+          tag=$(cat "$workspace/release-tag.txt")
+          "$workspace/source/bsd-tools/nativepackagestage" candidate-host \
+            --version "$tag" \
+            --release-dir "$workspace/release-assets" \
+            --inputs "$workspace/release-set" \
+            --repo "$workspace/source" \
+            --output "$workspace/host-output" \
+            --version-checker "$workspace/source/bsd-tools/versioncheck" \
+            --disposable-guest
+      - name: Synchronize BSD candidate bytes back to the runner
+        if: always() && steps.start-vm.outcome == 'success' && steps.cpa-ready.outcome == 'success'
+        shell: bash
+        run: cpa.sh --sync-files vm-to-runner
+      - name: Preserve score-free BSD candidate bytes and modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$GITHUB_WORKSPACE/host-output/CANDIDATE-HOST-COMPLETE.txt"
+          tar -C "$GITHUB_WORKSPACE/host-output" \
+            -cpf "$GITHUB_WORKSPACE/host-candidate.tar" \
+            native-package-output native-package-evidence CANDIDATE-HOST-COMPLETE.txt
+      - name: Retain score-free BSD candidate bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: score-free-native-host-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: host-candidate.tar
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  dragonfly:
+    name: Native DragonFly BSD candidate (amd64)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - name: Set up Go for cross-compiled guest tools
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Download release-bound staging transport
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: score-free-release-inputs
+          path: .
+      - name: Restore release-bound inputs with their exact modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE/release-inputs.tar" "$GITHUB_WORKSPACE" <<'PY'
+          import pathlib
+          import sys
+          import tarfile
+
+          archive, destination = sys.argv[1:]
+          seen = set()
+          with tarfile.open(archive, "r:") as source:
+              members = source.getmembers()
+              for member in members:
+                  name = member.name.rstrip("/")
+                  path = pathlib.PurePosixPath(name)
+                  if (not name or name != str(path) or path.is_absolute()
+                          or ".." in path.parts or name in seen
+                          or not (member.isfile() or member.isdir())
+                          or not (name == "release-tag.txt"
+                                  or name == "release-assets"
+                                  or name.startswith("release-assets/")
+                                  or name == "release-set"
+                                  or name.startswith("release-set/"))):
+                      raise SystemExit("release transport has an unsafe or unexpected member")
+                  seen.add(name)
+              if not {"release-tag.txt", "release-assets", "release-set"} <= seen:
+                  raise SystemExit("release transport is incomplete")
+              source.extractall(destination, members=members, filter="data")
+          PY
+      - name: Build the two native DragonFly guest tools
+        working-directory: source
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOOS: dragonfly
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          mkdir -p bsd-tools
+          go build -mod=vendor -trimpath -buildvcs=true \
+            -o bsd-tools/nativepackagestage ./tools/nativepackagestage
+          go build -mod=vendor -trimpath -buildvcs=true \
+            -o bsd-tools/versioncheck ./tools/versioncheck
+      - name: Boot disposable DragonFly BSD 6.4.2 guest
+        id: start-vm
+        uses: vmactions/dragonflybsd-vm@7cd7c9b7f2b06e8e03d2337a9476995f3c112acf # v1
+        with:
+          release: "6.4.2"
+          mem: 6144
+          cpu: 2
+          sync: rsync
+          custom-shell-name: dragonflybsd
+      - name: Verify DragonFly guest shell helper
+        if: steps.start-vm.outcome == 'success'
+        shell: bash
+        run: command -v dragonflybsd
+      - name: Build and smoke native DragonFly package in the guest
+        shell: dragonflybsd {0}
+        run: |
+          set -eu
+          workspace=$(pwd -P)
+          tag=$(cat "$workspace/release-tag.txt")
+          "$workspace/source/bsd-tools/nativepackagestage" candidate-host \
+            --version "$tag" \
+            --release-dir "$workspace/release-assets" \
+            --inputs "$workspace/release-set" \
+            --repo "$workspace/source" \
+            --output "$workspace/host-output" \
+            --version-checker "$workspace/source/bsd-tools/versioncheck" \
+            --disposable-guest
+      - name: Preserve score-free DragonFly candidate bytes and modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$GITHUB_WORKSPACE/host-output/CANDIDATE-HOST-COMPLETE.txt"
+          tar -C "$GITHUB_WORKSPACE/host-output" \
+            -cpf "$GITHUB_WORKSPACE/host-candidate.tar" \
+            native-package-output native-package-evidence CANDIDATE-HOST-COMPLETE.txt
+      - name: Retain score-free DragonFly candidate bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: score-free-native-host-dragonfly-amd64
+          path: host-candidate.tar
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  aggregate:
+    name: Verify all eleven release-bound native package payloads
+    needs: [prepare, linux, bsd, dragonfly]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Require native package payload inspector
+        shell: bash
+        run: test -x /usr/bin/xz
+      - name: Download release-bound staging transport
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: score-free-release-inputs
+          path: .
+      - name: Restore release-bound inputs with their exact modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE/release-inputs.tar" "$GITHUB_WORKSPACE" <<'PY'
+          import pathlib
+          import sys
+          import tarfile
+
+          archive, destination = sys.argv[1:]
+          seen = set()
+          with tarfile.open(archive, "r:") as source:
+              members = source.getmembers()
+              for member in members:
+                  name = member.name.rstrip("/")
+                  path = pathlib.PurePosixPath(name)
+                  if (not name or name != str(path) or path.is_absolute()
+                          or ".." in path.parts or name in seen
+                          or not (member.isfile() or member.isdir())
+                          or not (name == "release-tag.txt"
+                                  or name == "release-assets"
+                                  or name.startswith("release-assets/")
+                                  or name == "release-set"
+                                  or name.startswith("release-set/"))):
+                      raise SystemExit("release transport has an unsafe or unexpected member")
+                  seen.add(name)
+              if not {"release-tag.txt", "release-assets", "release-set"} <= seen:
+                  raise SystemExit("release transport is incomplete")
+              source.extractall(destination, members=members, filter="data")
+          PY
+      - name: Download all nine score-free host transports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: score-free-native-host-*
+          path: host-transports
+          merge-multiple: false
+      - name: Safely restore and merge exactly eleven native packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE" "$RELEASE_TAG" <<'PY'
+          import pathlib
+          import sys
+          import tarfile
+
+          workspace = pathlib.Path(sys.argv[1])
+          tag = sys.argv[2]
+          if (workspace / "release-tag.txt").read_text() != tag + "\n":
+              raise SystemExit("release input tag differs from this dispatch")
+          version = tag.removeprefix("v")
+          cells = {
+              "linux-amd64": [("debian", "amd64", f"leaguebridge_{version}_amd64.deb"),
+                              ("rpm", "amd64", f"leaguebridge-{version}-1.x86_64.rpm")],
+              "linux-arm64": [("debian", "arm64", f"leaguebridge_{version}_arm64.deb"),
+                              ("rpm", "arm64", f"leaguebridge-{version}-1.aarch64.rpm")],
+              "freebsd-amd64": [("freebsd-pkg", "amd64", f"leaguebridge-{version}-freebsd-amd64.pkg")],
+              "freebsd-arm64": [("freebsd-pkg", "arm64", f"leaguebridge-{version}-freebsd-arm64.pkg")],
+              "openbsd-amd64": [("openbsd-pkg", "amd64", f"leaguebridge-{version}-openbsd-amd64.tgz")],
+              "openbsd-arm64": [("openbsd-pkg", "arm64", f"leaguebridge-{version}-openbsd-arm64.tgz")],
+              "netbsd-amd64": [("pkgsrc", "amd64", f"leaguebridge-{version}-netbsd-amd64.tgz")],
+              "netbsd-arm64": [("pkgsrc", "arm64", f"leaguebridge-{version}-netbsd-arm64.tgz")],
+              "dragonfly-amd64": [("dports", "amd64", f"leaguebridge-{version}-dragonfly-amd64.pkg")],
+          }
+          transports = workspace / "host-transports"
+          actual = {entry.name for entry in transports.iterdir()}
+          expected = {"score-free-native-host-" + name for name in cells}
+          if actual != expected:
+              raise SystemExit("host transport artifact inventory is not exactly nine")
+          merged = workspace / "merged-packages" / "native-package-output"
+          for name, expected_cells in cells.items():
+              archive = transports / ("score-free-native-host-" + name) / "host-candidate.tar"
+              extracted = workspace / "extracted-hosts" / name
+              extracted.mkdir(parents=True)
+              package_files = {
+                  f"native-package-output/{family}/{arch}/{filename}"
+                  for family, arch, filename in expected_cells
+              }
+              evidence_files = {
+                  f"native-package-evidence/{family}/{arch}/install.txt"
+                  for family, arch, _ in expected_cells
+              }
+              expected_files = package_files | evidence_files | {"CANDIDATE-HOST-COMPLETE.txt"}
+              expected_dirs = set()
+              for filename in expected_files:
+                  path = pathlib.PurePosixPath(filename)
+                  for parent in path.parents:
+                      if str(parent) != ".":
+                          expected_dirs.add(str(parent))
+              seen = set()
+              with tarfile.open(archive, "r:") as source:
+                  members = source.getmembers()
+                  for member in members:
+                      raw = member.name.rstrip("/")
+                      path = pathlib.PurePosixPath(raw)
+                      if (not raw or raw != str(path) or path.is_absolute()
+                              or ".." in path.parts or raw in seen
+                              or (member.isfile() and raw not in expected_files)
+                              or (member.isdir() and raw not in expected_dirs)
+                              or not (member.isfile() or member.isdir())):
+                          raise SystemExit(f"unsafe or unexpected host transport member: {name}/{raw}")
+                      seen.add(raw)
+                  if not expected_files <= seen:
+                      raise SystemExit(f"host transport missing required files: {name}")
+                  source.extractall(extracted, members=members, filter="data")
+              for family, arch, filename in expected_cells:
+                  source_file = extracted / "native-package-output" / family / arch / filename
+                  destination_dir = merged / family / arch
+                  if destination_dir.exists() or destination_dir.is_symlink():
+                      raise SystemExit(f"duplicate candidate destination: {family}/{arch}")
+                  destination_dir.mkdir(parents=True)
+                  source_file.replace(destination_dir / filename)
+          PY
+      - name: Download the selected CI attestation subjects and binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          run-id: ${{ needs.prepare.outputs.ci_run_id }}
+          github-token: ${{ github.token }}
+          pattern: ci-attestation-*
+          path: source/ci-attestation-input
+          merge-multiple: false
+      - name: Authenticate and verify the exact eleven native package payloads
+        working-directory: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-attestation ci-build
+          cp ci-attestation-input/ci-attestation-race-vet-ubuntu-24.04/race-vet.json \
+            ci-attestation/race-vet-linux.json
+          targets=(
+            linux-amd64 linux-arm64 freebsd-amd64 freebsd-arm64
+            openbsd-amd64 openbsd-arm64 netbsd-amd64 netbsd-arm64
+            dragonfly-amd64
+          )
+          for target in "${targets[@]}"; do
+            artifact="ci-attestation-input/ci-attestation-cross-build-$target"
+            cp "$artifact/ci-attestation/cross-build.json" \
+              "ci-attestation/cross-build-$target.json"
+            cp "$artifact/ci-build/leaguebridge-$target" \
+              "ci-build/leaguebridge-$target"
+          done
+          go run -mod=vendor ./tools/nativepackagestage candidate-set \
+            --version "$RELEASE_TAG" \
+            --release-dir "$GITHUB_WORKSPACE/release-assets" \
+            --inputs "$GITHUB_WORKSPACE/release-set" \
+            --packages "$GITHUB_WORKSPACE/merged-packages" \
+            --output "$GITHUB_WORKSPACE/CANDIDATE-SET.json"
+          tar -C "$GITHUB_WORKSPACE" \
+            -cpf "$GITHUB_WORKSPACE/eleven-score-free-candidates.tar" \
+            CANDIDATE-SET.json merged-packages
+      - name: Retain unsigned and unpublished eleven-package candidate set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: score-free-unsigned-unpublished-eleven-native-packages
+          path: eleven-score-free-candidates.tar
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
