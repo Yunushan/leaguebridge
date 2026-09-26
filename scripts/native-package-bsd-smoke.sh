@@ -239,6 +239,43 @@ hash_package() {
   printf '%s  %s\n' "$(printf '%s' "$package_hash" | tr 'A-F' 'a-f')" "$package_path"
 }
 
+verify_installed_payload() {
+  # %p includes the file type and all permission bits, including setuid,
+  # setgid, and sticky. %Lp would omit those special bits.
+  for payload_relative in \
+    bin/leaguebridge \
+    libexec/leaguebridge/linux-bsd-client-smoke.sh \
+    libexec/leaguebridge/linux-bsd-remote-session.sh \
+    share/doc/leaguebridge/LICENSE \
+    share/doc/leaguebridge/README.md \
+    share/doc/leaguebridge/SBOM.spdx.json \
+    share/doc/leaguebridge/PACKAGE-MANIFEST.json; do
+    payload_staged="$staging/root/usr/local/$payload_relative"
+    payload_installed="/usr/local/$payload_relative"
+    if [ -L "$payload_staged" ] || [ ! -f "$payload_staged" ] ||
+       [ -L "$payload_installed" ] || [ ! -f "$payload_installed" ]; then
+      fail "installed payload or verified staging is not a regular, non-symlink file: $payload_relative"
+    fi
+    case "$payload_relative" in
+      bin/*|libexec/*) payload_expected_mode=100755 ;;
+      share/doc/*) payload_expected_mode=100644 ;;
+    esac
+    payload_staged_mode=$(stat -f '%p' "$payload_staged") ||
+      fail "cannot inspect staged payload mode: $payload_relative"
+    if [ "$payload_staged_mode" != "$payload_expected_mode" ]; then
+      fail "staged payload has unexpected file type or mode: $payload_relative"
+    fi
+    cmp -s "$payload_staged" "$payload_installed" ||
+      fail "installed payload differs from verified staging: $payload_relative"
+    payload_installed_metadata=$(stat -f '%p:%u:%g:%Su:%Sg' "$payload_installed") ||
+      fail "cannot inspect installed payload metadata: $payload_relative"
+    if [ "$payload_installed_metadata" != "$payload_expected_mode:0:0:root:wheel" ]; then
+      fail "installed payload mode or root:wheel ownership differs: $payload_relative"
+    fi
+  done
+  echo 'payload=pass'
+}
+
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/leaguebridge-native-package.XXXXXXXX")
 # ksh can run an EXIT trap before unwinding the evidence block's redirection.
 # Keep the caller's stderr so failure diagnostics cannot append to their input.
@@ -541,6 +578,7 @@ case "$expected_goos" in
       package_installed=1
       as_root "$pkg_command" add -f "$package"
       as_root "$pkg_command" info -e "$package_name"
+      verify_installed_payload
       /usr/local/bin/leaguebridge status
       test -x /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
       test -x /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
@@ -566,6 +604,7 @@ case "$expected_goos" in
       package_installed=1
       as_root pkg_add -D unsigned -I "$package"
       as_root pkg_info -e "$installed_package_name"
+      verify_installed_payload
       /usr/local/bin/leaguebridge status
       test -x /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
       test -x /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
@@ -591,6 +630,7 @@ case "$expected_goos" in
       package_installed=1
       as_root pkg_add "$package"
       as_root pkg_info -e "$package_name"
+      verify_installed_payload
       /usr/local/bin/leaguebridge status
       test -x /usr/local/libexec/leaguebridge/linux-bsd-client-smoke.sh
       test -x /usr/local/libexec/leaguebridge/linux-bsd-remote-session.sh
