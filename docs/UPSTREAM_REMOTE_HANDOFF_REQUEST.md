@@ -28,6 +28,9 @@ authorization for any scope Riot has not expressly approved.
 - Confirm the Sunshine version and input method on any proposed Windows host,
   including whether its separately licensed Virtual HID Driver is installed.
   Remove the conditional Raw Input question if it is outside the planned test.
+- Confirm which shipped viewer-side controls the first test will use. Pairing,
+  application listing, streaming, and normal stream exit are proposed; optional
+  Wake-on-LAN, unpairing, and host-application quit controls need separate scope.
 
 ## Copy-ready inquiry
 
@@ -49,10 +52,19 @@ Legends, and Vanguard directly from Riot and keep them unmodified. Sunshine,
 installed separately from its publisher, would stream video and audio over a
 trusted LAN or private VPN to a separately installed Moonlight client on
 Linux/BSD; Moonlight would convey the player's keyboard, mouse, and optional
-controller input back to the physical Windows host. LeagueBridge would run
-only on the Linux/BSD viewer to perform diagnostics and launch Moonlight. No
-specific Windows host, Fedora 44 viewer, or end-to-end League session is
-asserted to exist or work by this request.
+controller input back to the physical Windows host. LeagueBridge runs only on
+the Linux/BSD viewer. Its shipped controls perform diagnostics, pass fixed
+pair, application-list, stream, unpair, and quit operations to the installed
+Moonlight client, and can send an opt-in standard Wake-on-LAN packet to the
+physical host. A live stream first lists Sunshine-published applications and
+refuses to start unless the configured League entry is present. Unpairing is
+available only with Moonlight Embedded; `remote quit` asks Moonlight to stop
+the host application, and opt-in `--quit-after` asks it to stop that application
+when the stream ends. The first proposed test would use pairing, listing, a
+stream, and normal stream exit. Wake-on-LAN, unpairing, `remote quit`, and
+`--quit-after` are outside that first test pending Riot guidance. No specific
+Windows host, Fedora 44 viewer, or end-to-end League session is asserted to
+exist or work by this request.
 
 The first proposed viewer is Fedora 44 on **[confirm actual physical hardware,
 OS build, architecture, and Moonlight version]**. The release also targets
@@ -90,6 +102,10 @@ Could Riot please determine:
    packages, and what product registration, attribution, trademark, or other
    conditions apply. We will not copy, modify, or redistribute Riot software
    or assets without a separate express signed Riot agreement.
+5. Whether the shipped viewer-side Wake-on-LAN, Moonlight pairing/unpairing,
+   Sunshine application listing, and host-application quit/`--quit-after`
+   controls may be used in this physical-host route, and whether any require
+   separate review before a later test.
 
 Please state the permitted or disallowed OS/architecture scope, host and
 Vanguard prerequisites, input and test methods, distribution terms, effective
