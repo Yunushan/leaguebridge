@@ -55,10 +55,11 @@ trusted LAN or private VPN to a separately installed Moonlight client on
 Linux/BSD; Moonlight would convey the player's keyboard, mouse, and optional
 controller input back to the physical Windows host. LeagueBridge runs only on
 the Linux/BSD viewer. Its shipped controls perform diagnostics, pass fixed
-pair, application-list, stream, unpair, and quit operations to the installed
-Moonlight client, and can send an opt-in standard Wake-on-LAN packet to the
-physical host. A live stream first lists Sunshine-published applications and
-refuses to start unless the configured League entry is present. Unpairing is
+pair, application-list, stream (`remote play` is a guarded stream alias),
+unpair, and quit operations to the installed Moonlight client, and can send an
+opt-in standard Wake-on-LAN packet to the physical host. A live stream first
+lists Sunshine-published applications and refuses to start unless the
+configured League entry is present. Unpairing is
 available only with Moonlight Embedded; `remote quit` asks Moonlight to stop
 the host application, and opt-in `--quit-after` asks it to stop that application
 when the stream ends. The first proposed test would use pairing, listing, a
