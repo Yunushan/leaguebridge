@@ -14,6 +14,8 @@ import (
 	"testing"
 )
 
+const bsdFixtureDescription = "A bounded, read-only compatibility and remote handoff controller.\n"
+
 type bsdFixtureEntry struct {
 	name string
 	data []byte
@@ -148,9 +150,13 @@ func bsdFixtureFreeBSDWithDirectoryMutation(t *testing.T, goos, arch string,
 func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFixtureEntry)) []byte {
 	t.Helper()
 	payload := bsdFixturePayload()
+	description := []byte(bsdFixtureDescription)
 	lines := []string{}
 	if goos == "openbsd" {
-		lines = append(lines, "@name leaguebridge-1.2.3-openbsd-amd64", "@comment pkgpath=sysutils/leaguebridge", "@arch amd64", "+DESC", "@owner root", "@group wheel")
+		lines = append(lines, "@name leaguebridge-1.2.3-openbsd-amd64", "@comment pkgpath=sysutils/leaguebridge", "@arch amd64")
+		hash := sha256.Sum256(description)
+		lines = append(lines, "+DESC", "@sha "+base64.StdEncoding.EncodeToString(hash[:]), "@size "+fmt.Sprint(len(description)))
+		lines = append(lines, "@owner root", "@group wheel")
 	} else {
 		lines = append(lines, "@name leaguebridge-1.2.3", "@owner root", "@group wheel")
 	}
@@ -180,14 +186,44 @@ func bsdFixturePacking(t *testing.T, goos string, mutate func(*string, *[]bsdFix
 	if goos == "netbsd" {
 		entries = append(entries,
 			bsdFixtureEntry{"+COMMENT", []byte("LeagueBridge remote handoff controller\n"), 0o644, tar.TypeReg},
-			bsdFixtureEntry{"+DESC", []byte("A bounded, read-only compatibility and remote handoff controller.\n"), 0o644, tar.TypeReg},
+			bsdFixtureEntry{"+DESC", description, 0o644, tar.TypeReg},
 			bsdFixtureEntry{"+BUILD_INFO", []byte("OPSYS=NetBSD\nOS_VERSION=11.0\nMACHINE_ARCH=x86_64\nPKGTOOLS_VERSION=20260227\n"), 0o644, tar.TypeReg},
 		)
 	} else {
-		entries = append(entries, bsdFixtureEntry{"+DESC", []byte("A bounded, read-only compatibility and remote handoff controller.\n"), 0o644, tar.TypeReg})
+		entries = append(entries, bsdFixtureEntry{"+DESC", description, 0o644, tar.TypeReg})
 	}
 	entries = append(entries, payload...)
 	return bsdFixtureTar(t, entries, goos)
+}
+
+func TestOpenBSDDescriptionControlIsBoundToItsChecksumAndSize(t *testing.T) {
+	descriptionHash := sha256.Sum256([]byte(bsdFixtureDescription))
+	validHash := base64.StdEncoding.EncodeToString(descriptionHash[:])
+	wrongHash := base64.StdEncoding.EncodeToString(make([]byte, sha256.Size))
+	cases := []struct {
+		name   string
+		mutate func(*string, *[]bsdFixtureEntry)
+	}{
+		{
+			name: "wrong description checksum",
+			mutate: func(packing *string, _ *[]bsdFixtureEntry) {
+				*packing = strings.Replace(*packing, "@sha "+validHash, "@sha "+wrongHash, 1)
+			},
+		},
+		{
+			name: "wrong description size",
+			mutate: func(packing *string, _ *[]bsdFixtureEntry) {
+				*packing = strings.Replace(*packing, "@size "+fmt.Sprint(len(bsdFixtureDescription)), "@size 1", 1)
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := inspectOpenBSDPkg(context.Background(), bsdFixturePacking(t, "openbsd", test.mutate)); err == nil {
+				t.Fatal("OpenBSD package with unbound +DESC metadata was accepted")
+			}
+		})
+	}
 }
 
 func TestBSDPackingListBindsOnlyExpectedMetadataControls(t *testing.T) {

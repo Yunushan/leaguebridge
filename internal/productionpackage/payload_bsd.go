@@ -118,6 +118,12 @@ func inspectOpenBSDPkg(ctx context.Context, packageData []byte) (inspectedPackag
 	if err != nil {
 		return inspectedPackage{}, err
 	}
+	description, ok := packing.controls["+DESC"]
+	descriptionHash := sha256.Sum256(controls["+DESC"])
+	if !ok || description.sha != hex.EncodeToString(descriptionHash[:]) ||
+		!description.hasSize || description.size != int64(len(controls["+DESC"])) {
+		return inspectedPackage{}, errors.New("OpenBSD +DESC does not match its packing-list checksum and size")
+	}
 	if !strings.HasPrefix(packing.name, "leaguebridge-") || !strings.HasSuffix(packing.name, "-openbsd-"+packing.arch) {
 		return inspectedPackage{}, errors.New("OpenBSD package name does not bind architecture")
 	}
@@ -589,7 +595,7 @@ type bsdPacking struct {
 	name     string
 	arch     string
 	files    map[string]bsdPackingFile
-	controls map[string]bool
+	controls map[string]bsdPackingFile
 }
 
 type bsdPackingFile struct {
@@ -600,7 +606,7 @@ type bsdPackingFile struct {
 }
 
 func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
-	result := bsdPacking{files: make(map[string]bsdPackingFile), controls: make(map[string]bool)}
+	result := bsdPacking{files: make(map[string]bsdPackingFile), controls: make(map[string]bsdPackingFile)}
 	if len(data) == 0 || len(data) > int(bsdMaximumControl) || data[len(data)-1] != '\n' {
 		return bsdPacking{}, errors.New("BSD packing list is invalid")
 	}
@@ -610,25 +616,31 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 	ownerSeen := false
 	groupSeen := false
 	ignoreNext := false
+	lastControl := ""
 	for lineNumber, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
 		if line == "" || strings.ContainsRune(line, '\r') {
 			return bsdPacking{}, fmt.Errorf("BSD packing list line %d is empty or malformed", lineNumber+1)
 		}
 		if ignoreNext {
-			if goos != "netbsd" || (line != "+COMMENT" && line != "+DESC" && line != "+BUILD_INFO") || result.controls[line] {
+			if goos != "netbsd" || (line != "+COMMENT" && line != "+DESC" && line != "+BUILD_INFO") {
 				return bsdPacking{}, fmt.Errorf("BSD packing list line %d has an unreviewed ignored entry %q", lineNumber+1, line)
 			}
-			result.controls[line] = true
+			if _, exists := result.controls[line]; exists {
+				return bsdPacking{}, fmt.Errorf("BSD packing list line %d has an unreviewed ignored entry %q", lineNumber+1, line)
+			}
+			result.controls[line] = bsdPackingFile{}
 			ignoreNext = false
 			last = ""
+			lastControl = ""
 			continue
 		}
 		if strings.HasPrefix(line, "+") {
-			if goos != "openbsd" || line != "+DESC" || result.controls[line] {
+			if _, exists := result.controls[line]; goos != "openbsd" || line != "+DESC" || exists {
 				return bsdPacking{}, fmt.Errorf("unreviewed BSD packing control entry %q", line)
 			}
-			result.controls[line] = true
+			result.controls[line] = bsdPackingFile{}
 			last = ""
+			lastControl = line
 			continue
 		}
 		if !strings.HasPrefix(line, "@") {
@@ -644,12 +656,17 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 			result.files[installed] = bsdPackingFile{mode: mode}
 			last = installed
+			lastControl = ""
 			continue
 		}
 		parts := strings.SplitN(line, " ", 2)
 		arg := ""
 		if len(parts) == 2 {
 			arg = parts[1]
+		}
+		if parts[0] != "@sha" && parts[0] != "@size" && parts[0] != "@ts" {
+			last = ""
+			lastControl = ""
 		}
 		switch parts[0] {
 		case "@ignore":
@@ -688,29 +705,47 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 			}
 			groupSeen = true
 		case "@sha":
-			if goos != "openbsd" || last == "" {
+			if goos != "openbsd" || (last == "" && lastControl == "") {
 				return bsdPacking{}, errors.New("OpenBSD checksum is misplaced")
 			}
 			hash, err := base64.StdEncoding.DecodeString(arg)
-			file := result.files[last]
+			var file bsdPackingFile
+			if lastControl != "" {
+				file = result.controls[lastControl]
+			} else {
+				file = result.files[last]
+			}
 			if err != nil || len(hash) != sha256.Size || file.sha != "" {
 				return bsdPacking{}, errors.New("OpenBSD checksum is invalid")
 			}
 			file.sha = hex.EncodeToString(hash)
-			result.files[last] = file
+			if lastControl != "" {
+				result.controls[lastControl] = file
+			} else {
+				result.files[last] = file
+			}
 		case "@size":
-			if goos != "openbsd" || last == "" {
+			if goos != "openbsd" || (last == "" && lastControl == "") {
 				return bsdPacking{}, errors.New("OpenBSD size is misplaced")
 			}
 			size, err := strconv.ParseInt(arg, 10, 64)
-			file := result.files[last]
+			var file bsdPackingFile
+			if lastControl != "" {
+				file = result.controls[lastControl]
+			} else {
+				file = result.files[last]
+			}
 			if err != nil || size < 0 || file.hasSize {
 				return bsdPacking{}, errors.New("OpenBSD size is invalid")
 			}
 			file.size, file.hasSize = size, true
-			result.files[last] = file
+			if lastControl != "" {
+				result.controls[lastControl] = file
+			} else {
+				result.files[last] = file
+			}
 		case "@ts":
-			if goos != "openbsd" || last == "" || arg == "" {
+			if goos != "openbsd" || (last == "" && lastControl == "") || arg == "" {
 				return bsdPacking{}, errors.New("OpenBSD timestamp is misplaced")
 			}
 		case "@comment":
@@ -750,6 +785,10 @@ func bsdPackingList(data []byte, goos string) (bsdPacking, error) {
 		return bsdPacking{}, errors.New("BSD packing list has incomplete identity or payload inventory")
 	}
 	if goos == "openbsd" {
+		description, ok := result.controls["+DESC"]
+		if !ok || description.sha == "" || !description.hasSize {
+			return bsdPacking{}, errors.New("OpenBSD packing list omits +DESC digest or size")
+		}
 		for installed, file := range result.files {
 			if file.sha == "" || !file.hasSize {
 				return bsdPacking{}, fmt.Errorf("OpenBSD packing list omits digest or size for %q", installed)
