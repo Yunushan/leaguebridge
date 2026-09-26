@@ -10,8 +10,8 @@ Riot's current [League system requirements](https://support.riotgames.com/en-us/
 support Windows and macOS, not Linux or BSD. Riot's [Vanguard third-party FAQ](https://www.riotgames.com/en/DevRel/vanguard-faq)
 says Developer Relations cannot grant a Vanguard allowlist or exception.
 Product registration through the [Developer Portal](https://developer.riotgames.com/docs/portal)
-is an open question in the submitted
-[Developer Relations inquiry](https://support-developer.riotgames.com/hc/en-us/requests/new).
+was raised as an open question via the signed-in
+[Developer Relations request form](https://support-developer.riotgames.com/hc/en-us/requests/new).
 A portal registration or support reply alone is not
 authorization for any scope Riot has not expressly approved.
 
@@ -39,6 +39,10 @@ authorization for any scope Riot has not expressly approved.
   the separate hardware-KVM path need separate scope.
 
 ## Submitted inquiry
+
+The text below preserves the submitted scope and questions, with Markdown
+formatting for public reading. The signed-in support ticket is the record of
+submission.
 
 **Subject:** LeagueBridge: written policy determination for physical Windows
 host streaming to Fedora/Linux and BSD viewers
@@ -82,7 +86,7 @@ also targets Linux amd64 and arm64; FreeBSD, OpenBSD, and NetBSD on amd64 and ar
 DragonFly BSD on amd64. Please assess each BSD OS separately rather than
 interpreting a Linux answer as BSD approval. This request covers only the
 Sunshine/Moonlight handoff to a physical Windows host. The shipped `remote kvm`
-command is a separate hardware KVM-over-IP (keyboard, video, mouse) fallback,
+command is a separate hardware KVM-over-IP fallback,
 not a virtual machine: it opens the operator's browser to a clean device URL,
 but does not authenticate to the device or implement its video or USB HID input.
 A hardware KVM would connect directly to the physical host and may use
