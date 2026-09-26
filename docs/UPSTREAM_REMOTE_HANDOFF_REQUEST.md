@@ -28,6 +28,10 @@ authorization for any scope Riot has not expressly approved.
 - Confirm the Sunshine version and input method on any proposed Windows host,
   including whether its separately licensed Virtual HID Driver is installed.
   Remove the conditional Raw Input question if it is outside the planned test.
+- Confirm which shipped viewer-side controls the first test will use. Pairing,
+  application listing, streaming, and normal stream exit are proposed; optional
+  Wake-on-LAN, unpairing, host-application quit, local controller mapping, and
+  the separate hardware-KVM path need separate scope.
 
 ## Copy-ready inquiry
 
@@ -49,18 +53,37 @@ Legends, and Vanguard directly from Riot and keep them unmodified. Sunshine,
 installed separately from its publisher, would stream video and audio over a
 trusted LAN or private VPN to a separately installed Moonlight client on
 Linux/BSD; Moonlight would convey the player's keyboard, mouse, and optional
-controller input back to the physical Windows host. LeagueBridge would run
-only on the Linux/BSD viewer to perform diagnostics and launch Moonlight. No
-specific Windows host, Fedora 44 viewer, or end-to-end League session is
-asserted to exist or work by this request.
+controller input back to the physical Windows host. LeagueBridge runs only on
+the Linux/BSD viewer. Its shipped controls perform diagnostics, pass fixed
+pair, application-list, stream (`remote play` is a guarded stream alias),
+unpair, and quit operations to the installed Moonlight client, and can send an
+opt-in standard Wake-on-LAN packet to the physical host. A live stream first
+lists Sunshine-published applications and refuses to start unless the
+configured League entry is present. Unpairing is
+available only with Moonlight Embedded; `remote quit` asks Moonlight to stop
+the host application, and opt-in `--quit-after` asks it to stop that application
+when the stream ends. The first proposed test would use pairing, listing, a
+stream, and normal stream exit. Wake-on-LAN, unpairing, `remote quit`, and
+`--quit-after` are outside that first test pending Riot guidance. The shipped
+`remote map` command asks Moonlight Embedded to read one local controller
+device and print an SDL mapping; it does not contact the host or start a
+stream. It is also outside the first test. No specific Windows host, Fedora 44
+viewer, or end-to-end League session is asserted to exist or work by this
+request.
 
 The first proposed viewer is Fedora 44 on **[confirm actual physical hardware,
 OS build, architecture, and Moonlight version]**. The release also targets
 Linux amd64 and arm64; FreeBSD, OpenBSD, and NetBSD on amd64 and arm64; and
 DragonFly BSD on amd64. Please assess each BSD OS separately rather than
 interpreting a Linux answer as BSD approval. This request covers only the
-physical Windows host route; local Linux/BSD League or Vanguard, Windows VMs,
-cloud hosts, and the separate macOS handoff are outside it.
+Sunshine/Moonlight handoff to a physical Windows host. The shipped `remote kvm`
+command is a separate hardware KVM-over-IP (keyboard, video, mouse) fallback,
+not a virtual machine: it opens the operator's browser to a clean device URL,
+but does not authenticate to the device or implement its video or USB HID input.
+A hardware KVM would connect directly to the physical host and may use
+optional Wake-on-LAN. We would seek separate Riot review before testing that
+path; it is outside this proposed test. Local Linux/BSD League or Vanguard,
+Windows VMs, cloud hosts, and the macOS handoff are also outside this request.
 
 LeagueBridge's proposed distribution contains its source, Linux/BSD
 executables, native packages, licensed dependencies, and required notices. It
@@ -86,10 +109,23 @@ Could Riot please determine:
    independent observer and no automated gameplay. Which test modes, stop
    conditions, and reporting path apply if Riot Client, League, or Vanguard
    rejects the stream or input?
-4. Whether we may publish the described LeagueBridge-only binaries and native
-   packages, and what product registration, attribution, trademark, or other
-   conditions apply. We will not copy, modify, or redistribute Riot software
-   or assets without a separate express signed Riot agreement.
+4. Whether the public `v0.1.0` release may remain available and whether we may
+   publish future LeagueBridge-only binaries and native packages. The existing
+   release binaries expose the disclosed but unused `remote map` and
+   `remote kvm` commands; is distributing those commands permitted while their
+   use awaits separate review? If distribution requires separate authorization,
+   we will hold or limit further distribution pending Riot's determination.
+   What product registration, attribution, trademark, or other conditions apply?
+   We will not copy, modify, or redistribute Riot software or assets without
+   a separate express signed Riot agreement.
+5. Whether the shipped viewer-side Wake-on-LAN, Moonlight pairing/unpairing,
+   Sunshine application listing, and host-application quit/`--quit-after`
+   controls may be used in this physical-host route, and whether any require
+   separate review before a later test.
+6. Whether local Moonlight Embedded controller mapping (`remote map`) requires
+   separate review before use, and whether the distinct physical-host
+   hardware-KVM browser-launcher path requires its own Riot inquiry. Neither
+   is proposed for the first Moonlight test.
 
 Please state the permitted or disallowed OS/architecture scope, host and
 Vanguard prerequisites, input and test methods, distribution terms, effective
