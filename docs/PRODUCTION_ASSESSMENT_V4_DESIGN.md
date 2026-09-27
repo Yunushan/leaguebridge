@@ -123,6 +123,15 @@ signatures, or native installation. The FreeBSD-family inspector recomputes
 pkg manifest `1$` SHA-256 and `2$` BLAKE2b-512 sums from archive payload bytes,
 then compares payload SHA-256 with staging; package-manager acceptance remains
 a separate observation.
+
+The live release verifier also retains a nine-target executable digest
+inventory from the same archive bytes used for full release validation.
+`VerifiedRelease.ExecutableFor` exposes the authenticated archive and binary
+identity for each target. The production assessor checks that identity against
+its opaque release binding before it can become an expected native observation.
+This removes a caller-selected executable digest from the future integration
+and physical BSD verification path; it does not provision observers or award
+external credit.
 `nativepackagestage release-set` prepares those eleven staging inputs from an
 opaque authenticated stable release and records package building, signing,
 publication, and lifecycle verification as outstanding. It does not build

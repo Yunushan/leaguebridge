@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yunushan/leaguebridge/internal/productionnative"
 	"github.com/Yunushan/leaguebridge/internal/releaseassessment"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -18,11 +19,12 @@ import (
 var fixtureTime = time.Date(2030, time.September, 1, 12, 0, 0, 0, time.UTC)
 
 type fixtureIdentity struct {
-	result     releaseassessment.Result
-	digest     string
-	assets     []releaseassessment.PublishedAsset
-	recheckErr error
-	rechecks   int
+	result             releaseassessment.Result
+	digest             string
+	assets             []releaseassessment.PublishedAsset
+	executableOverride *releaseassessment.AuthenticatedExecutable
+	recheckErr         error
+	rechecks           int
 }
 
 type recheckHookIdentity struct {
@@ -42,6 +44,22 @@ func (f *fixtureIdentity) Assessment() (releaseassessment.Result, error) { retur
 func (f *fixtureIdentity) ScorecardSHA256() (string, error)              { return f.digest, nil }
 func (f *fixtureIdentity) PublishedAssets() ([]releaseassessment.PublishedAsset, error) {
 	return f.assets, nil
+}
+func (f *fixtureIdentity) ExecutableFor(goos, goarch string) (releaseassessment.AuthenticatedExecutable, error) {
+	if f.executableOverride != nil {
+		return *f.executableOverride, nil
+	}
+	name := "leaguebridge_" + strings.TrimPrefix(f.result.Version, "v") + "_" + goos + "_" + goarch + ".tar.gz"
+	for _, asset := range f.assets {
+		if asset.Name == name {
+			return releaseassessment.AuthenticatedExecutable{
+				Version: f.result.Version, Commit: f.result.Commit, Tree: f.result.Tree, ReleaseID: f.result.ReleaseID,
+				GOOS: goos, GOARCH: goarch, ArchiveFilename: name, ArchiveSHA256: asset.SHA256,
+				ExecutableSHA256: strings.Repeat("e", 64),
+			}, nil
+		}
+	}
+	return releaseassessment.AuthenticatedExecutable{}, errors.New("target absent from fixture release")
 }
 func (f *fixtureIdentity) Recheck(context.Context) error {
 	f.rechecks++
@@ -109,6 +127,42 @@ func fixtureProof(t *testing.T, identity *fixtureIdentity, criterionID string, e
 		t.Fatalf("construct opaque fixture proof: %v", err)
 	}
 	return proof
+}
+
+func TestNativeReleaseBindingUsesAuthenticatedExecutable(t *testing.T) {
+	identity := fixtureRelease()
+	cell := productionnative.Cell{GOOS: "linux", GOARCH: "amd64"}
+	got, err := nativeReleaseBinding(identity, fixtureBinding(identity), cell)
+	if err != nil || got.Version != identity.result.Version || got.Commit != identity.result.Commit ||
+		got.Tree != identity.result.Tree || got.ReleaseID != identity.result.ReleaseID ||
+		got.ArchiveFilename != "leaguebridge_1.2.3_linux_amd64.tar.gz" ||
+		got.ArchiveSHA256 != strings.Repeat("a", 64) || got.ExecutableSHA256 != strings.Repeat("e", 64) {
+		t.Fatalf("native release binding differs from authenticated identity: %+v, %v", got, err)
+	}
+	if _, err := nativeReleaseBinding(identity, fixtureBinding(identity), productionnative.Cell{GOOS: "windows", GOARCH: "amd64"}); err == nil {
+		t.Fatal("unsupported native target received a release binding")
+	}
+	for _, item := range []struct {
+		name   string
+		change func(*releaseassessment.AuthenticatedExecutable)
+	}{
+		{"wrong source tree", func(value *releaseassessment.AuthenticatedExecutable) { value.Tree = strings.Repeat("f", 40) }},
+		{"wrong archive digest", func(value *releaseassessment.AuthenticatedExecutable) { value.ArchiveSHA256 = strings.Repeat("f", 64) }},
+		{"invalid executable digest", func(value *releaseassessment.AuthenticatedExecutable) { value.ExecutableSHA256 = "claimed" }},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			changed := fixtureRelease()
+			value, err := changed.ExecutableFor(cell.GOOS, cell.GOARCH)
+			if err != nil {
+				t.Fatal(err)
+			}
+			item.change(&value)
+			changed.executableOverride = &value
+			if _, err := nativeReleaseBinding(changed, fixtureBinding(changed), cell); err == nil {
+				t.Fatal("inconsistent executable was accepted")
+			}
+		})
+	}
 }
 
 func TestVerifyProducesSchemaConformingMissingEvidenceWithoutCredit(t *testing.T) {

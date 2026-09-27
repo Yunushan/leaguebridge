@@ -71,21 +71,47 @@ type CheckRequest struct {
 	ExpectedScorecard []byte
 }
 
+// ExecutableDigest identifies one executable in the exact release archive
+// whose bytes passed Check. Both digests are lowercase hexadecimal SHA-256.
+type ExecutableDigest struct {
+	GOOS             string
+	GOARCH           string
+	ArchiveName      string
+	ExecutableName   string
+	ArchiveSHA256    string
+	ExecutableSHA256 string
+}
+
+// ExecutableInventory contains the nine canonical release targets in
+// target.Ordered order. It is returned only after the complete release check
+// succeeds; it does not itself authenticate the expected source identity.
+type ExecutableInventory struct {
+	Entries []ExecutableDigest
+}
+
 // Check verifies the complete nine-archive release and checksum inventory. It
 // never substitutes this verifier's embedded scorecard for the selected policy.
 func Check(input CheckRequest) error {
+	_, err := CheckWithExecutableInventory(input)
+	return err
+}
+
+// CheckWithExecutableInventory verifies the release and captures archive and
+// executable digests from the exact archive bytes used by that verification.
+// No partial inventory is returned on failure.
+func CheckWithExecutableInventory(input CheckRequest) (ExecutableInventory, error) {
 	if err := input.ValidateIdentity(); err != nil {
-		return err
+		return ExecutableInventory{}, err
 	}
 	if len(input.ExpectedScorecard) == 0 || len(input.ExpectedScorecard) > readiness.MaximumScorecardSize {
-		return errors.New("expected release scorecard is empty or exceeds its bound")
+		return ExecutableInventory{}, errors.New("expected release scorecard is empty or exceeds its bound")
 	}
 	scorecard := append([]byte(nil), input.ExpectedScorecard...)
 	trimmed := bytes.TrimSpace(scorecard)
 	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(scorecard) {
-		return errors.New("expected release scorecard must be a JSON object")
+		return ExecutableInventory{}, errors.New("expected release scorecard must be a JSON object")
 	}
-	return checkRelease(input.Dir, input.Version, input.SourceDateEpoch, input.Commit, input.Tree, input.BuilderGoVersion, scorecard)
+	return checkReleaseWithExecutableInventory(input.Dir, input.Version, input.SourceDateEpoch, input.Commit, input.Tree, input.BuilderGoVersion, scorecard)
 }
 
 // ValidateIdentity checks source metadata before opening any release files. The
@@ -139,15 +165,20 @@ func parseSourceDateEpoch(raw string) (int64, error) {
 }
 
 func checkRelease(dir, version string, epoch int64, commit, tree, builderGoVersion string, expectedScorecard []byte) error {
+	_, err := checkReleaseWithExecutableInventory(dir, version, epoch, commit, tree, builderGoVersion, expectedScorecard)
+	return err
+}
+
+func checkReleaseWithExecutableInventory(dir, version string, epoch int64, commit, tree, builderGoVersion string, expectedScorecard []byte) (ExecutableInventory, error) {
 	artifacts, err := expectedArtifacts(version)
 	if err != nil {
-		return err
+		return ExecutableInventory{}, err
 	}
 	if err := validateCommit(commit); err != nil {
-		return err
+		return ExecutableInventory{}, err
 	}
 	if err := validateTree(tree); err != nil {
-		return err
+		return ExecutableInventory{}, err
 	}
 
 	expectedFiles := map[string]struct{}{"checksums.txt": {}}
@@ -156,23 +187,44 @@ func checkRelease(dir, version string, epoch int64, commit, tree, builderGoVersi
 	}
 	releaseRoot, err := fileinput.OpenDirectoryRoot(dir)
 	if err != nil {
-		return fmt.Errorf("release directory: %w", err)
+		return ExecutableInventory{}, fmt.Errorf("release directory: %w", err)
 	}
 	defer releaseRoot.Close()
 	if err := checkDirectoryFromRoot(releaseRoot, expectedFiles); err != nil {
-		return err
+		return ExecutableInventory{}, err
 	}
-	if err := checkChecksumsFromRoot(releaseRoot, artifacts); err != nil {
-		return err
+	checksums, err := readChecksumsFromRoot(releaseRoot, artifacts)
+	if err != nil {
+		return ExecutableInventory{}, err
 	}
 
+	inventory := ExecutableInventory{Entries: make([]ExecutableDigest, 0, len(artifacts))}
 	for _, item := range artifacts {
-		err = checkTarGzipFromRoot(releaseRoot, item.name, item, version, epoch, commit, tree, builderGoVersion, expectedScorecard)
-		if err != nil {
-			return fmt.Errorf("%s: %w", item.name, err)
+		data, readErr := readFileBoundedFromRoot(releaseRoot, item.name, maxArchiveSize)
+		if readErr != nil {
+			return ExecutableInventory{}, fmt.Errorf("%s: %w", item.name, readErr)
 		}
+		archiveDigest := sha256.Sum256(data)
+		archiveSHA256 := hex.EncodeToString(archiveDigest[:])
+		if archiveSHA256 != checksums[item.name] {
+			return ExecutableInventory{}, fmt.Errorf("checksum mismatch for %q", item.name)
+		}
+		payload, readErr := readTarGzipData(data, item.binaryName, epoch)
+		if readErr != nil {
+			return ExecutableInventory{}, fmt.Errorf("%s: %w", item.name, readErr)
+		}
+		err = checkArchivePayload(payload, item, version, epoch, commit, tree, builderGoVersion, expectedScorecard)
+		if err != nil {
+			return ExecutableInventory{}, fmt.Errorf("%s: %w", item.name, err)
+		}
+		executableDigest := sha256.Sum256(payload.binary)
+		inventory.Entries = append(inventory.Entries, ExecutableDigest{
+			GOOS: item.goos, GOARCH: item.goarch,
+			ArchiveName: item.name, ExecutableName: item.binaryName,
+			ArchiveSHA256: archiveSHA256, ExecutableSHA256: hex.EncodeToString(executableDigest[:]),
+		})
 	}
-	return nil
+	return inventory, nil
 }
 
 func validateCommit(commit string) error {
@@ -205,6 +257,22 @@ func expectedArtifacts(version string) ([]artifact, error) {
 			goos:       candidate.GOOS,
 			goarch:     candidate.GOARCH,
 		})
+	}
+	if len(artifacts) != 9 {
+		return nil, fmt.Errorf("release target inventory has %d cells; want 9", len(artifacts))
+	}
+	seenTargets := make(map[string]struct{}, len(artifacts))
+	seenArchives := make(map[string]struct{}, len(artifacts))
+	for _, item := range artifacts {
+		key := item.goos + "/" + item.goarch
+		if _, duplicate := seenTargets[key]; duplicate {
+			return nil, fmt.Errorf("duplicate release target %q", key)
+		}
+		if _, duplicate := seenArchives[item.name]; duplicate {
+			return nil, fmt.Errorf("duplicate release archive %q", item.name)
+		}
+		seenTargets[key] = struct{}{}
+		seenArchives[item.name] = struct{}{}
 	}
 	return artifacts, nil
 }
@@ -347,16 +415,16 @@ func checkChecksums(dir string, artifacts []artifact) error {
 	return nil
 }
 
-func checkChecksumsFromRoot(root *os.Root, artifacts []artifact) error {
+func readChecksumsFromRoot(root *os.Root, artifacts []artifact) (map[string]string, error) {
 	data, err := readFileBoundedFromRoot(root, "checksums.txt", maxChecksumSize)
 	if err != nil {
-		return fmt.Errorf("read checksums.txt: %w", err)
+		return nil, fmt.Errorf("read checksums.txt: %w", err)
 	}
 	if len(data) == 0 || data[len(data)-1] != '\n' {
-		return errors.New("checksums.txt must be non-empty and end with a newline")
+		return nil, errors.New("checksums.txt must be non-empty and end with a newline")
 	}
 	if bytes.ContainsRune(data, '\r') {
-		return errors.New("checksums.txt must use LF line endings")
+		return nil, errors.New("checksums.txt must use LF line endings")
 	}
 
 	expectedNames := make([]string, 0, len(artifacts))
@@ -366,26 +434,21 @@ func checkChecksumsFromRoot(root *os.Root, artifacts []artifact) error {
 	sort.Strings(expectedNames)
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 	if len(lines) != len(expectedNames) {
-		return fmt.Errorf("checksums.txt has %d entries; want %d", len(lines), len(expectedNames))
+		return nil, fmt.Errorf("checksums.txt has %d entries; want %d", len(lines), len(expectedNames))
 	}
 
+	checksums := make(map[string]string, len(expectedNames))
 	for index, line := range lines {
 		if len(line) < 69 || line[64:68] != " *./" || !lowerHex(line[:64]) {
-			return fmt.Errorf("checksums.txt line %d is not canonical binary-mode sha256sum output", index+1)
+			return nil, fmt.Errorf("checksums.txt line %d is not canonical binary-mode sha256sum output", index+1)
 		}
 		name := line[68:]
 		if name != expectedNames[index] {
-			return fmt.Errorf("checksums.txt line %d names %q; want canonical entry %q", index+1, name, expectedNames[index])
+			return nil, fmt.Errorf("checksums.txt line %d names %q; want canonical entry %q", index+1, name, expectedNames[index])
 		}
-		actual, err := fileSHA256FromRoot(root, name, maxArchiveSize)
-		if err != nil {
-			return fmt.Errorf("hash %q: %w", name, err)
-		}
-		if actual != line[:64] {
-			return fmt.Errorf("checksum mismatch for %q", name)
-		}
+		checksums[name] = line[:64]
 	}
-	return nil
+	return checksums, nil
 }
 
 func lowerHex(value string) bool {
@@ -579,35 +642,6 @@ func readFileBoundedFromRoot(root *os.Root, name string, maximum int64) ([]byte,
 	return data, nil
 }
 
-func fileSHA256FromRoot(root *os.Root, name string, maximum int64) (string, error) {
-	file, before, err := openReleaseFileFromRoot(root, name, maximum)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	digest := sha256.New()
-	written, err := io.Copy(digest, io.LimitReader(file, maximum+1))
-	if err != nil {
-		return "", err
-	}
-	if written > maximum {
-		return "", fmt.Errorf("content exceeds limit %d", maximum)
-	}
-	opened, err := file.Stat()
-	if err != nil {
-		return "", err
-	}
-	finalPath, err := root.Lstat(name)
-	if err != nil {
-		return "", err
-	}
-	if !opened.Mode().IsRegular() || finalPath.Mode()&os.ModeSymlink != 0 || !finalPath.Mode().IsRegular() ||
-		!os.SameFile(before, opened) || !os.SameFile(before, finalPath) || opened.Size() != written || finalPath.Size() != written {
-		return "", errors.New("file changed while reading")
-	}
-	return hex.EncodeToString(digest.Sum(nil)), nil
-}
-
 func checkTarGzip(path string, item artifact, version string, epoch int64, commit, tree, builderGoVersion string, expectedScorecard []byte) error {
 	payload, err := readTarGzip(path, item.binaryName, epoch)
 	if err != nil {
@@ -618,22 +652,6 @@ func checkTarGzip(path string, item artifact, version string, epoch int64, commi
 
 func readTarGzip(path, binaryName string, epoch int64) (archivePayload, error) {
 	data, err := readFileBounded(path, maxArchiveSize)
-	if err != nil {
-		return archivePayload{}, err
-	}
-	return readTarGzipData(data, binaryName, epoch)
-}
-
-func checkTarGzipFromRoot(root *os.Root, name string, item artifact, version string, epoch int64, commit, tree, builderGoVersion string, expectedScorecard []byte) error {
-	payload, err := readTarGzipFromRoot(root, name, item.binaryName, epoch)
-	if err != nil {
-		return err
-	}
-	return checkArchivePayload(payload, item, version, epoch, commit, tree, builderGoVersion, expectedScorecard)
-}
-
-func readTarGzipFromRoot(root *os.Root, name, binaryName string, epoch int64) (archivePayload, error) {
-	data, err := readFileBoundedFromRoot(root, name, maxArchiveSize)
 	if err != nil {
 		return archivePayload{}, err
 	}

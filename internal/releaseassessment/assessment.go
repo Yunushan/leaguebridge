@@ -75,7 +75,7 @@ type dependencies struct {
 	api        apiClient
 	gate       func(context.Context, cireleasegate.VerifyRequest) (cireleasegate.RunIdentity, error)
 	signatures func(context.Context, ciattestation.VerifyRequest) error
-	archives   func(releasecheck.CheckRequest) error
+	archives   func(releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error)
 	now        func() time.Time
 	capture    *verifiedMetadata
 }
@@ -88,7 +88,7 @@ func Verify(ctx context.Context, input Request) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 	return verify(ctx, input, dependencies{api: githubAPI(input.GHPath), gate: cireleasegate.Verify,
-		signatures: ciattestation.VerifySetContext, archives: releasecheck.Check, now: time.Now})
+		signatures: ciattestation.VerifySetContext, archives: releasecheck.CheckWithExecutableInventory, now: time.Now})
 }
 
 func verify(ctx context.Context, input Request, deps dependencies) (Result, error) {
@@ -158,8 +158,9 @@ func verify(ctx context.Context, input Request, deps dependencies) (Result, erro
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	if err := deps.archives(releasecheck.CheckRequest{Dir: privateRelease, Version: input.Version, SourceDateEpoch: source.Epoch,
-		Commit: source.Commit, Tree: source.Tree, BuilderGoVersion: packageinfo.ProductionBuilderGoVersion, ExpectedScorecard: append([]byte(nil), cardBytes...)}); err != nil {
+	archiveInventory, err := deps.archives(releasecheck.CheckRequest{Dir: privateRelease, Version: input.Version, SourceDateEpoch: source.Epoch,
+		Commit: source.Commit, Tree: source.Tree, BuilderGoVersion: packageinfo.ProductionBuilderGoVersion, ExpectedScorecard: append([]byte(nil), cardBytes...)})
+	if err != nil {
 		return Result{}, stageFailure(ctx, "released archive contents", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -234,10 +235,11 @@ func verify(ctx context.Context, input Request, deps dependencies) (Result, erro
 			evidence[name] = file
 		}
 		*deps.capture = verifiedMetadata{
-			scorecardSHA256: digestBytes(cardBytes),
-			assets:          append([]asset(nil), initial.Assets...),
-			published:       initial,
-			evidence:        evidence,
+			scorecardSHA256:  digestBytes(cardBytes),
+			assets:           append([]asset(nil), initial.Assets...),
+			published:        initial,
+			evidence:         evidence,
+			archiveInventory: archiveInventory,
 		}
 	}
 	return Result{1, input.Version, source.Commit, source.Tree, initial.Release.ID, releaseRun.ID, releaseRun.Attempt,

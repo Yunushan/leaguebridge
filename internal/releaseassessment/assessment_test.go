@@ -148,11 +148,30 @@ func newFixtureWithCIWorkflow(t *testing.T, ciWorkflowOverride []byte) *fixture 
 			return cireleasegate.RunIdentity{ID: 200, Attempt: 1, Commit: input.Commit}, ctx.Err()
 		},
 		signatures: func(ctx context.Context, input ciattestation.VerifyRequest) error { return ctx.Err() },
-		archives:   func(input releasecheck.CheckRequest) error { return nil },
-		now:        func() time.Time { return fixtureNow },
+		archives: func(input releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error) {
+			return fixtureExecutableInventory(assets), nil
+		},
+		now: func() time.Time { return fixtureNow },
 	}
 	t.Chdir(local)
 	return f
+}
+
+func fixtureExecutableInventory(assets []asset) releasecheck.ExecutableInventory {
+	byName := make(map[string]asset, len(assets))
+	for _, item := range assets {
+		byName[item.Name] = item
+	}
+	var inventory releasecheck.ExecutableInventory
+	for _, item := range target.Ordered() {
+		name := "leaguebridge_" + strings.TrimPrefix(fixtureVersion, "v") + "_" + item.GOOS + "_" + item.GOARCH + ".tar.gz"
+		inventory.Entries = append(inventory.Entries, releasecheck.ExecutableDigest{
+			GOOS: item.GOOS, GOARCH: item.GOARCH, ArchiveName: name, ExecutableName: "leaguebridge",
+			ArchiveSHA256:    strings.TrimPrefix(byName[name].Digest, "sha256:"),
+			ExecutableSHA256: digestBytes([]byte("synthetic signed binary")),
+		})
+	}
+	return inventory
 }
 
 func (f *fixture) api(ctx context.Context, endpoint string, result any) error {
@@ -235,13 +254,13 @@ func TestVerifyDerivesNamedReleaseAssessmentAndBindsEveryVerifier(t *testing.T) 
 	}
 	archiveCalls := 0
 	privateDirectory := ""
-	f.deps.archives = func(input releasecheck.CheckRequest) error {
+	f.deps.archives = func(input releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error) {
 		archiveCalls++
 		privateDirectory = input.Dir
 		if input.Dir == f.input.ReleaseDir || input.Dir == "" || input.Version != fixtureVersion || input.Commit != fixtureCommit || input.Tree != f.source.Tree || input.SourceDateEpoch != f.source.Epoch || input.BuilderGoVersion != packageinfo.ProductionBuilderGoVersion || !bytes.Equal(input.ExpectedScorecard, f.card) {
 			t.Fatal("archive contents were not bound to the authenticated released source policy and private bytes")
 		}
-		return nil
+		return fixtureExecutableInventory(f.values[fixturePrefix+"/releases/tags/"+fixtureVersion].(release).Assets), nil
 	}
 	got, err := verify(context.Background(), f.input, f.deps)
 	if err != nil {
@@ -367,7 +386,9 @@ func TestVerifyRejectsPublicationAndIdentityFailures(t *testing.T) {
 			f.deps.signatures = func(context.Context, ciattestation.VerifyRequest) error { return errors.New("secret signature stderr") }
 		},
 		"archive semantics failure": func(f *fixture) {
-			f.deps.archives = func(releasecheck.CheckRequest) error { return errors.New("secret archive payload") }
+			f.deps.archives = func(releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error) {
+				return releasecheck.ExecutableInventory{}, errors.New("secret archive payload")
+			}
 		},
 		"invalid local asset digest": func(f *fixture) {
 			if err := os.WriteFile(filepath.Join(f.input.ReleaseDir, "checksums.txt"), []byte("changed"), 0o600); err != nil {
@@ -678,11 +699,12 @@ func TestArchiveAndSignatureChecksSharePrivatePublishedBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	private := ""
-	f.deps.archives = func(input releasecheck.CheckRequest) error {
+	f.deps.archives = func(input releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error) {
 		private = input.Dir
 		// Simulate an adversary who owns the caller's source directory switching
 		// A/B/A between the independent archive and signature verifiers.
-		return os.WriteFile(filepath.Join(f.input.ReleaseDir, "checksums.txt"), []byte("unrelated signed bytes"), 0o600)
+		err := os.WriteFile(filepath.Join(f.input.ReleaseDir, "checksums.txt"), []byte("unrelated signed bytes"), 0o600)
+		return fixtureExecutableInventory(f.values[fixturePrefix+"/releases/tags/"+fixtureVersion].(release).Assets), err
 	}
 	f.deps.signatures = func(ctx context.Context, input ciattestation.VerifyRequest) error {
 		if input.Kind != "release" {
@@ -707,8 +729,8 @@ func TestArchiveAndSignatureChecksSharePrivatePublishedBytes(t *testing.T) {
 
 func TestMutationOfPrivateCopyCannotSurviveCheckerBoundary(t *testing.T) {
 	f := newFixture(t)
-	f.deps.archives = func(input releasecheck.CheckRequest) error {
-		return os.WriteFile(filepath.Join(input.Dir, "checksums.txt"), []byte("tampered private copy"), 0o600)
+	f.deps.archives = func(input releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error) {
+		return releasecheck.ExecutableInventory{}, os.WriteFile(filepath.Join(input.Dir, "checksums.txt"), []byte("tampered private copy"), 0o600)
 	}
 	releaseSignatures := 0
 	f.deps.signatures = func(ctx context.Context, input ciattestation.VerifyRequest) error {
