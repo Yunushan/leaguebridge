@@ -22,10 +22,15 @@ These checks authenticate what reviewers signed and which artifact bytes they
 reviewed. They do not by themselves establish that a machine was physical,
 that a streamed game worked, or that a package was signed and published. Those
 facts require an approved evidence profile, independent witness procedures,
-release-derived executable digests, publisher signatures, live package index
-and withdrawal checks, and a final recheck of mutable state. The current
-production reviewer policy has no trusted keys; no native observation earns
-readiness points.
+publisher signatures, live package index and withdrawal checks, and a final
+recheck of mutable state. The live release verifier now captures the exact
+executable digest of each of the nine released target archives during the
+same full archive check. `VerifiedRelease.ExecutableFor` exposes a target
+binding, and the production assessor has a private adapter that checks this
+binding against its opaque verified release before constructing an expected
+native observation. A record still cannot select its own executable digest.
+The current production reviewer policy has no trusted keys and the adapter is
+not connected to scoring; no native observation earns readiness points.
 
 The host-free Fedora 44 x86_64 client smoke is useful preflight evidence. Its
 pass result does not cover a paired physical game host, video, audio, input,

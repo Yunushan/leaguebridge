@@ -5,10 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Yunushan/leaguebridge/internal/ciattestation"
 	"github.com/Yunushan/leaguebridge/internal/cireleasegate"
+	"github.com/Yunushan/leaguebridge/internal/releasecheck"
 )
 
 func TestVerifiedReleaseCapturesAndRechecksLiveIdentity(t *testing.T) {
@@ -28,6 +30,21 @@ func TestVerifiedReleaseCapturesAndRechecksLiveIdentity(t *testing.T) {
 	assets, err := verified.PublishedAssets()
 	if err != nil || len(assets) != 10 {
 		t.Fatalf("expected ten captured assets, got %d: %v", len(assets), err)
+	}
+	executable, err := verified.ExecutableFor("linux", "amd64")
+	if err != nil || executable.Version != fixtureVersion || executable.Commit != fixtureCommit ||
+		executable.Tree != fixture.source.Tree || executable.ReleaseID != 77 ||
+		executable.ArchiveFilename != "leaguebridge_0.1.0_linux_amd64.tar.gz" ||
+		executable.ExecutableSHA256 != digestBytes([]byte("synthetic signed binary")) {
+		t.Fatalf("released executable binding is incomplete: %+v, %v", executable, err)
+	}
+	executable.ExecutableSHA256 = "changed"
+	againExecutable, err := verified.ExecutableFor("linux", "amd64")
+	if err != nil || againExecutable.ExecutableSHA256 == "changed" {
+		t.Fatal("caller changed retained executable identity")
+	}
+	if _, err := verified.ExecutableFor("windows", "amd64"); err == nil {
+		t.Fatal("unsupported executable target was returned")
 	}
 	assets[0].Name = "changed"
 	result.Criteria[0].Points = 100
@@ -61,6 +78,9 @@ func TestVerifiedReleaseZeroAndFailureStayUntrusted(t *testing.T) {
 	if _, err := zero.PublishedAssets(); err == nil {
 		t.Fatal("zero release returned published assets")
 	}
+	if _, err := zero.ExecutableFor("linux", "amd64"); err == nil {
+		t.Fatal("zero release returned an executable binding")
+	}
 	if err := zero.Recheck(context.Background()); err == nil {
 		t.Fatal("zero release passed a final recheck")
 	}
@@ -71,6 +91,25 @@ func TestVerifiedReleaseZeroAndFailureStayUntrusted(t *testing.T) {
 	verified, err := verifyForProduction(context.Background(), fixture.input, fixture.deps)
 	if err == nil || verified.valid {
 		t.Fatal("failed live signature check returned a trusted identity")
+	}
+}
+
+func TestVerifiedReleaseRecheckRejectsChangedExecutableInventory(t *testing.T) {
+	fixture := newFixture(t)
+	verified, err := verifyForProduction(context.Background(), fixture.input, fixture.deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := fixture.deps.archives
+	fixture.deps.archives = func(input releasecheck.CheckRequest) (releasecheck.ExecutableInventory, error) {
+		inventory, err := original(input)
+		if err == nil {
+			inventory.Entries[0].ExecutableSHA256 = strings.Repeat("b", 64)
+		}
+		return inventory, err
+	}
+	if err := verified.recheck(context.Background(), fixture.deps); err == nil {
+		t.Fatal("changed executable digest survived final release recheck")
 	}
 }
 

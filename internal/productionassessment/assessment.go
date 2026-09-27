@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yunushan/leaguebridge/internal/productionnative"
 	"github.com/Yunushan/leaguebridge/internal/releaseassessment"
 )
 
@@ -97,6 +98,7 @@ type verifiedRelease interface {
 	Assessment() (releaseassessment.Result, error)
 	ScorecardSHA256() (string, error)
 	PublishedAssets() ([]releaseassessment.PublishedAsset, error)
+	ExecutableFor(goos, goarch string) (releaseassessment.AuthenticatedExecutable, error)
 	Recheck(context.Context) error
 }
 
@@ -294,6 +296,56 @@ func releaseBindingDigest(binding releaseBinding) (string, error) {
 func cloneReleaseBinding(binding releaseBinding) releaseBinding {
 	binding.assets = append([]Asset(nil), binding.assets...)
 	return binding
+}
+
+// nativeReleaseBinding selects one target from the opaque live release. Native
+// observations must never supply their own expected archive or executable
+// digest. This adapter remains score-free until the independent observation
+// policy and all other production gates are provisioned.
+func nativeReleaseBinding(verified verifiedRelease, binding releaseBinding, cell productionnative.Cell) (productionnative.ReleaseBinding, error) {
+	if verified == nil {
+		return productionnative.ReleaseBinding{}, errors.New("authenticated release is required for native observations")
+	}
+	knownTarget := false
+	for _, candidate := range productionnative.ExpectedCells(productionnative.KindNativeIntegration) {
+		if candidate.GOOS == cell.GOOS && candidate.GOARCH == cell.GOARCH {
+			knownTarget = true
+			break
+		}
+	}
+	if !knownTarget {
+		return productionnative.ReleaseBinding{}, errors.New("native observation target is outside the fixed release inventory")
+	}
+	if _, err := releaseBindingDigest(binding); err != nil {
+		return productionnative.ReleaseBinding{}, err
+	}
+	executable, err := verified.ExecutableFor(cell.GOOS, cell.GOARCH)
+	if err != nil {
+		return productionnative.ReleaseBinding{}, fmt.Errorf("authenticated native executable: %w", err)
+	}
+	expectedName := "leaguebridge_" + strings.TrimPrefix(binding.version, "v") + "_" + cell.GOOS + "_" + cell.GOARCH + ".tar.gz"
+	if executable.Version != binding.version || executable.Commit != binding.commit || executable.Tree != binding.tree ||
+		executable.ReleaseID != binding.releaseID || executable.GOOS != cell.GOOS || executable.GOARCH != cell.GOARCH ||
+		executable.ArchiveFilename != expectedName || !sha256Digest.MatchString(executable.ExecutableSHA256) {
+		return productionnative.ReleaseBinding{}, errors.New("native executable does not match the authenticated release and target")
+	}
+	archiveMatches := 0
+	for _, asset := range binding.assets {
+		if asset.Name == expectedName {
+			archiveMatches++
+			if executable.ArchiveSHA256 != asset.SHA256 {
+				return productionnative.ReleaseBinding{}, errors.New("native executable archive differs from the published release asset")
+			}
+		}
+	}
+	if archiveMatches != 1 {
+		return productionnative.ReleaseBinding{}, errors.New("authenticated native archive is missing or duplicated")
+	}
+	return productionnative.ReleaseBinding{
+		Version: executable.Version, Commit: executable.Commit, Tree: executable.Tree, ReleaseID: executable.ReleaseID,
+		ArchiveFilename: executable.ArchiveFilename, ArchiveSHA256: executable.ArchiveSHA256,
+		ExecutableSHA256: executable.ExecutableSHA256,
+	}, nil
 }
 
 func publishedAssets(assets []Asset) []releaseassessment.PublishedAsset {
