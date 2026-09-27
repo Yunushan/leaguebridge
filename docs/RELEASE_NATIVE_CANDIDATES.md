@@ -96,3 +96,34 @@ hash the exact immutable bytes it signs and uploads, bind them to approved
 package-family signing keys and live index records, and observe installation
 and withdrawal through that channel. Green candidate verification alone does
 not establish any of those facts.
+
+## Authenticate a retained candidate artifact
+
+After a successful stable native candidate workflow run, download its retained
+`eleven-score-free-candidates.tar` without extracting it. The verifier checks
+every tar member against the fixed inventory, rejects links, devices,
+extended headers, duplicates, unexpected paths, and oversized entries, then
+extracts only the expected regular files into a private temporary directory.
+Keep the ten published release files and release-set staging inputs in
+separate directories. On a connected trusted verifier, from the downloaded CI
+evidence directory, run:
+
+```sh
+nativepackagestage verify-candidate-attestations \
+  --version v0.1.0 --release-dir /path/to/ten-release-files \
+  --inputs /path/to/release-set \
+  --artifact /path/to/eleven-score-free-candidates.tar \
+  --run-id RUN_ID --run-attempt ATTEMPT --gh /path/to/trusted-gh
+```
+
+The run ID and attempt are locators, not acceptance policy. The verifier reads
+the selected run's latest attempt, requires it to have succeeded on main, and
+authenticates the workflow Git blob from GitHub against reviewed content. It
+reauthenticates the live release and all eleven package payloads, requires the canonical
+`CANDIDATE-SET.json`, and verifies one GitHub-signed statement containing
+exactly that record and the eleven fixed package basenames and SHA-256 digests.
+It rechecks mutable release, run, staging, and package state before returning.
+This confirms GitHub build provenance only. The packages remain unpublished
+and lack approved package-manager signatures, independent repository index
+proof, and native lifecycle observations; the command awards no readiness
+points.

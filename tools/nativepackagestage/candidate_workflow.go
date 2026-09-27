@@ -26,8 +26,10 @@ import (
 // These commands prepare score-free package candidates. They do not define a
 // publisher, package signing policy, repository index, or readiness evidence.
 type candidateWorkflowOptions struct {
-	command, version, releaseDir, inputs, packages, output, repo, checker, gh string
-	disposableGuest                                                           bool
+	command, version, releaseDir, inputs, packages, artifact, output, record, repo, checker, gh string
+	runID                                                                                       int64
+	runAttempt                                                                                  int
+	disposableGuest                                                                             bool
 }
 
 type candidateSetRecord struct {
@@ -76,14 +78,16 @@ func runCandidateWorkflow(ctx context.Context, args []string, stdout io.Writer) 
 	switch opts.command {
 	case "candidate-set":
 		return verifyCandidateWorkflowSet(ctx, opts, release, facts, stdout)
+	case "verify-candidate-attestations":
+		return verifyCandidateWorkflowAttestations(ctx, opts, release, stdout)
 	default:
 		return errors.New("unknown candidate workflow command")
 	}
 }
 
 func parseCandidateWorkflow(args []string) (candidateWorkflowOptions, error) {
-	if len(args) == 0 || (args[0] != "candidate-host" && args[0] != "candidate-set") {
-		return candidateWorkflowOptions{}, errors.New("expected candidate-host or candidate-set")
+	if len(args) == 0 || (args[0] != "candidate-host" && args[0] != "candidate-set" && args[0] != "verify-candidate-attestations") {
+		return candidateWorkflowOptions{}, errors.New("expected candidate-host, candidate-set, or verify-candidate-attestations")
 	}
 	opts := candidateWorkflowOptions{command: args[0]}
 	set := flag.NewFlagSet("nativepackagestage "+opts.command, flag.ContinueOnError)
@@ -92,7 +96,11 @@ func parseCandidateWorkflow(args []string) (candidateWorkflowOptions, error) {
 	set.StringVar(&opts.releaseDir, "release-dir", "", "ten downloaded release files")
 	set.StringVar(&opts.inputs, "inputs", "", "release-set staging directory")
 	set.StringVar(&opts.packages, "packages", "", "merged package candidate directory")
+	set.StringVar(&opts.artifact, "artifact", "", "retained eleven-score-free-candidates.tar to extract privately")
 	set.StringVar(&opts.output, "output", "", "new host directory or candidate-set record file")
+	set.StringVar(&opts.record, "record", "", "candidate-set record from the retained stable candidate artifact")
+	set.Int64Var(&opts.runID, "run-id", 0, "selected stable native candidate workflow run ID")
+	set.IntVar(&opts.runAttempt, "run-attempt", 0, "selected stable native candidate workflow run attempt")
 	set.StringVar(&opts.repo, "repo", "", "trusted source checkout containing package smoke scripts")
 	set.StringVar(&opts.checker, "version-checker", "", "BSD semantic-version checker executable")
 	set.StringVar(&opts.gh, "gh", "gh", "trusted GitHub CLI executable")
@@ -105,11 +113,16 @@ func parseCandidateWorkflow(args []string) (candidateWorkflowOptions, error) {
 		return candidateWorkflowOptions{}, errors.New("stable --version, --release-dir, and --inputs are required")
 	}
 	if opts.command == "candidate-host" {
-		if blankReleaseSet(opts.output) || blankReleaseSet(opts.repo) || opts.packages != "" {
+		if blankReleaseSet(opts.output) || blankReleaseSet(opts.repo) || opts.packages != "" || opts.artifact != "" || opts.record != "" || opts.runID != 0 || opts.runAttempt != 0 {
 			return candidateWorkflowOptions{}, errors.New("candidate-host requires --output NEW_DIR and --repo CHECKOUT and rejects --packages")
 		}
-	} else if blankReleaseSet(opts.packages) || blankReleaseSet(opts.gh) || blankReleaseSet(opts.output) || opts.repo != "" || opts.checker != "" || opts.disposableGuest {
-		return candidateWorkflowOptions{}, errors.New("candidate-set requires --packages MERGED_DIR and --output NEW_RECORD and rejects host build options")
+	} else if opts.command == "candidate-set" {
+		if blankReleaseSet(opts.packages) || blankReleaseSet(opts.gh) || blankReleaseSet(opts.output) || opts.artifact != "" || opts.record != "" || opts.runID != 0 || opts.runAttempt != 0 || opts.repo != "" || opts.checker != "" || opts.disposableGuest {
+			return candidateWorkflowOptions{}, errors.New("candidate-set requires --packages MERGED_DIR and --output NEW_RECORD and rejects host build options")
+		}
+	} else if blankReleaseSet(opts.gh) || opts.runID <= 0 || opts.runAttempt <= 0 || opts.output != "" || opts.repo != "" || opts.checker != "" || opts.disposableGuest ||
+		!(opts.artifact != "" && opts.packages == "" && opts.record == "" || opts.artifact == "" && opts.packages != "" && opts.record != "") {
+		return candidateWorkflowOptions{}, errors.New("verify-candidate-attestations requires --artifact TAR or --packages MERGED_DIR with --record CANDIDATE-SET.json, plus --run-id ID --run-attempt N; host build and output options are rejected")
 	}
 	return opts, nil
 }
@@ -528,6 +541,75 @@ func verifyCandidateWorkflowSet(ctx context.Context, opts candidateWorkflowOptio
 	}
 	hash := sha256.Sum256(record)
 	_, err = fmt.Fprintf(stdout, "verified eleven release-bound native package payloads; score-free, unsigned and unpublished\nrecord: %s\nrecord sha256: %s\n", output, hex.EncodeToString(hash[:]))
+	return err
+}
+
+// This consumes an attested, unpublished candidate artifact. The run ID and
+// attempt locate GitHub state; neither selects a signing key, source commit,
+// workflow contract, package inventory, or readiness score.
+func verifyCandidateWorkflowAttestations(ctx context.Context, opts candidateWorkflowOptions, release releaseassessment.VerifiedRelease, stdout io.Writer) error {
+	if opts.artifact != "" {
+		root, cleanup, err := extractStableCandidateArtifact(ctx, opts.version, opts.artifact)
+		if err != nil {
+			return fmt.Errorf("safely extract retained candidate artifact: %w", err)
+		}
+		defer cleanup()
+		opts.packages = filepath.Join(root, "merged-packages")
+		opts.record = filepath.Join(root, "CANDIDATE-SET.json")
+	}
+	packageRoot, err := filepath.Abs(opts.packages)
+	if err != nil {
+		return err
+	}
+	releaseDir, err := filepath.Abs(opts.releaseDir)
+	if err != nil {
+		return err
+	}
+	inputRoot, err := filepath.Abs(opts.inputs)
+	if err != nil {
+		return err
+	}
+	recordPath, err := filepath.Abs(opts.record)
+	if err != nil {
+		return err
+	}
+	if pathWithin(packageRoot, releaseDir) || pathWithin(packageRoot, inputRoot) ||
+		pathWithin(releaseDir, packageRoot) || pathWithin(inputRoot, packageRoot) ||
+		pathWithin(packageRoot, recordPath) || pathWithin(releaseDir, recordPath) || pathWithin(inputRoot, recordPath) {
+		return errors.New("candidate packages, record, release assets, and staging inputs must be separate")
+	}
+	cells := productionpackage.ExpectedCells()
+	if len(cells) != 11 {
+		return errors.New("production package inventory no longer has exactly eleven cells")
+	}
+	if _, err := scanPackageTree(opts.version, packageRoot, cells, false); err != nil {
+		return err
+	}
+	candidateRoot, err := os.MkdirTemp("", "leaguebridge-attested-candidate-set-")
+	if err != nil {
+		return fmt.Errorf("create private candidate metadata root: %w", err)
+	}
+	defer os.RemoveAll(candidateRoot)
+	paths, err := candidatePaths(opts.version, releaseDir, inputRoot, packageRoot, candidateRoot, cells)
+	if err != nil {
+		return err
+	}
+	for _, input := range paths {
+		if err := writeAggregateCandidate(ctx, release, input); err != nil {
+			return fmt.Errorf("derive native package candidate %s: %w", input.PackagePath, err)
+		}
+	}
+	verified, err := productionpackage.VerifyAttestedCandidateSet(ctx, productionpackage.AttestedCandidateRequest{
+		Release: release, Candidates: paths, RecordPath: recordPath, GHPath: opts.gh,
+		RunID: opts.runID, RunAttempt: opts.runAttempt,
+	})
+	if err != nil {
+		return fmt.Errorf("authenticate exact stable candidate attestation: %w", err)
+	}
+	if !verified.Valid() {
+		return errors.New("stable candidate attestation verifier returned no valid result")
+	}
+	_, err = fmt.Fprintf(stdout, "verified GitHub-attested, release-bound eleven-package candidate set from workflow run %d attempt %d; score-free, unpublished, and without package-manager signatures or independent lifecycle proof\n", opts.runID, opts.runAttempt)
 	return err
 }
 

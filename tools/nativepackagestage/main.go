@@ -64,7 +64,7 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) > 1 && (os.Args[1] == "candidate-host" || os.Args[1] == "candidate-set") {
+	if len(os.Args) > 1 && (os.Args[1] == "candidate-host" || os.Args[1] == "candidate-set" || os.Args[1] == "verify-candidate-attestations") {
 		if err := runCandidateWorkflow(context.Background(), os.Args[1:], os.Stdout); err != nil {
 			fatalf("%s: %v", os.Args[1], err)
 		}
