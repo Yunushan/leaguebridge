@@ -62,7 +62,8 @@ func extractStableCandidateArtifact(ctx context.Context, version, artifactPath s
 		cleanup()
 		return "", nil, errors.New("copy bounded candidate artifact into private snapshot")
 	}
-	if err := inspectCandidateTarHeaders(ctx, snapshotPath, files, directories); err != nil {
+	members, err := inspectCandidateTarHeaders(ctx, snapshotPath, files, directories)
+	if err != nil {
 		cleanup()
 		return "", nil, err
 	}
@@ -71,7 +72,7 @@ func extractStableCandidateArtifact(ctx context.Context, version, artifactPath s
 		cleanup()
 		return "", nil, err
 	}
-	if err := extractCandidateTarFiles(ctx, snapshotPath, extracted, files, directories); err != nil {
+	if err := extractCandidateTarFiles(ctx, snapshotPath, extracted, files, directories, members); err != nil {
 		cleanup()
 		return "", nil, err
 	}
@@ -102,40 +103,57 @@ func candidateArtifactInventory(version string) (map[string]int64, map[string]bo
 	return files, directories, nil
 }
 
-func inspectCandidateTarHeaders(ctx context.Context, snapshot string, files map[string]int64, directories map[string]bool) error {
+type candidateTarMember struct {
+	name      string
+	size      int64
+	directory bool
+}
+
+func inspectCandidateTarHeaders(ctx context.Context, snapshot string, files map[string]int64, directories map[string]bool) ([]candidateTarMember, error) {
 	reader, err := os.Open(snapshot)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer reader.Close()
 	seen := make(map[string]bool, len(files)+len(directories))
-	var block [512]byte
-	for members := 0; ; members++ {
-		if err := ctx.Err(); err != nil {
-			return err
+	members := make([]candidateTarMember, 0, len(files)+len(directories))
+	longName := ""
+	maximumLongName := 0
+	for name := range files {
+		if name != "CANDIDATE-SET.json" && len(name) > maximumLongName {
+			maximumLongName = len(name)
 		}
-		if members > maximumArtifactMembers {
-			return errors.New("candidate tar has too many members")
+	}
+	var block [512]byte
+	for headerCount := 0; ; headerCount++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if headerCount > maximumArtifactMembers {
+			return nil, errors.New("candidate tar has too many members")
 		}
 		if _, err := io.ReadFull(reader, block[:]); err != nil {
-			return fmt.Errorf("candidate tar header is truncated: %w", err)
+			return nil, fmt.Errorf("candidate tar header is truncated: %w", err)
 		}
 		if bytes.Equal(block[:], make([]byte, len(block))) {
+			if longName != "" {
+				return nil, errors.New("candidate tar has a dangling GNU long-name header")
+			}
 			// GNU tar pads to a record boundary. Only zero bytes may remain.
 			var tail [32 << 10]byte
 			for {
 				if err := ctx.Err(); err != nil {
-					return err
+					return nil, err
 				}
 				count, err := reader.Read(tail[:])
 				if bytes.Count(tail[:count], []byte{0}) != count {
-					return errors.New("candidate tar has data after its end marker")
+					return nil, errors.New("candidate tar has data after its end marker")
 				}
 				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
 			break
@@ -146,63 +164,104 @@ func inspectCandidateTarHeaders(ctx context.Context, snapshot string, files map[
 		}
 		name := string(nameField)
 		typeFlag := block[156]
-		if typeFlag == tar.TypeDir && strings.HasSuffix(name, "/") {
-			name = strings.TrimSuffix(name, "/")
-		}
-		if name == "" || strings.Contains(name, "\\") || strings.HasPrefix(name, "/") || path.Clean(name) != name || seen[name] {
-			return fmt.Errorf("candidate tar has unsafe or duplicate member %q", name)
-		}
-		seen[name] = true
 		sizeField := strings.Trim(string(block[124:136]), " \x00")
 		size, err := strconv.ParseInt(sizeField, 8, 64)
 		if err != nil || size < 0 {
-			return fmt.Errorf("candidate tar member %q has invalid size", name)
+			return nil, fmt.Errorf("candidate tar member %q has invalid size", name)
 		}
+		if typeFlag == tar.TypeGNULongName {
+			if longName != "" || name != "././@LongLink" || size <= 101 || size > int64(maximumLongName+1) {
+				return nil, errors.New("candidate tar has an invalid GNU long-name header")
+			}
+			payload := make([]byte, size)
+			if _, err := io.ReadFull(reader, payload); err != nil {
+				return nil, fmt.Errorf("candidate tar GNU long-name payload is truncated: %w", err)
+			}
+			if payload[len(payload)-1] != 0 || bytes.IndexByte(payload, 0) != len(payload)-1 {
+				return nil, errors.New("candidate tar GNU long-name payload is not one terminated path")
+			}
+			longName = string(payload[:len(payload)-1])
+			if len(longName) <= 100 || longName == "CANDIDATE-SET.json" || files[longName] == 0 || seen[longName] {
+				return nil, fmt.Errorf("candidate tar GNU long name is not one expected package file %q", longName)
+			}
+			if _, err := copyNContext(ctx, io.Discard, reader, (size+511)/512*512-size); err != nil {
+				return nil, fmt.Errorf("candidate tar GNU long-name padding is truncated: %w", err)
+			}
+			continue
+		}
+		if longName != "" {
+			if (typeFlag != tar.TypeReg && typeFlag != tar.TypeRegA) || name != longName[:100] {
+				return nil, fmt.Errorf("candidate tar GNU long name does not match its regular file header %q", name)
+			}
+			name, longName = longName, ""
+		} else if typeFlag == tar.TypeDir && strings.HasSuffix(name, "/") {
+			name = strings.TrimSuffix(name, "/")
+		}
+		if name == "" || strings.Contains(name, "\\") || strings.HasPrefix(name, "/") || path.Clean(name) != name || seen[name] {
+			return nil, fmt.Errorf("candidate tar has unsafe or duplicate member %q", name)
+		}
+		seen[name] = true
 		switch typeFlag {
 		case tar.TypeReg, tar.TypeRegA:
 			maximum, expected := files[name]
 			if !expected || size <= 0 || size > maximum {
-				return fmt.Errorf("candidate tar has unexpected or oversized regular member %q", name)
+				return nil, fmt.Errorf("candidate tar has unexpected or oversized regular member %q", name)
 			}
 		case tar.TypeDir:
 			if !directories[name] || size != 0 {
-				return fmt.Errorf("candidate tar has unexpected directory %q", name)
+				return nil, fmt.Errorf("candidate tar has unexpected directory %q", name)
 			}
 		default:
-			return fmt.Errorf("candidate tar has prohibited entry type %q for %q", typeFlag, name)
+			return nil, fmt.Errorf("candidate tar has prohibited entry type %q for %q", typeFlag, name)
 		}
+		members = append(members, candidateTarMember{name: name, size: size, directory: typeFlag == tar.TypeDir})
 		padded := (size + 511) / 512 * 512
 		if _, err := copyNContext(ctx, io.Discard, reader, padded); err != nil {
-			return fmt.Errorf("candidate tar member %q is truncated: %w", name, err)
+			return nil, fmt.Errorf("candidate tar member %q is truncated: %w", name, err)
 		}
 	}
 	for name := range files {
 		if !seen[name] {
-			return fmt.Errorf("candidate tar is missing required file %q", name)
+			return nil, fmt.Errorf("candidate tar is missing required file %q", name)
 		}
 	}
-	return nil
+	return members, nil
 }
 
-func extractCandidateTarFiles(ctx context.Context, snapshot, destination string, files map[string]int64, directories map[string]bool) error {
+func extractCandidateTarFiles(ctx context.Context, snapshot, destination string, files map[string]int64, directories map[string]bool, members []candidateTarMember) error {
 	reader, err := os.Open(snapshot)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 	archive := tar.NewReader(reader)
+	index := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		header, err := archive.Next()
 		if errors.Is(err, io.EOF) {
+			if index != len(members) {
+				return errors.New("candidate tar parser omitted validated members")
+			}
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("parse validated candidate tar: %w", err)
 		}
-		name := strings.TrimSuffix(header.Name, "/")
+		if index >= len(members) {
+			return errors.New("candidate tar parser produced extra members")
+		}
+		name := header.Name
+		if header.Typeflag == tar.TypeDir {
+			name = strings.TrimSuffix(name, "/")
+		}
+		member := members[index]
+		index++
+		if name != member.name || header.Size != member.size || (header.Typeflag == tar.TypeDir) != member.directory {
+			return errors.New("candidate tar parser disagrees with validated member")
+		}
 		if name == "" || path.Clean(name) != name {
 			return errors.New("candidate tar parser produced an unsafe path")
 		}
