@@ -83,7 +83,7 @@ func VerifyObservationAt(ctx context.Context, envelopeData []byte, artifacts []A
 		packageSHA256: payload.PackageSHA256, policyID: payload.PolicyID,
 		policyDigest: policyDigest(policy.policy), observationID: payload.ObservationID,
 		runID: payload.RunID, machineID: payload.MachineID, challenge: payload.Challenge,
-		payloadSHA256: sha256Hex(payloadData), createdAt: created, expiresAt: expires,
+		payloadSHA256: sha256Hex(payloadData), createdAt: created, expiresAt: expires, verifiedAt: now,
 		artifactInputs: append([]ArtifactInput(nil), artifacts...),
 		artifacts:      append([]artifact(nil), payload.Artifacts...),
 	}, nil
@@ -316,8 +316,8 @@ func VerifyCompleteSetAt(ctx context.Context, kind Kind, observations []Verified
 	first := observations[0]
 	for i, item := range observations {
 		if !item.valid || item.kind != kind || item.policyID != policy.policy.ID || item.policyDigest != policyDigest(policy.policy) ||
-			item.createdAt.After(now) || !now.Before(item.expiresAt) {
-			return VerifiedSet{}, fmt.Errorf("observation %d is invalid, expired, or belongs to another policy", i)
+			item.createdAt.After(now) || now.Before(item.verifiedAt) || !now.Before(item.expiresAt) {
+			return VerifiedSet{}, fmt.Errorf("observation %d is invalid, expired, earlier than its authenticated verification, or belongs to another policy", i)
 		}
 		if item.release.Version != first.release.Version || item.release.Commit != first.release.Commit ||
 			item.release.Tree != first.release.Tree || item.release.ReleaseID != first.release.ReleaseID {

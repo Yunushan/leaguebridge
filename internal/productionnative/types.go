@@ -200,6 +200,7 @@ type VerifiedObservation struct {
 	payloadSHA256  string
 	createdAt      time.Time
 	expiresAt      time.Time
+	verifiedAt     time.Time
 	artifactInputs []ArtifactInput
 	artifacts      []artifact
 }

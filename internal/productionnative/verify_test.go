@@ -174,6 +174,16 @@ func TestVerifyCompleteSetRequiresEveryFixedCellAndCurrentArtifacts(t *testing.T
 	if err != nil || !set.Valid() {
 		t.Fatalf("complete set = %+v, %v", set, err)
 	}
+	// Both signatures were made at 12:01 and 12:02. The observations were
+	// verified at 12:30; an earlier set verification must not time-travel.
+	tooEarly := time.Date(2026, 9, 27, 12, 0, 30, 0, time.UTC)
+	if _, err := VerifyCompleteSetAt(context.Background(), KindPhysicalBSD, observations, policy, tooEarly); err == nil {
+		t.Fatal("set verification before reviewer signatures was accepted")
+	}
+	beforeObservationVerification := time.Date(2026, 9, 27, 12, 20, 0, 0, time.UTC)
+	if _, err := VerifyCompleteSetAt(context.Background(), KindPhysicalBSD, observations, policy, beforeObservationVerification); err == nil {
+		t.Fatal("set verification before authenticated observation verification was accepted")
+	}
 	if _, err := VerifyCompleteSetAt(context.Background(), KindPhysicalBSD, observations[:len(observations)-1], policy, now); err == nil {
 		t.Fatal("incomplete fixed inventory was accepted")
 	}
