@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaguebridge.dev/schemas/production-native-envelope-v1.json",
+  "title": "LeagueBridge production native observation v1 signature envelope",
+  "description": "Score-free signed Ed25519 envelope with an embedded base64url payload. The two signatures are ordered lab observer then independent reviewer under a separate application-owned trust policy. The Go verifier enforces distinct principals and organizations, key scope, validity, revocation, signatures, canonical bytes, and the 131072-byte envelope bound.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "envelope_version",
+    "payload_type",
+    "payload_encoding",
+    "payload",
+    "signatures"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://leaguebridge.dev/schemas/production-native-envelope-v1.json"
+    },
+    "envelope_version": {
+      "const": 1
+    },
+    "payload_type": {
+      "const": "leaguebridge.production-native-observation.v1"
+    },
+    "payload_encoding": {
+      "const": "base64url-nopad"
+    },
+    "payload": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 43691,
+      "pattern": "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3})?$",
+      "description": "Unpadded base64url of at most 32768 decoded canonical JSON bytes. The Go verifier decodes and re-encodes identically."
+    },
+    "signatures": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "$ref": "#/$defs/signature"
+      }
+    }
+  },
+  "$defs": {
+    "canonicalTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "key_id",
+        "signed_at",
+        "signature"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "ed25519"
+        },
+        "key_id": {
+          "type": "string",
+          "pattern": "^lbn1-[0-9a-f]{64}$"
+        },
+        "signed_at": {
+          "$ref": "#/$defs/canonicalTimestamp"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{128}$"
+        }
+      }
+    }
+  },
+  "$comment": "JSON Schema cannot establish that the signatures are over the exact decoded payload bytes, that key IDs differ, or that the second signature follows the first in time; the Go verifier enforces these requirements."
+}

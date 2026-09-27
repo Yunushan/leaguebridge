@@ -32,3 +32,7 @@ contain a caller-selected readiness score.
 
 The detailed proposed acceptance contract is in
 [PRODUCTION_ASSESSMENT_V4_DESIGN.md](PRODUCTION_ASSESSMENT_V4_DESIGN.md).
+The [native observation boundary](PRODUCTION_NATIVE_OBSERVATIONS.md) can
+authenticate signed records and retained raw bytes for the nine, seven, and
+eleven-cell inventories, but remains score-free until its independent trust
+policy and the other production gates are provisioned.

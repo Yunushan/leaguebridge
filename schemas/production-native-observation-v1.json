@@ -1,0 +1,1071 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leaguebridge.dev/schemas/production-native-observation-v1.json",
+  "title": "LeagueBridge production native observation v1 payload",
+  "description": "Score-free, signed independent reviewer assertions for one fixed native cell. Schema validation does not prove physical hardware, a usable game host, package publication, or readiness credit. The Go verifier additionally requires canonical JSON bytes, an independently supplied expected release/cell/challenge, a provisioned application trust policy, raw artifact bytes and valid signatures.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "observation_type",
+    "kind",
+    "policy_id",
+    "observation_id",
+    "run_id",
+    "machine_pseudonym",
+    "challenge",
+    "created_at",
+    "expires_at",
+    "cell",
+    "release",
+    "package_sha256",
+    "host_route",
+    "native_kernel",
+    "assertions",
+    "artifacts"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://leaguebridge.dev/schemas/production-native-observation-v1.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "observation_type": {
+      "const": "leaguebridge.production-native-observation.v1"
+    },
+    "kind": {
+      "enum": [
+        "native-integration",
+        "physical-bsd",
+        "package-lifecycle"
+      ]
+    },
+    "policy_id": {
+      "const": "leaguebridge-production-native-observations-v1"
+    },
+    "observation_id": {
+      "type": "string",
+      "pattern": "^observation-[0-9a-f]{32}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^run-[0-9a-f]{32}$"
+    },
+    "machine_pseudonym": {
+      "type": "string",
+      "pattern": "^machine-[0-9a-f]{32}$"
+    },
+    "challenge": {
+      "type": "string",
+      "pattern": "^challenge-[0-9a-f]{64}$"
+    },
+    "created_at": {
+      "$ref": "#/$defs/canonicalTimestamp"
+    },
+    "expires_at": {
+      "$ref": "#/$defs/canonicalTimestamp"
+    },
+    "cell": {
+      "$ref": "#/$defs/cell"
+    },
+    "release": {
+      "$ref": "#/$defs/release"
+    },
+    "package_sha256": {
+      "type": "string",
+      "pattern": "^(?:|[0-9a-f]{64})$"
+    },
+    "host_route": {
+      "type": "string",
+      "enum": [
+        "",
+        "physical-windows-remote",
+        "physical-macos-remote"
+      ]
+    },
+    "native_kernel": {
+      "enum": [
+        "Linux",
+        "FreeBSD",
+        "OpenBSD",
+        "NetBSD",
+        "DragonFly"
+      ]
+    },
+    "assertions": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 6,
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 11,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canonicalTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "goos",
+        "goarch"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "",
+            "debian",
+            "rpm",
+            "freebsd-pkg",
+            "openbsd-pkg",
+            "pkgsrc",
+            "dports"
+          ]
+        },
+        "goos": {
+          "enum": [
+            "linux",
+            "freebsd",
+            "openbsd",
+            "netbsd",
+            "dragonfly"
+          ]
+        },
+        "goarch": {
+          "enum": [
+            "amd64",
+            "arm64"
+          ]
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "commit",
+        "tree",
+        "release_id",
+        "archive_filename",
+        "archive_sha256",
+        "executable_sha256"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 128,
+          "pattern": "^v(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "release_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "archive_filename": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^leaguebridge_(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)_(?:linux|freebsd|openbsd|netbsd|dragonfly)_(?:amd64|arm64)\\.tar\\.gz$",
+          "description": "The Go verifier additionally derives the exact filename from version and cell."
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "commit": {
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "tree": {
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          }
+        },
+        {
+          "properties": {
+            "commit": {
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "tree": {
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "audio-capture",
+            "boot-evidence",
+            "cli-log",
+            "client-execution-log",
+            "display-capture",
+            "host-route-proof",
+            "index-membership",
+            "input-capture",
+            "install-log",
+            "installed-files-manifest",
+            "machine-identity",
+            "moonlight-execution-log",
+            "native-dependency-record",
+            "native-kernel-evidence",
+            "native-smoke-log",
+            "package-signature",
+            "publication-proof",
+            "review-notes",
+            "uninstall-log",
+            "unrelated-files-proof",
+            "upgrade-repair-log",
+            "withdrawal-state"
+          ]
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "native-integration"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cell": {
+            "enum": [
+              {
+                "family": "",
+                "goos": "linux",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "linux",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "freebsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "freebsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "openbsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "openbsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "netbsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "netbsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "dragonfly",
+                "goarch": "amd64"
+              }
+            ]
+          },
+          "assertions": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "prefixItems": [
+              {
+                "const": "audio-pass"
+              },
+              {
+                "const": "display-pass"
+              },
+              {
+                "const": "input-pass"
+              },
+              {
+                "const": "moonlight-executed"
+              },
+              {
+                "const": "native-client-executed"
+              },
+              {
+                "const": "physical-game-host-usable"
+              }
+            ],
+            "items": false
+          },
+          "artifacts": {
+            "type": "array",
+            "minItems": 8,
+            "maxItems": 8,
+            "prefixItems": [
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "audio-capture"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "client-execution-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "display-capture"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "host-route-proof"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "input-capture"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "moonlight-execution-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "native-dependency-record"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "review-notes"
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "items": false
+          },
+          "package_sha256": {
+            "const": ""
+          },
+          "host_route": {
+            "enum": [
+              "physical-windows-remote",
+              "physical-macos-remote"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "physical-bsd"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cell": {
+            "enum": [
+              {
+                "family": "",
+                "goos": "freebsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "freebsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "openbsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "openbsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "netbsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "",
+                "goos": "netbsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "",
+                "goos": "dragonfly",
+                "goarch": "amd64"
+              }
+            ]
+          },
+          "assertions": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "prefixItems": [
+              {
+                "const": "native-cli-smoke-pass"
+              },
+              {
+                "const": "native-kernel-booted"
+              },
+              {
+                "const": "physical-machine-witnessed"
+              },
+              {
+                "const": "release-binary-installed"
+              }
+            ],
+            "items": false
+          },
+          "artifacts": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "prefixItems": [
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "boot-evidence"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "install-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "machine-identity"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "native-kernel-evidence"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "native-smoke-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "review-notes"
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "items": false
+          },
+          "package_sha256": {
+            "const": ""
+          },
+          "host_route": {
+            "const": ""
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "package-lifecycle"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cell": {
+            "enum": [
+              {
+                "family": "debian",
+                "goos": "linux",
+                "goarch": "amd64"
+              },
+              {
+                "family": "debian",
+                "goos": "linux",
+                "goarch": "arm64"
+              },
+              {
+                "family": "rpm",
+                "goos": "linux",
+                "goarch": "amd64"
+              },
+              {
+                "family": "rpm",
+                "goos": "linux",
+                "goarch": "arm64"
+              },
+              {
+                "family": "freebsd-pkg",
+                "goos": "freebsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "freebsd-pkg",
+                "goos": "freebsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "openbsd-pkg",
+                "goos": "openbsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "openbsd-pkg",
+                "goos": "openbsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "pkgsrc",
+                "goos": "netbsd",
+                "goarch": "amd64"
+              },
+              {
+                "family": "pkgsrc",
+                "goos": "netbsd",
+                "goarch": "arm64"
+              },
+              {
+                "family": "dports",
+                "goos": "dragonfly",
+                "goarch": "amd64"
+              }
+            ]
+          },
+          "assertions": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "prefixItems": [
+              {
+                "const": "cli-pass"
+              },
+              {
+                "const": "install-pass"
+              },
+              {
+                "const": "published-package-current"
+              },
+              {
+                "const": "uninstall-pass"
+              },
+              {
+                "const": "unrelated-files-preserved"
+              },
+              {
+                "const": "upgrade-or-repair-pass"
+              }
+            ],
+            "items": false
+          },
+          "artifacts": {
+            "type": "array",
+            "minItems": 11,
+            "maxItems": 11,
+            "prefixItems": [
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "cli-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "index-membership"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "install-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "installed-files-manifest"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "package-signature"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "publication-proof"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "review-notes"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "uninstall-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "unrelated-files-proof"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "upgrade-repair-log"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/artifact"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "withdrawal-state"
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "items": false
+          },
+          "package_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "host_route": {
+            "const": ""
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cell": {
+            "properties": {
+              "goos": {
+                "const": "linux"
+              }
+            },
+            "required": [
+              "goos"
+            ]
+          }
+        },
+        "required": [
+          "cell"
+        ]
+      },
+      "then": {
+        "properties": {
+          "native_kernel": {
+            "const": "Linux"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cell": {
+            "properties": {
+              "goos": {
+                "const": "freebsd"
+              }
+            },
+            "required": [
+              "goos"
+            ]
+          }
+        },
+        "required": [
+          "cell"
+        ]
+      },
+      "then": {
+        "properties": {
+          "native_kernel": {
+            "const": "FreeBSD"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cell": {
+            "properties": {
+              "goos": {
+                "const": "openbsd"
+              }
+            },
+            "required": [
+              "goos"
+            ]
+          }
+        },
+        "required": [
+          "cell"
+        ]
+      },
+      "then": {
+        "properties": {
+          "native_kernel": {
+            "const": "OpenBSD"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cell": {
+            "properties": {
+              "goos": {
+                "const": "netbsd"
+              }
+            },
+            "required": [
+              "goos"
+            ]
+          }
+        },
+        "required": [
+          "cell"
+        ]
+      },
+      "then": {
+        "properties": {
+          "native_kernel": {
+            "const": "NetBSD"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cell": {
+            "properties": {
+              "goos": {
+                "const": "dragonfly"
+              }
+            },
+            "required": [
+              "goos"
+            ]
+          }
+        },
+        "required": [
+          "cell"
+        ]
+      },
+      "then": {
+        "properties": {
+          "native_kernel": {
+            "const": "DragonFly"
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "The Go verifier enforces whole-second UTC timestamps, expiration at most 30 days after creation, total artifact bytes at most 1073741824, unique raw artifact digests/file identities, exact archive filename binding, canonical JSON and base64url bytes, duplicate-key rejection, and authenticated policy/signatures. JSON Schema alone does not enforce these cross-field and byte-level invariants."
+}
