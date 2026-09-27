@@ -49,9 +49,24 @@ type testMember struct {
 
 func TestCheckReleaseAcceptsCanonicalRelease(t *testing.T) {
 	dir, commit, tree, scorecard := makeValidReleaseFixture(t)
-	if err := checkRelease(dir, testVersion, testEpoch, commit, tree, testBuilderGoVersion, scorecard); err != nil {
-		t.Fatalf("checkRelease() error = %v", err)
+	request := CheckRequest{
+		Dir: dir, Version: testVersion, SourceDateEpoch: testEpoch,
+		Commit: commit, Tree: tree, BuilderGoVersion: testBuilderGoVersion,
+		ExpectedScorecard: scorecard,
 	}
+	var inventory ExecutableInventory
+	var err error
+	if testBuilderGoVersion == productionBuilderGoVersion {
+		inventory, err = CheckWithExecutableInventory(request)
+	} else {
+		// Minimum-Go CI exercises the same archive checks with its own builder,
+		// while the public API correctly requires the production builder.
+		inventory, err = checkReleaseWithExecutableInventory(dir, testVersion, testEpoch, commit, tree, testBuilderGoVersion, scorecard)
+	}
+	if err != nil {
+		t.Fatalf("check release with executable inventory: %v", err)
+	}
+	assertExecutableInventory(t, dir, inventory)
 }
 
 func TestCanonicalReleaseFixtureCopiesAreIsolated(t *testing.T) {
