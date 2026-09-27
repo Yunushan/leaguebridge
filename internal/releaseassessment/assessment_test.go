@@ -390,6 +390,17 @@ func TestVerifyRejectsPublicationAndIdentityFailures(t *testing.T) {
 	}
 }
 
+func TestVerifyExplainsRedactedRulesetBypassActors(t *testing.T) {
+	fixture := newFixture(t)
+	rule := fixture.values[fixturePrefix+"/rulesets/91"].(ruleset)
+	rule.BypassActors = nil
+	fixture.values[fixturePrefix+"/rulesets/91"] = rule
+
+	if _, err := verifyForProduction(context.Background(), fixture.input, fixture.deps); err == nil || !strings.Contains(err.Error(), "GitHub redacted ruleset bypass actors") {
+		t.Fatalf("verification error = %v; want a fail-closed redaction explanation", err)
+	}
+}
+
 func TestVerifyRejectsChangesDuringVerification(t *testing.T) {
 	cases := map[string]func(*testing.T, *fixture){
 		"CI rerun": func(t *testing.T, f *fixture) {
