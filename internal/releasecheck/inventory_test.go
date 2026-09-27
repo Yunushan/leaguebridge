@@ -13,6 +13,9 @@ import (
 )
 
 func TestCheckWithExecutableInventoryCapturesVerifiedArchiveBytes(t *testing.T) {
+	if testBuilderGoVersion != productionBuilderGoVersion {
+		t.Skip("production release fixture requires the pinned Go builder")
+	}
 	dir, commit, tree, scorecard := makeValidReleaseFixture(t)
 	request := CheckRequest{
 		Dir: dir, Version: testVersion, SourceDateEpoch: testEpoch,
