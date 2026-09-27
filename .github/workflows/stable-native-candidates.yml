@@ -99,6 +99,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          LEAGUEBRIDGE_RULESET_READ_TOKEN: ${{ secrets.LEAGUEBRIDGE_RULESET_READ_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p ci-attestation ci-build "$GITHUB_WORKSPACE/release-assets"
@@ -653,6 +654,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          LEAGUEBRIDGE_RULESET_READ_TOKEN: ${{ secrets.LEAGUEBRIDGE_RULESET_READ_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p ci-attestation ci-build

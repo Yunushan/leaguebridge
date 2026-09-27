@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 )
 
 const maximumResponse = 12 << 20
+const rulesetReadTokenEnv = "LEAGUEBRIDGE_RULESET_READ_TOKEN"
 
 type apiClient func(context.Context, string, any) error
 
@@ -27,6 +29,7 @@ func githubAPI(gh string) apiClient {
 		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(requestCtx, gh, "api", "--hostname", "github.com", "--method", "GET", "-H", "Accept: application/vnd.github+json", "-H", "X-GitHub-Api-Version: 2026-03-10", endpoint)
+		cmd.Env = apiEnvironment(endpoint, os.Environ(), os.Getenv(rulesetReadTokenEnv))
 		cmd.WaitDelay = 2 * time.Second
 		output := &boundedOutput{}
 		cmd.Stdout, cmd.Stderr = output, io.Discard
@@ -46,6 +49,38 @@ func githubAPI(gh string) apiClient {
 		}
 		return nil
 	}
+}
+
+func apiEnvironment(endpoint string, inherited []string, rulesetReadToken string) []string {
+	token := strings.TrimSpace(rulesetReadToken)
+	if token == "" || !isRepositoryRulesetEndpoint(endpoint) {
+		return inherited
+	}
+
+	result := make([]string, 0, len(inherited)+1)
+	replacement := "GH_TOKEN=" + token
+	replaced := false
+	for _, entry := range inherited {
+		name, _, hasValue := strings.Cut(entry, "=")
+		if hasValue && name == "GH_TOKEN" {
+			if !replaced {
+				result = append(result, replacement)
+				replaced = true
+			}
+			continue
+		}
+		result = append(result, entry)
+	}
+	if !replaced {
+		result = append(result, replacement)
+	}
+	return result
+}
+
+func isRepositoryRulesetEndpoint(endpoint string) bool {
+	endpointPath, _, _ := strings.Cut(endpoint, "?")
+	prefix := "repos/" + repository + "/rulesets"
+	return endpointPath == prefix || strings.HasPrefix(endpointPath, prefix+"/")
 }
 
 // Do not embed bytes.Buffer: its promoted ReadFrom lets io.Copy bypass Write

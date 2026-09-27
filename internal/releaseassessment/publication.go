@@ -157,6 +157,7 @@ func resolveProtection(ctx context.Context, api apiClient) ([]ruleset, error) {
 	var result []ruleset
 	seen := make(map[int64]bool)
 	complete := false
+	bypassActorsRedacted := false
 	for page := 1; page <= 10; page++ {
 		var list []ruleset
 		if err := api(ctx, fmt.Sprintf("repos/%s/rulesets?includes_parents=true&per_page=100&page=%d", repository, page), &list); err != nil {
@@ -180,6 +181,10 @@ func resolveProtection(ctx context.Context, api apiClient) ([]ruleset, error) {
 			if full.ID != summary.ID {
 				return nil, errors.New("release protection detail identity changed")
 			}
+			if full.BypassActors == nil {
+				bypassActorsRedacted = true
+				continue
+			}
 			if validProtection(full) {
 				result = append(result, full)
 			}
@@ -189,7 +194,13 @@ func resolveProtection(ctx context.Context, api apiClient) ([]ruleset, error) {
 			break
 		}
 	}
-	if !complete || len(result) == 0 {
+	if !complete {
+		return nil, errors.New("release protection inventory is incomplete")
+	}
+	if len(result) == 0 && bypassActorsRedacted {
+		return nil, errors.New("GitHub redacted ruleset bypass actors; configure an owner-authorized read-only ruleset token to verify the bypass list")
+	}
+	if len(result) == 0 {
 		return nil, errors.New("release requires active repository protection of v* tags against updates and deletion without bypass actors")
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })

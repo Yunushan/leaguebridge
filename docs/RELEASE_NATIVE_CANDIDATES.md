@@ -6,6 +6,22 @@ native package readiness row. The published GitHub release still has exactly
 nine portable archives and `checksums.txt`; native packages belong in a
 separately approved channel.
 
+## GitHub release-protection credential
+
+Before dispatching the Actions workflow, create the repository secret
+LEAGUEBRIDGE_RULESET_READ_TOKEN. Use a fine-grained personal access token
+restricted to this repository with Administration read permission only. The
+token must belong to an account that can read the repository's release tag
+ruleset and its bypass list. Do not grant write permission.
+
+The workflow uses this secret only for repository ruleset GET requests. Other
+GitHub release, CI, and attestation reads continue to use the workflow's
+read-only GITHUB_TOKEN. GitHub omits bypass actors when the calling identity
+cannot see them, so a missing or insufficient secret makes release
+authentication fail closed with an explicit explanation; it never treats a
+redacted list as empty. Do not pass the token as a workflow input or include it
+in artifacts or logs.
+
 ## Prepare release inputs on a connected verifier
 
 Use a trusted `nativepackagestage` binary from this checkout and a trusted,
