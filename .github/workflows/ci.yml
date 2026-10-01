@@ -624,7 +624,7 @@ jobs:
             -o bsd-ci/leaguebridge-dragonfly-amd64 ./cmd/leaguebridge
       - name: Boot DragonFly BSD 6.4.2 guest
         id: start-dragonfly-vm
-        uses: vmactions/dragonflybsd-vm@7cd7c9b7f2b06e8e03d2337a9476995f3c112acf # v1
+        uses: vmactions/dragonflybsd-vm@4ab776fa9f914fbea72f13715b451e77e7ef5c41 # v1
         with:
           release: "6.4.2"
           mem: 6144
@@ -1517,7 +1517,7 @@ jobs:
             ./tools/versioncheck
       - name: Boot DragonFly BSD 6.4.2 guest
         id: start-dragonfly-vm
-        uses: vmactions/dragonflybsd-vm@7cd7c9b7f2b06e8e03d2337a9476995f3c112acf # v1
+        uses: vmactions/dragonflybsd-vm@4ab776fa9f914fbea72f13715b451e77e7ef5c41 # v1
         with:
           release: "6.4.2"
           mem: 6144
@@ -1657,7 +1657,7 @@ jobs:
             ./tools/versioncheck
       - name: Boot DragonFly BSD 6.4.2 guest
         id: start-dragonfly-vm
-        uses: vmactions/dragonflybsd-vm@7cd7c9b7f2b06e8e03d2337a9476995f3c112acf # v1
+        uses: vmactions/dragonflybsd-vm@4ab776fa9f914fbea72f13715b451e77e7ef5c41 # v1
         with:
           release: "6.4.2"
           mem: 6144
