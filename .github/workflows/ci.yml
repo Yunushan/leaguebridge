@@ -96,7 +96,7 @@ jobs:
             -command 'go test -mod=vendor -race ./...; go vet -mod=vendor ./...'
       - name: Retain race/vet attestation subject
         if: success() && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-attestation-race-vet-${{ matrix.os }}
           path: ci-attestation/race-vet.json
@@ -247,7 +247,7 @@ jobs:
             -command 'go build -mod=vendor -trimpath -buildvcs=true ./cmd/leaguebridge'
       - name: Retain cross-build attestation subject
         if: success() && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-attestation-cross-build-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -570,7 +570,7 @@ jobs:
             -archive runtime-transport.tar
       - name: Retain BSD runtime evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bsd-runtime-${{ matrix.goos }}-${{ matrix.guest_version }}-${{ matrix.goarch }}
           path: |
@@ -693,7 +693,7 @@ jobs:
             -goos dragonfly -goarch amd64 -archive runtime-transport.tar
       - name: Retain DragonFly runtime evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bsd-runtime-dragonfly-6.4.2-amd64
           path: |
@@ -777,7 +777,7 @@ jobs:
           VERSION: v0.0.0-ci
         run: bash scripts/verify-release-reproducible.sh
       - name: Retain archives for BSD lifecycle tests
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-smoke-dist
           path: dist/
@@ -879,7 +879,7 @@ jobs:
             -goos linux -goarch "${{ matrix.goarch }}" -archive runtime-transport.tar
       - name: Retain hosted Linux runtime evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-runtime-${{ matrix.goarch }}
           path: |
@@ -1138,7 +1138,7 @@ jobs:
             go run -mod=vendor ./tools/ciartifact -kind package -goos linux -goarch "${{ matrix.goarch }}" -family "$family" -root native-package-linux -archive "native-package-linux/package-transport-$family.tar"
           done
       - name: Retain native Linux package evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-package-linux-${{ matrix.goarch }}
           path: native-package-linux/package-transport-*.tar
@@ -1331,7 +1331,7 @@ jobs:
             -family "${{ matrix.family }}" -archive package-transport.tar
       - name: Retain native BSD package evidence
         if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-package-bsd-${{ matrix.goos }}-${{ matrix.goarch }}
           path: package-transport.tar
@@ -1599,7 +1599,7 @@ jobs:
             -goos dragonfly -goarch amd64 -family dports -archive package-transport.tar
       - name: Retain DragonFly native package evidence
         if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-package-bsd-dragonfly
           path: package-transport.tar

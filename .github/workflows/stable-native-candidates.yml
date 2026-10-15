@@ -127,7 +127,7 @@ jobs:
           tar -C "$GITHUB_WORKSPACE" -cpf "$GITHUB_WORKSPACE/release-inputs.tar" \
             release-tag.txt release-assets release-set
       - name: Retain mode-preserving release inputs for this run
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: score-free-release-inputs
           path: release-inputs.tar
@@ -221,7 +221,7 @@ jobs:
             -cpf "$GITHUB_WORKSPACE/host-candidate.tar" \
             native-package-output native-package-evidence CANDIDATE-HOST-COMPLETE.txt
       - name: Retain score-free Linux candidate bytes
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: score-free-native-host-linux-${{ matrix.goarch }}
           path: host-candidate.tar
@@ -375,7 +375,7 @@ jobs:
             -cpf "$GITHUB_WORKSPACE/host-candidate.tar" \
             native-package-output native-package-evidence CANDIDATE-HOST-COMPLETE.txt
       - name: Retain score-free BSD candidate bytes
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: score-free-native-host-${{ matrix.goos }}-${{ matrix.goarch }}
           path: host-candidate.tar
@@ -488,7 +488,7 @@ jobs:
             -cpf "$GITHUB_WORKSPACE/host-candidate.tar" \
             native-package-output native-package-evidence CANDIDATE-HOST-COMPLETE.txt
       - name: Retain score-free DragonFly candidate bytes
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: score-free-native-host-dragonfly-amd64
           path: host-candidate.tar
@@ -739,7 +739,7 @@ jobs:
             -cpf "$GITHUB_WORKSPACE/eleven-score-free-candidates.tar" \
             CANDIDATE-SET.json merged-packages
       - name: Retain GitHub-attested, unpublished eleven-package candidate set
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: score-free-github-attested-unpublished-eleven-native-packages
           path: eleven-score-free-candidates.tar
