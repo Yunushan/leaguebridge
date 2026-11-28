@@ -548,7 +548,7 @@ func testRequest(kind string) GenerateRequest {
 		WorkflowRef: "Yunushan/leaguebridge/.github/workflows/ci.yml@refs/heads/main",
 		WorkflowSHA: "fedcba9876543210fedcba9876543210fedcba98",
 		RunID:       "123456789", RunAttempt: "1", Job: "test",
-		RunnerOS: "Linux", RunnerArchitecture: "X64", GoVersion: "go1.27.1",
+		RunnerOS: "Linux", RunnerArchitecture: "X64", GoVersion: "go1.27.4",
 		Command:    "go test -mod=vendor -race ./...; go vet -mod=vendor ./...",
 		TargetGOOS: "linux", TargetGOARCH: "amd64",
 	}
