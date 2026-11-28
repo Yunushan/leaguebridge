@@ -26,7 +26,7 @@ func TestGenerateReadsExactPayload(t *testing.T) {
 		}
 	}
 	output := filepath.Join(root, packageinfo.ManifestName)
-	data, err := generate(root, output, "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.1")
+	data, err := generate(root, output, "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestGenerateReadsExactPayload(t *testing.T) {
 
 func TestGenerateRejectsOutputOutsideRoot(t *testing.T) {
 	root := t.TempDir()
-	_, err := generate(root, filepath.Join(t.TempDir(), packageinfo.ManifestName), "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.1")
+	_, err := generate(root, filepath.Join(t.TempDir(), packageinfo.ManifestName), "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.4")
 	if err == nil || !strings.Contains(err.Error(), "directly beneath root") {
 		t.Fatalf("generate() error = %v", err)
 	}
@@ -62,7 +62,7 @@ func TestGenerateRejectsSymlinkedRoot(t *testing.T) {
 	if err := os.Symlink(realRoot, link); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	_, err = generate(link, filepath.Join(link, packageinfo.ManifestName), "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.1")
+	_, err = generate(link, filepath.Join(link, packageinfo.ManifestName), "v1.2.3", "linux", "amd64", 1787702400, generatorTestCommit, generatorTestTree, "go1.27.4")
 	if err == nil || !strings.Contains(err.Error(), "non-symlink directory") {
 		t.Fatalf("generate(symlinked root) error = %v", err)
 	}

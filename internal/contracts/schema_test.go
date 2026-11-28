@@ -77,7 +77,7 @@ func TestRepositoryDocumentsConformToDraft202012Schemas(t *testing.T) {
 				})
 			}
 			if test.name == "validation evidence" {
-				record, err := evidence.NewTemplateWithRoute(evidence.RecordHost, "darwin", "arm64", "schema-test", evidence.RoutePhysicalMacOSRemote, time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC))
+				record, err := evidence.NewTemplateWithRoute(evidence.RecordHost, "darwin", "arm64", "schema-test", evidence.RoutePhysicalMacOSRemote, time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -116,7 +116,7 @@ func TestGeneratedPackageManifestsConformToPublicSchema(t *testing.T) {
 			for _, name := range names {
 				bodies[name] = []byte("schema fixture for " + name)
 			}
-			manifest, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, commit, tree, "go1.27.1", bodies)
+			manifest, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, commit, tree, "go1.27.4", bodies)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -147,7 +147,7 @@ func TestPackageManifestSchemaRejectsRuntimeAndBuilderOverclaims(t *testing.T) {
 	for _, name := range names {
 		bodies[name] = []byte(name)
 	}
-	manifest, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
+	manifest, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.4", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestGeneratedNativePackageStagingManifestsConformToPublicSchema(t *testing.
 			for _, name := range names {
 				bodies[name] = []byte("native package schema fixture for " + name)
 			}
-			source, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
+			source, err := packageinfo.Build("v1.2.3", target.goos, target.goarch, 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.4", bodies)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +263,7 @@ func TestNativePackageStagingSchemaRejectsCrossTargetFamily(t *testing.T) {
 	for _, name := range names {
 		bodies[name] = []byte(name)
 	}
-	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
+	source, err := packageinfo.Build("v1.2.3", "linux", "amd64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.4", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestNativePackageStagingSchemaBindsLinuxArm64PackageArchitecture(t *testing
 	for _, name := range names {
 		bodies[name] = []byte(name)
 	}
-	source, err := packageinfo.Build("v1.2.3", "linux", "arm64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.1", bodies)
+	source, err := packageinfo.Build("v1.2.3", "linux", "arm64", 1787702400, "0123456789abcdef0123456789abcdef01234567", "89abcdef0123456789abcdef0123456789abcdef", "go1.27.4", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func TestValidationEvidenceExamplesPassRuntimeParser(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse %s with runtime evidence contract: %v", example, err)
 			}
-			evaluation, err := evidence.EvaluateAt(record, time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC))
+			evaluation, err := evidence.EvaluateAt(record, time.Date(2026, time.November, 28, 12, 0, 0, 0, time.UTC))
 			if err != nil {
 				t.Fatalf("evaluate %s: %v", example, err)
 			}
@@ -716,7 +716,7 @@ func TestGeneratedEvidenceTemplatesConformToPublicSchema(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(string(test.recordType)+"/"+test.platform, func(t *testing.T) {
-			record, err := evidence.NewTemplate(test.recordType, test.platform, test.architecture, "contract-test", time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC))
+			record, err := evidence.NewTemplate(test.recordType, test.platform, test.architecture, "contract-test", time.Date(2026, time.November, 28, 12, 0, 0, 0, time.UTC))
 			if err != nil {
 				t.Fatalf("create template: %v", err)
 			}
@@ -739,7 +739,7 @@ func TestGeneratedEvidenceTemplatesConformToPublicSchema(t *testing.T) {
 
 func TestReviewedEvidenceArtifactMetadataConformsToPublicSchema(t *testing.T) {
 	schema := compileOffline(t, "schemas/validation-evidence.schema.json", evidenceSchemaID)
-	created := time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC)
+	created := time.Date(2026, time.November, 28, 12, 0, 0, 0, time.UTC)
 	record, err := evidence.NewTemplate(evidence.RecordClient, "openbsd", "amd64", "contract-test", created)
 	if err != nil {
 		t.Fatalf("create template: %v", err)

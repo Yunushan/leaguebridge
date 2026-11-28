@@ -32,7 +32,7 @@ func TestReleasecheckCLICompatibility(t *testing.T) {
 		"-source-date-epoch", "1787702400",
 		"-commit", "0123456789abcdef0123456789abcdef01234567",
 		"-tree", "89abcdef0123456789abcdef0123456789abcdef",
-		"-builder-go-version", "go1.27.1",
+		"-builder-go-version", "go1.27.4",
 	}
 	for _, test := range []struct {
 		name string
@@ -73,7 +73,7 @@ func TestReleasecheckCLICompatibility(t *testing.T) {
 func validateTree(tree string) error {
 	return (releasecheck.CheckRequest{
 		SourceDateEpoch: 1787702400, Commit: strings.Repeat("0", 40),
-		Tree: tree, BuilderGoVersion: "go1.27.1",
+		Tree: tree, BuilderGoVersion: "go1.27.4",
 	}).ValidateIdentity()
 }
 

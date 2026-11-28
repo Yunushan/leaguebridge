@@ -625,7 +625,7 @@ func TestVerifyPublicAPIWithRealLocalEvidenceAndOfflineGitHub(t *testing.T) {
 	executable, log := fakeExecutable(t, fixture)
 	t.Chdir(t.TempDir())
 	input := VerifyRequest{GHPath: executable, RaceVetSubject: "race.json"}
-	request := ciattestation.GenerateRequest{Kind: "race-vet", GeneratedAt: "2026-09-07T12:00:00Z", Repository: repository, Commit: testCommit, Tree: testTree, Ref: mainRef, Workflow: "CI", WorkflowRef: repository + "/" + workflowPath + "@" + mainRef, WorkflowSHA: testCommit, RunID: "200", RunAttempt: "2", Job: "test", RunnerOS: "Linux", RunnerArchitecture: "X64", GoVersion: "go1.27.1", Command: "go test -mod=vendor -race ./...; go vet -mod=vendor ./...", TargetGOOS: "linux", TargetGOARCH: "amd64"}
+	request := ciattestation.GenerateRequest{Kind: "race-vet", GeneratedAt: "2026-09-07T12:00:00Z", Repository: repository, Commit: testCommit, Tree: testTree, Ref: mainRef, Workflow: "CI", WorkflowRef: repository + "/" + workflowPath + "@" + mainRef, WorkflowSHA: testCommit, RunID: "200", RunAttempt: "2", Job: "test", RunnerOS: "Linux", RunnerArchitecture: "X64", GoVersion: "go1.27.4", Command: "go test -mod=vendor -race ./...; go vet -mod=vendor ./...", TargetGOOS: "linux", TargetGOARCH: "amd64"}
 	if err := ciattestation.GenerateFile(input.RaceVetSubject, request); err != nil {
 		t.Fatal(err)
 	}

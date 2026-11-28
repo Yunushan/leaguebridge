@@ -7,6 +7,11 @@ and releases use semantic versioning.
 
 ### Changed
 
+- Renew the compatibility manifest and readiness scorecard from a
+  2026-11-28 primary-source review. Riot still supports only Windows and
+  macOS and now announces a macOS 13 minimum from 2027-01-05; the Sunshine
+  stable release and driver pins are unchanged. No backend, route, or score
+  row was promoted, and the repository baseline stays at 74/100.
 - Share CI attestation generation and verification through a reusable internal
   Go package while preserving the existing command interface and authentication
   checks. Verification remains separate from readiness scoring and publication
