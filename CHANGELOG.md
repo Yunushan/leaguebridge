@@ -35,6 +35,14 @@ and releases use semantic versioning.
   row was promoted, and the repository baseline stays at 74/100 (#40).
 - Bump `cross-platform-actions/action` from 1.5.0 to 1.6.0 (#8).
 
+### Security
+
+- Build and verify with Go 1.27.4. Go 1.27.1 is affected by GO-2026-6604:
+  `os.Root` operations can follow Windows junctions out of the root, and
+  LeagueBridge's rooted file helpers call the affected methods. Release
+  binaries now carry Go 1.27.4's default `httpservecontentmaxranges=1`
+  GODEBUG setting (#40).
+
 ### Fixed
 
 - Native package CI staging, and Linux and BSD package payload verification,

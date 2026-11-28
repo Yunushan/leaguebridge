@@ -38,7 +38,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.4"
           cache: false
       - name: Select the exact release commit and successful main CI attempt
         id: resolve-ci
@@ -161,7 +161,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.4"
           cache: false
       - name: Install native Linux package tools
         env:
@@ -281,7 +281,7 @@ jobs:
       - name: Set up Go for cross-compiled guest tools
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.4"
           cache: false
       - name: Download release-bound staging transport
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -401,7 +401,7 @@ jobs:
       - name: Set up Go for cross-compiled guest tools
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.4"
           cache: false
       - name: Download release-bound staging transport
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -519,7 +519,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.4"
           cache: false
       - name: Require native package payload inspector
         shell: bash

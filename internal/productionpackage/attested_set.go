@@ -23,7 +23,7 @@ const (
 	stableCandidateOIDCIssuer = "https://token.actions.githubusercontent.com"
 	stableCandidatePredicate  = "https://slsa.dev/provenance/v1"
 	// Any change to the candidate workflow requires review of this contract.
-	stableCandidateWorkflowSHA256 = "d76e6d97041fcf83ecd45bd6788b393a42c36d8bd3541082b5a6d4ad284672cd"
+	stableCandidateWorkflowSHA256 = "46f4058f1e505edbdee50f79da549e13cc255ce2ec52b2c4267c67e6cb088c37"
 	maximumCandidateSetRecord     = int64(64 << 10)
 	maximumGitHubResponse         = 8 << 20
 	maximumWorkflowBlob           = int64(256 << 10)
