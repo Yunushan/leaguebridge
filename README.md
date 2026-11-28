@@ -109,7 +109,7 @@ subjects for the hosted Linux and explicitly virtualized BSD guest jobs; the
 | Future Riot-supported Linux/BSD path | **Ready to integrate safely** | Requires official support or express written authorization plus current end-to-end evidence. |
 
 The latest detailed route audit is in
-[`docs/research/2026-09-23-route-revalidation.md`](docs/research/2026-09-23-route-revalidation.md);
+[`docs/research/2026-11-28-route-revalidation.md`](docs/research/2026-11-28-route-revalidation.md);
 the 2026-08-29 route revalidation and earlier platform feasibility record
 remain available in
 [`docs/research/2026-08-29-route-revalidation.md`](docs/research/2026-08-29-route-revalidation.md) and
@@ -205,7 +205,7 @@ approved external module, the vendored `filippo.io/edwards25519` v1.2.0,
 without replacements or additional compiled dependencies. Development tests
 also pin one offline Draft 2020-12 JSON-Schema validator (and its transitive
 modules) so schema drift fails CI. Go 1.25.12 or later is required.
-CI and release workflows pin Go 1.27.1; the lower version is the source-level
+CI and release workflows pin Go 1.27.4; the lower version is the source-level
 compatibility floor, not the release-builder version.
 
 ```sh
@@ -234,7 +234,7 @@ prefix appropriate for that machine.
 
 ```sh
 set -eu
-release_tag=v0.1.0
+release_tag=v0.2.0
 release_version=${release_tag#v}
 artifact="leaguebridge_${release_version}_linux_amd64.tar.gz"
 

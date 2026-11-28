@@ -27,7 +27,10 @@ const (
 	supportedCIWorkflowV17   = "34b1df07dcaf3e3ba532954dc40b2dfc69e5abf3bd9f300c3cc0b9985db173be"
 	supportedCIWorkflowV18   = "60e7b99dce7b6f418a66d191a4e97700fd10d31af4848de51ed041bf40aa7b80"
 	supportedCIWorkflowV19   = "6a7ae97e9b07c74799aae41c9a2296cfb796c9da18164c0695cd9b84c2acf073"
+	supportedCIWorkflowV20   = "bedadcb8a37392140022328d2f0ec3a399f708b3ae28289710cd0b28e165d7ec"
 	supportedReleaseWorkflow = "c3865515e0e015f3a2cc835c66101a4883ee2e484533af0086091ececfe082d1"
+	// The v0.2.0 release workflow pins the Go 1.27.4 production toolchain.
+	supportedReleaseWorkflowV2 = "11005f287b2bf79acbc77b1cf2778f7b471c7821330c516c08b11f46fbea2eec"
 	// This exact released v3 policy predates the current verifier's source-file
 	// inventory. The pin approves policy bytes only, never execution evidence.
 	// Its repository baseline is earned only after checking every source blob.
@@ -99,9 +102,9 @@ func resolveCommit(ctx context.Context, api apiClient, commit string) (sourceIde
 func isSupportedSourceWorkflow(name, digest string) bool {
 	switch name {
 	case ciWorkflow:
-		return digest == supportedCIWorkflow || digest == supportedCIWorkflowV16 || digest == supportedCIWorkflowV17 || digest == supportedCIWorkflowV18 || digest == supportedCIWorkflowV19
+		return digest == supportedCIWorkflow || digest == supportedCIWorkflowV16 || digest == supportedCIWorkflowV17 || digest == supportedCIWorkflowV18 || digest == supportedCIWorkflowV19 || digest == supportedCIWorkflowV20
 	case releaseWorkflow:
-		return digest == supportedReleaseWorkflow
+		return digest == supportedReleaseWorkflow || digest == supportedReleaseWorkflowV2
 	default:
 		return false
 	}

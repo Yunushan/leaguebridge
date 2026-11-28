@@ -55,7 +55,7 @@
       "$ref": "#/$defs/date"
     },
     "manifest_sha256": {
-      "const": "61c30b980e8f25ac8380e60a53a9587f002f53765c67815e3d8e3770918625a7"
+      "const": "926c86fe1f75e50c48dc8ad5c005306b4542329b52d85408d0b2fbe37b09b407"
     },
     "tool_version": {
       "$ref": "#/$defs/toolVersion"

@@ -42,7 +42,7 @@ func makeFixture(t *testing.T, cell Cell) fixture {
 	for _, name := range names {
 		bodies[name] = []byte("released source payload for " + name)
 	}
-	source, err := packageinfo.Build("v1.2.3", cell.GOOS, cell.GOARCH, 1787702400, fixtureCommit, fixtureTree, "go1.27.1", bodies)
+	source, err := packageinfo.Build("v1.2.3", cell.GOOS, cell.GOARCH, 1787702400, fixtureCommit, fixtureTree, "go1.27.4", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}

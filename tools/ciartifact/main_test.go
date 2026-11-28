@@ -32,7 +32,7 @@ func TestTransportRoundTripPreservesNativePackageVerification(t *testing.T) {
 	for _, name := range names {
 		bodies[name] = []byte("transport fixture " + name)
 	}
-	source, err := packageinfo.Build("v0.0.0-ci", "linux", "amd64", 1787702400, strings.Repeat("0", 40), strings.Repeat("1", 40), "go1.27.1", bodies)
+	source, err := packageinfo.Build("v0.0.0-ci", "linux", "amd64", 1787702400, strings.Repeat("0", 40), strings.Repeat("1", 40), "go1.27.4", bodies)
 	if err != nil {
 		t.Fatal(err)
 	}

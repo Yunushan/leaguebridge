@@ -973,7 +973,7 @@ func checkReleaseBinary(binaryData []byte, item artifact, version string, epoch 
 	}
 	switch builderGoVersion {
 	case productionBuilderGoVersion:
-		wantSettings["DefaultGODEBUG"] = "cryptocustomrand=1,tlssecpmlkem=0,tracebacklabels=0,urlstrictcolons=0,x509sslcertoverrideplatform=0"
+		wantSettings["DefaultGODEBUG"] = "cryptocustomrand=1,httpservecontentmaxranges=1,tlssecpmlkem=0,tracebacklabels=0,urlstrictcolons=0,x509sslcertoverrideplatform=0"
 	case packageinfo.MinimumSupportedGoVersion:
 		// The minimum supported Go version is permitted only for the source-
 		// compatibility test. Production entrypoints reject it before artifact
