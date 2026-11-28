@@ -234,7 +234,7 @@ prefix appropriate for that machine.
 
 ```sh
 set -eu
-release_tag=v0.1.0
+release_tag=v0.2.0
 release_version=${release_tag#v}
 artifact="leaguebridge_${release_version}_linux_amd64.tar.gz"
 

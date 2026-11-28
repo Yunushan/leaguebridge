@@ -5,13 +5,50 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-28
+
+### Added
+
+- `readiness verify-release` authenticates one named published release
+  against live GitHub metadata, its matching CI and Release runs, and
+  Sigstore attestations before deriving the four CI and publication criteria.
+  A failed assessment returns no score (#7).
+- `readiness verify-production` composes the live release assessment with
+  the six fixed external engineering rows. Their trust roots remain
+  unprovisioned, so those rows report missing evidence and earn zero (#9).
+- Release-bound native package candidates, a manual stable native-candidate
+  workflow, and attestation of the stable candidate package subjects,
+  including verification of retained candidate attestations (#10, #15, #16,
+  #18, #28).
+- A score-free signed native observation verifier that binds observations to
+  verified release executables (#26, #27).
+- Documentation of the submitted Riot Developer Relations inquiry about the
+  physical Windows remote handoff, including disclosure of the shipped remote
+  controls. The inquiry is not authorization (#19, #22, #23, #24).
+
 ### Changed
 
 - Renew the compatibility manifest and readiness scorecard from a
   2026-11-28 primary-source review. Riot still supports only Windows and
   macOS and now announces a macOS 13 minimum from 2027-01-05; the Sunshine
   stable release and driver pins are unchanged. No backend, route, or score
-  row was promoted, and the repository baseline stays at 74/100.
+  row was promoted, and the repository baseline stays at 74/100 (#40).
+- Bump `cross-platform-actions/action` from 1.5.0 to 1.6.0 (#8).
+
+### Fixed
+
+- Native package CI staging, and Linux and BSD package payload verification,
+  including BSD `pkg` manifest checksums checked against payload bytes and
+  installed payloads checked against staging (#11, #12, #13, #14, #17).
+- Recheck native candidate bytes before and after live release verification
+  (#21).
+- Release tag ruleset verification inside GitHub Actions (#25).
+- Accept fixed GNU long names in candidate artifacts (#29).
+
+## [0.1.0] - 2026-09-07
+
+### Changed
+
 - Share CI attestation generation and verification through a reusable internal
   Go package while preserving the existing command interface and authentication
   checks. Verification remains separate from readiness scoring and publication
