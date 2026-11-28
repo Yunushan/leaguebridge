@@ -190,7 +190,7 @@ func TestCanonicalSHA256IgnoresLineEndings(t *testing.T) {
 	if lfDigest != crlfDigest {
 		t.Fatalf("line endings changed canonical digest: LF=%s CRLF=%s", lfDigest, crlfDigest)
 	}
-	const want = "61c30b980e8f25ac8380e60a53a9587f002f53765c67815e3d8e3770918625a7"
+	const want = "926c86fe1f75e50c48dc8ad5c005306b4542329b52d85408d0b2fbe37b09b407"
 	if lfDigest != want {
 		t.Fatalf("canonical digest = %s, want %s", lfDigest, want)
 	}
@@ -243,7 +243,7 @@ func TestParseRejectsMalformedOrUnsafeManifests(t *testing.T) {
 		"unsafe default allow":  strings.Replace(valid, `"defaultVerdict": "deny"`, `"defaultVerdict": "allow"`, 1),
 		"unknown schema":        strings.Replace(valid, `"../../../schemas/compatibility-manifest.schema.json"`, `"https://attacker.invalid/schema.json"`, 1),
 		"invalid source URL":    strings.Replace(valid, `"https://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613"`, `"http://github.com/LizardByte/Sunshine/releases/tag/v2026.914.233613"`, 1),
-		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-09-23"`, `"checkedAt": "2026-09-24"`, 1),
+		"source after manifest": strings.Replace(valid, `"checkedAt": "2026-11-28"`, `"checkedAt": "2026-11-29"`, 1),
 		"unknown source ref":    strings.Replace(valid, `"sunshine-stable-release", "moonlight-qt"`, `"missing-source", "moonlight-qt"`, 1),
 		"identity mismatch": strings.Replace(valid, `"id": "proton",
       "displayName": "Proton",

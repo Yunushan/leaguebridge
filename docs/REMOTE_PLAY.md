@@ -370,7 +370,7 @@ authorization, streamed input, latency, or League gameplay. Use a new empty
 evidence directory for every run; existing output files are never overwritten.
 
 The latest route audit is recorded in
-[`docs/research/2026-09-23-route-revalidation.md`](research/2026-09-23-route-revalidation.md).
+[`docs/research/2026-11-28-route-revalidation.md`](research/2026-11-28-route-revalidation.md).
 
 For a real Linux/BSD desktop, the repository includes a manual client-side
 smoke helper. It requires an already-created credential-free configuration and

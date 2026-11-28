@@ -5,7 +5,7 @@ dimension independently and never converts engineering work into gameplay
 compatibility.
 
 The latest Riot and Sunshine source review is recorded in
-[`docs/research/2026-09-23-route-revalidation.md`](research/2026-09-23-route-revalidation.md),
+[`docs/research/2026-11-28-route-revalidation.md`](research/2026-11-28-route-revalidation.md),
 which links the earlier broader route audit.
 
 ## Engineering readiness (100 points)

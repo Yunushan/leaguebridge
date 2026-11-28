@@ -109,7 +109,7 @@ subjects for the hosted Linux and explicitly virtualized BSD guest jobs; the
 | Future Riot-supported Linux/BSD path | **Ready to integrate safely** | Requires official support or express written authorization plus current end-to-end evidence. |
 
 The latest detailed route audit is in
-[`docs/research/2026-09-23-route-revalidation.md`](docs/research/2026-09-23-route-revalidation.md);
+[`docs/research/2026-11-28-route-revalidation.md`](docs/research/2026-11-28-route-revalidation.md);
 the 2026-08-29 route revalidation and earlier platform feasibility record
 remain available in
 [`docs/research/2026-08-29-route-revalidation.md`](docs/research/2026-08-29-route-revalidation.md) and
